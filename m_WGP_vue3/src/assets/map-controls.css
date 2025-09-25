@@ -1,0 +1,174 @@
+/* 地图控件样式文件 */
+
+/* MousePosition 控件样式 */
+.custom-mouse-position {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #333;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  transition: all 0.3s ease;
+}
+
+.custom-mouse-position:hover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+/* 鼠标位置坐标显示样式 */
+.custom-mouse-position .ol-mouse-position {
+  margin: 0;
+  padding: 0;
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+/* ScaleLine 控件样式 */
+.custom-scale-line {
+  position: absolute;
+  bottom: 10px;
+  left: 5%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #333;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 100px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.custom-scale-line:hover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateX(-50%) translateY(-1px);
+}
+
+/* 比例尺线条样式 */
+.custom-scale-line .ol-scale-line {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.custom-scale-line .ol-scale-line-inner {
+  border: 2px solid #3498db;
+  border-top: none;
+  color: #2c3e50;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  margin: 1px;
+  transition: all 0.3s ease;
+}
+
+.custom-scale-line:hover .ol-scale-line-inner {
+  border-color: #2980b9;
+  background: rgba(52, 152, 219, 0.1);
+}
+
+/* 比例尺数值样式 */
+.custom-scale-line .ol-scale-text {
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .custom-mouse-position {
+    bottom: 5px;
+    left: 5px;
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+  
+  .custom-scale-line {
+    bottom: 5px;
+    font-size: 10px;
+    padding: 3px 6px;
+    min-width: 80px;
+  }
+}
+
+/* 暗色主题支持 */
+@media (prefers-color-scheme: dark) {
+  .custom-mouse-position {
+    background: rgba(40, 40, 40, 0.9);
+    border-color: #555;
+    color: #eee;
+  }
+  
+  .custom-mouse-position:hover {
+    background: rgba(50, 50, 50, 0.95);
+  }
+  
+  .custom-mouse-position .ol-mouse-position {
+    color: #eee;
+  }
+  
+  .custom-scale-line {
+    background: rgba(40, 40, 40, 0.9);
+    border-color: #555;
+    color: #eee;
+  }
+  
+  .custom-scale-line:hover {
+    background: rgba(50, 50, 50, 0.95);
+  }
+  
+  .custom-scale-line .ol-scale-line-inner {
+    border-color: #5dade2;
+    color: #eee;
+  }
+  
+  .custom-scale-line:hover .ol-scale-line-inner {
+    border-color: #3498db;
+    background: rgba(93, 173, 226, 0.1);
+  }
+  
+  .custom-scale-line .ol-scale-text {
+    color: #eee;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.custom-mouse-position,
+.custom-scale-line {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* OlExtLayerSwitcher 图层切换器位置设置 */
+.ol-layerswitcher {
+  position: absolute !important;
+  top: 10px !important;
+  right: 150px !important;
+  color: #2980b9;
+}

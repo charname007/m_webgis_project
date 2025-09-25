@@ -1,11 +1,20 @@
-package com.backend.be.service;
+package com.backend.be.mapper;
 
 import com.backend.be.model.MapElement;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 import java.util.Map;
 
-public interface MapService {
+/**
+ * @program: postgresql
+ * @description: map的mapper层
+ * @author: zgr
+ * @create: 2019-07-01 14:40
+ **/
+@Mapper
+public interface MapElementMapper {
 
     /**
      * @return 返回全部的mapElement
@@ -25,7 +34,7 @@ public interface MapService {
     void addMapElement(MapElement mapElement);
 
     /**
-     * @param id
+     * @param id id
      * @return 依据id返回数据
      */
     MapElement findById(Long id);
@@ -45,9 +54,10 @@ public interface MapService {
      * 圆形区域查找
      * @param geometry 地理信息
      * @param radius 区域半径，单位为km
-     * @return 以给定点为原型，radis为半径的区域中满足条件的元素的集合
+     * @return 以给定点为原型，radius为半径的区域中满足条件的元素的集合
      */
-    List<MapElement> findMapElementByCircle(String geometry, double radius);
+    List<MapElement> findMapElementByCircle(@Param("geometry") String geometry,
+                                            @Param("radius") double radius);
 
     /**
      * 多边形区域查找
@@ -57,6 +67,5 @@ public interface MapService {
     List<MapElement> findMapElementByPolygon(String geometry);
 
     void addTest(Map<String, Object> map);
-
 
 }

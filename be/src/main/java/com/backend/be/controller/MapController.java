@@ -1,10 +1,10 @@
-package com.honorzhang.postgresql.ctrl;
+package com.backend.be.controller;
 
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
-import com.honorzhang.postgresql.model.MapElement;
-import com.honorzhang.postgresql.model.vo.MapElementPageModel;
-import com.honorzhang.postgresql.service.MapService;
+import com.backend.be.model.MapElement;
+import com.backend.be.model.vo.MapElementPageModel;
+import com.backend.be.service.MapService;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
@@ -26,7 +26,7 @@ import java.util.Map;
  **/
 @Slf4j
 @RestController
-@RequestMapping("/postgis/test")
+@RequestMapping("/postgis2/WGP_db")
 
 public class MapController {
 

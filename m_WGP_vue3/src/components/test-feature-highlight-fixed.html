@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>要素高亮测试 - 修复版</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #ccc;
+            margin-bottom: 20px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .status {
+            padding: 10px;
+            background: #e8f4fd;
+            border-left: 4px solid #2196F3;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>要素高亮功能测试 - 修复版</h1>
+    
+    <div class="status">
+        <strong>测试说明：</strong> 点击地图上的要素，应该高亮当前要素并显示属性弹窗。点击新要素时，旧要素的高亮应该自动取消。
+    </div>
+    
+    <div class="controls">
+        <button onclick="loadGeoJson()">加载测试GeoJSON数据</button>
+        <button onclick="enableFeatureClick()">启用要素点击</button>
+        <button onclick="disableFeatureClick()">禁用要素点击</button>
+        <button onclick="clearHighlight()">手动清除高亮</button>
+    </div>
+    
+    <div id="map"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/ol@8.2.0/dist/ol.js"></script>
+    <script src="mapUtils.js"></script>
+    
+    <script>
+        let mapUtils;
+        let currentLayer;
+
+        // 初始化地图
+        function initMap() {
+            mapUtils = new MapUtils('map');
+            mapUtils.addBaseLayer();
+            console.log('地图初始化完成');
+        }
+
+        // 加载测试GeoJSON数据
+        function loadGeoJson() {
+            const testGeoJson = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "要素1",
+                            "type": "多边形",
+                            "area": "1000平方米",
+                            "description": "这是一个测试多边形要素"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [116.39, 39.91],
+                                [116.41, 39.91],
+                                [116.41, 39.93],
+                                [116.39, 39.93],
+                                [116.39, 39.91]
+                            ]]
+                        }
+                    },
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "要素2",
+                            "type": "多边形",
+                            "area": "800平方米",
+                            "description": "这是另一个测试多边形要素"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [116.42, 39.91],
+                                [116.44, 39.91],
+                                [116.44, 39.93],
+                                [116.42, 39.93],
+                                [116.42, 39.91]
+                            ]]
+                        }
+                    },
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "点要素1",
+                            "type": "点",
+                            "description": "这是一个测试点要素"
+                        },
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [116.40, 39.92]
+                        }
+                    },
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "线要素1",
+                            "type": "线",
+                            "length": "500米",
+                            "description": "这是一个测试线要素"
+                        },
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [
+                                [116.38, 39.90],
+                                [116.40, 39.90],
+                                [116.42, 39.90]
+                            ]
+                        }
+                    }
+                ]
+            };
+
+            // 移除现有图层
+            if (currentLayer) {
+                mapUtils.map.removeLayer(currentLayer);
+            }
+
+            // 加载新的GeoJSON图层
+            currentLayer = mapUtils.loadGeoJsonLayer(testGeoJson, {
+                fillColor: "rgba(74, 144, 226, 0.3)",
+                strokeColor: "#4a90e2",
+                strokeWidth: 2,
+                pointColor: "#e74c3c",
+                pointRadius: 6
+            }, "测试要素图层");
+
+            // 调整视图到图层范围
+            setTimeout(() => {
+                mapUtils.fitToLayerExtent(currentLayer);
+            }, 500);
+
+            console.log('测试GeoJSON数据加载完成');
+        }
+
+        // 启用要素点击功能
+        function enableFeatureClick() {
+            if (!currentLayer) {
+                alert('请先加载GeoJSON数据');
+                return;
+            }
+            mapUtils.initFeatureClick();
+            console.log('要素点击功能已启用');
+        }
+
+        // 禁用要素点击功能
+        function disableFeatureClick() {
+            mapUtils.removeFeatureClick();
+            console.log('要素点击功能已禁用');
+        }
+
+        // 手动清除高亮
+        function clearHighlight() {
+            mapUtils.hideFeaturePopup();
+            console.log('手动清除高亮完成');
+        }
+
+        // 页面加载完成后初始化地图
+        window.onload = initMap;
+    </script>
+</body>
+</html>

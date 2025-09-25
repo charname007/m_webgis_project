@@ -19,6 +19,8 @@ from langchain.prompts import PromptTemplate
 import asyncio
 import logging
 
+from pydantic import SecretStr
+
 # 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,8 +46,8 @@ except Exception as e:
 llm = ChatOpenAI(
     temperature=1.3,  # 降低温度以获得更稳定的输出
     model="deepseek-chat",
-    openai_api_key="sk-44858716b14c48ebba036313015e4584",
-    openai_api_base="https://api.deepseek.com"
+    api_key="sk-44858716b14c48ebba036313015e4584",
+    base_url="https://api.deepseek.com"
 )
 
 # 修复提示模板
@@ -178,8 +180,9 @@ async def chat_with_timeout(message: str, history):
             )
             response = llm_response
 
-        history.append(ChatMessage(role="user", content=message))
-        history.append(ChatMessage(role="assistant", content=response))
+        # 确保返回的消息格式符合Gradio要求
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": response})
 
         return history
 
