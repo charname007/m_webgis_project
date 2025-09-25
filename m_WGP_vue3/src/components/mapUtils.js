@@ -906,27 +906,51 @@ export default class MapUtils {
     if (finalOptions.storeExtent) {
       layer.set("extent", null); // 初始化为null
     }
+    
 
+    // 添加标志跟踪是否已处理初始加载
+    let isInitialLoadProcessed = false;
+    
     // 添加监听器确保数据加载完成
-    source.on("change", () => {
+    source.once("change", () => {
       if (source.getState() === "ready") {
         const features = source.getFeatures();
-        console.log("实际要素数量:", features.length);
         
-        // 计算并存储图层范围
-        if (features.length > 0) {
+        // 只在第一次数据加载完成时处理范围计算和视图调整
+        if (!isInitialLoadProcessed && features.length > 0) {
+          console.log("实际要素数量:", features.length);
+          
           const extent = source.getExtent();
           console.log("图层范围:", extent);
           
           if (finalOptions.storeExtent && extent) {
             layer.set("extent", extent);
             console.log("图层范围已存储");
+            
+            // 强制刷新OlExtLayerSwitcher，确保zoomtoextent按钮显示
+            setTimeout(() => {
+              this.map.getControls().forEach(control => {
+                if (control instanceof OlExtLayerSwitcher) {
+                  // 使用正确的方法刷新图层切换器
+                  if (control.drawPanel) {
+                    control.drawPanel();
+                  } else if (control.render) {
+                    control.render();
+                  }
+                  // 触发图层变化事件，让LayerSwitcher重新检测范围
+                  this.map.dispatchEvent('change:layer');
+                }
+              });
+            }, 100);
           }
           
           // 如果启用自动调整视图，则调整到图层范围
           if (finalOptions.autoFitExtent && extent) {
             this.fitToLayerExtent(layer, finalOptions.fitPadding);
           }
+          
+          // 标记为已处理，避免后续交互重复触发
+          isInitialLoadProcessed = true;
         }
       }
     });
@@ -934,8 +958,8 @@ export default class MapUtils {
     // 手动触发加载（如果是通过URL）
     if (typeof geoJson === "string") {
       source.refresh();
-    }
 
+    }
     this.map.addLayer(layer);
 
     return layer;

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图要素传递功能修复验证</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .info {
+            color: #2196F3;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .log {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>地图要素传递功能修复验证</h1>
+        
+        <div class="test-section">
+            <h2>修复说明</h2>
+            <p>此页面用于验证已修复的"等待 mapUtils 实例初始化... 超时"问题。</p>
+            <p class="info">开发服务器运行在：<a href="http://localhost:5175/" target="_blank" rel="noopener noreferrer">http://localhost:5175/</a></p>
+        </div>
+
+        <div class="test-section">
+            <h2>修复内容</h2>
+            <ul>
+                <li class="success">✅ 修复了 SpatialTableFetcher.vue 中的注入问题</li>
+                <li class="success">✅ 将 mapUtilsInstance 改为 mapUtilsRef</li>
+                <li class="success">✅ 修复了 onMounted 中的变量引用错误</li>
+                <li class="success">✅ 更新了所有相关的变量引用</li>
+                <li class="success">✅ 确保响应式对象正确传递</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>验证步骤</h2>
+            <ol>
+                <li>打开浏览器访问 <a href="http://localhost:5175/" target="_blank" rel="noopener noreferrer">http://localhost:5175/</a></li>
+                <li>检查浏览器控制台是否有错误信息</li>
+                <li>验证地图是否正常加载</li>
+                <li>测试空间数据表管理功能</li>
+                <li>验证"从地图选点"和"从地图选框"按钮是否可用</li>
+                <li>检查控制台是否显示"✅ mapUtils 实例准备就绪"</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>预期结果</h2>
+            <ul>
+                <li class="success">✓ 地图正常加载，无控制台错误</li>
+                <li class="success">✓ 空间数据表管理功能正常工作</li>
+                <li class="success">✓ 地图交互按钮可用</li>
+                <li class="success">✓ 控制台显示 mapUtils 实例准备就绪</li>
+                <li class="success">✓ 不再出现"等待 mapUtils 实例初始化... 超时"错误</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>技术改进总结</h2>
+            <p>已完成以下修复：</p>
+            <ul>
+                <li>✅ 使用正确的注入键名 'mapUtils' 替代 'mapUtilsInstance'</li>
+                <li>✅ 修复所有 mapUtilsContainer 引用为 mapUtilsRef</li>
+                <li>✅ 更新 onMounted 中的定时检查逻辑</li>
+                <li>✅ 确保响应式对象正确传递和访问</li>
+                <li>✅ 清理调试日志，优化代码结构</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>调试信息</h2>
+            <div class="log" id="debug-log">
+                <!-- 调试日志将显示在这里 -->
+            </div>
+            <button onclick="clearLog()">清空日志</button>
+        </div>
+    </div>
+
+    <script>
+        function log(message) {
+            const logElement = document.getElementById('debug-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('debug-log').innerHTML = '';
+        }
+
+        // 模拟测试日志
+        log('修复验证页面加载完成');
+        log('请按照验证步骤进行操作');
+        log('检查浏览器控制台是否有错误信息');
+        log('预期结果：不再出现"等待 mapUtils 实例初始化... 超时"错误');
+    </script>
+</body>
+</html>

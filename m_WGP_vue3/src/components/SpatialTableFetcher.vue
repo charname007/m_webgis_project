@@ -298,37 +298,37 @@ export default {
     const isSelectingRectangle = ref(false);
     // 手动启用地图工具的状态
     const isMapUtilsManuallyEnabled = ref(false);
-  // 优化注入方式：注入容器对象，然后访问其 instance 属性
-  const mapUtilsContainer = inject('mapUtilsInstance', null);
+  // 注入 mapUtils 响应式引用
+  const mapUtilsRef = inject('mapUtils', null);
   const isMapUtilsReady = ref(false);
   const mapUtils = ref(null);
 
   // 调试信息
-  console.log("mapUtilsContainer 注入状态:", mapUtilsContainer ? "已注入" : "未注入");
-  if (mapUtilsContainer) {
-    console.log("mapUtilsContainer 内容:", mapUtilsContainer);
-    console.log("mapUtilsContainer.instance:", mapUtilsContainer.instance);
+  console.log("mapUtilsRef 注入状态:", mapUtilsRef ? "已注入" : "未注入");
+  if (mapUtilsRef) {
+    console.log("mapUtilsRef 内容:", mapUtilsRef);
+    console.log("mapUtilsRef.value:", mapUtilsRef.value);
   }
 
   // 检查 mapUtils 是否可用
   const checkMapUtilsReady = () => {
     console.log("检查 mapUtils 可用性...");
     
-    if (mapUtilsContainer && mapUtilsContainer.instance) {
-      console.log("mapUtilsContainer.instance 存在:", mapUtilsContainer.instance);
+    if (mapUtilsRef && mapUtilsRef.value) {
+      console.log("mapUtilsRef.value 存在:", mapUtilsRef.value);
       
       // 检查是否有 map 属性
-      if (mapUtilsContainer.instance.map) {
-        mapUtils.value = mapUtilsContainer.instance;
+      if (mapUtilsRef.value.map) {
+        mapUtils.value = mapUtilsRef.value;
         isMapUtilsReady.value = true;
         console.log("✅ mapUtils 实例准备就绪", mapUtils.value);
       } else {
-        console.warn("⚠️ mapUtilsContainer.instance 存在，但没有 map 属性");
+        console.warn("⚠️ mapUtilsRef.value 存在，但没有 map 属性");
         isMapUtilsReady.value = false;
         mapUtils.value = null;
       }
     } else {
-      console.warn("❌ mapUtils 实例未准备好", mapUtilsContainer);
+      console.warn("❌ mapUtils 实例未准备好", mapUtilsRef);
       isMapUtilsReady.value = false;
       mapUtils.value = null;
     }
@@ -336,13 +336,13 @@ export default {
     console.log("isMapUtilsReady 状态:", isMapUtilsReady.value);
   };
 
-  // 监听 mapUtilsContainer 的变化
+  // 监听 mapUtilsRef 的变化
   watch(
-    () => mapUtilsContainer?.instance,
-    (newInstance) => {
-      console.log("mapUtilsContainer.instance 发生变化:", newInstance);
-      if (newInstance && newInstance.map) {
-        mapUtils.value = newInstance;
+    () => mapUtilsRef?.value,
+    (newValue) => {
+      console.log("mapUtilsRef.value 发生变化:", newValue);
+      if (newValue && newValue.map) {
+        mapUtils.value = newValue;
         isMapUtilsReady.value = true;
         console.log("✅ mapUtils 实例已更新", mapUtils.value);
       } else {
@@ -363,16 +363,16 @@ export default {
     // 设置定时器定期检查，直到 mapUtils 可用
     const checkInterval = setInterval(() => {
       console.log("定时检查 mapUtils 状态...");
-      if (mapUtilsContainer && mapUtilsContainer.instance && mapUtilsContainer.instance.map) {
-        mapUtils.value = mapUtilsContainer.instance;
+      if (mapUtilsRef && mapUtilsRef.value && mapUtilsRef.value.map) {
+        mapUtils.value = mapUtilsRef.value;
         isMapUtilsReady.value = true;
         console.log("✅ mapUtils 实例准备就绪");
         clearInterval(checkInterval);
       } else {
         console.log("⏳ 等待 mapUtils 实例初始化...", {
-          hasContainer: !!mapUtilsContainer,
-          hasInstance: mapUtilsContainer ? !!mapUtilsContainer.instance : false,
-          hasMap: mapUtilsContainer && mapUtilsContainer.instance ? !!mapUtilsContainer.instance.map : false
+          hasRef: !!mapUtilsRef,
+          hasValue: mapUtilsRef ? !!mapUtilsRef.value : false,
+          hasMap: mapUtilsRef && mapUtilsRef.value ? !!mapUtilsRef.value.map : false
         });
       }
     }, 1000);
