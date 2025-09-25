@@ -2,20 +2,41 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Optional, Dict, Any
 from langchain.chains import create_sql_query_chain
-from base_llm import base_llm  # pyright: ignore[reportMissingImports]
+from base_llm import BaseLLM  # pyright: ignore[reportMissingImports]
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain.agents.agent_types import AgentType
 from langchain_core.output_parsers import StrOutputParser
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 
 class SQLQueryAgent:
     """SQL查询代理类，用于处理自然语言到SQL查询的转换和执行"""
     
-    def __init__(self):
-        """初始化SQL查询代理"""
+    def __init__(self, system_prompt: Optional[str] = None):
+        """
+        初始化SQL查询代理
+        
+        Args:
+            system_prompt: 自定义系统提示词，如果为None则使用默认提示词
+        """
         self.connector = SQLConnector()
-        self.llm = base_llm()
+        
+        # 创建LLM实例
+        self.llm = BaseLLM()
+        
+        # 如果提供了自定义系统提示词，则使用它
+        if system_prompt:
+            # 创建包含自定义知识的系统提示词
+            custom_prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{input}")
+            ])
+            
+            # 重新配置LLM的提示词
+            self.llm.prompt = custom_prompt
+        
         self.executor = ThreadPoolExecutor()  # 使用线程池处理异步任务
         
         # 创建SQL代理
@@ -44,12 +65,17 @@ class SQLQueryAgent:
             if not isinstance(query, str):
                 query = str(query)
             
-            result = self.chain.invoke(query)
+            # SQL agent expects input as a dictionary with 'input' key
+            result = self.agent.invoke({"input": query})
             
             if not isinstance(result, str):
-                result = str(result)
+                # Extract the output from the agent result
+                if hasattr(result, 'get') and callable(result.get):
+                    result = result.get('output', str(result))
+                else:
+                    result = str(result)
             
-            return result  # 注意这里返回的是字符串，不是列表
+            return result
         except Exception as e:
             print(f"Error in run function: {e}")
             return f"抱歉，处理您的请求时出现了问题：{str(e)}"
