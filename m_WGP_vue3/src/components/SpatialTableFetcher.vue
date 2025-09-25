@@ -18,6 +18,22 @@
       {{ errorMessage }}
     </div>
 
+    <!-- 地图工具状态提示 -->
+    <div v-if="!isMapUtilsReady" class="map-utils-status">
+      <div class="status-warning">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span>地图工具未就绪</span>
+        <button 
+          @click="enableMapUtilsManually" 
+          class="enable-btn"
+          :disabled="isMapUtilsManuallyEnabled"
+        >
+          <i class="fas fa-power-off"></i>
+          {{ isMapUtilsManuallyEnabled ? "已手动启用" : "手动启用地图工具" }}
+        </button>
+      </div>
+    </div>
+
     <!-- 查询框 -->
     <div class="query-section">
       <h3>空间数据查询</h3>
@@ -93,24 +109,44 @@
 
         <div v-if="queryParams.spatialType === 'point'" class="form-group">
           <label for="queryPoint">点坐标 (经度,纬度):</label>
-          <input
-            id="queryPoint"
-            v-model="queryParams.point"
-            type="text"
-            placeholder="例如: 114.0,30.5"
-            class="form-input"
-          >
+          <div class="coordinate-input-group">
+            <input
+              id="queryPoint"
+              v-model="queryParams.point"
+              type="text"
+              placeholder="例如: 114.0,30.5"
+              class="form-input"
+            >
+            <button
+              @click="startPointSelection"
+              :disabled="!(isMapUtilsReady || isMapUtilsManuallyEnabled) || isSelectingPoint"
+              class="map-select-btn"
+            >
+              <i class="fas fa-map-marker-alt" :class="{ 'fa-spin': isSelectingPoint }"></i>
+              {{ isSelectingPoint ? "选择中..." : "从地图选点" }}
+            </button>
+          </div>
         </div>
 
         <div v-if="queryParams.spatialType === 'rectangle'" class="form-group">
           <label for="queryBounds">矩形范围 (minLon,minLat,maxLon,maxLat):</label>
-          <input
-            id="queryBounds"
-            v-model="queryParams.bounds"
-            type="text"
-            placeholder="例如: 113.5,30.0,114.5,31.0"
-            class="form-input"
-          >
+          <div class="coordinate-input-group">
+            <input
+              id="queryBounds"
+              v-model="queryParams.bounds"
+              type="text"
+              placeholder="例如: 113.5,30.0,114.5,31.0"
+              class="form-input"
+            >
+            <button
+              @click="startRectangleSelection"
+              :disabled="!(isMapUtilsReady || isMapUtilsManuallyEnabled) || isSelectingRectangle"
+              class="map-select-btn"
+            >
+              <i class="fas fa-vector-square" :class="{ 'fa-spin': isSelectingRectangle }"></i>
+              {{ isSelectingRectangle ? "选择中..." : "从地图选框" }}
+            </button>
+          </div>
         </div>
 
         <div class="form-group">
@@ -129,7 +165,7 @@
         <div class="query-actions">
           <button
             @click="executeQuery"
-            :disabled="!queryParams.tableName || isQuerying"
+            :disabled="isQuerying"
             class="query-btn"
           >
             <i class="fas fa-search" :class="{ 'fa-spin': isQuerying }"></i>
@@ -206,6 +242,13 @@ import { ref, reactive, onMounted, watch} from "vue";
 import { getCurrentInstance } from "vue";
 import { provide } from 'vue';
 import { inject } from 'vue';
+import Feature from 'ol/Feature';
+import Polygon from 'ol/geom/Polygon';
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import Style from 'ol/style/Style';
+import Stroke from 'ol/style/Stroke';
+import Fill from 'ol/style/Fill';
 
 export default {
   name: "SpatialTableFetcher",
@@ -249,42 +292,101 @@ export default {
     });
     const isQuerying = ref(false);
     const queryResults = reactive({});
-  // 修改为显式注入
+    
+    // 地图交互状态
+    const isSelectingPoint = ref(false);
+    const isSelectingRectangle = ref(false);
+    // 手动启用地图工具的状态
+    const isMapUtilsManuallyEnabled = ref(false);
+  // 优化注入方式：注入容器对象，然后访问其 instance 属性
   const mapUtilsContainer = inject('mapUtilsInstance', null);
-  const mapUtils = ref(null);
   const isMapUtilsReady = ref(false);
-  // 监听 mapUtilsContainer 实例的变化
+  const mapUtils = ref(null);
+
+  // 调试信息
+  console.log("mapUtilsContainer 注入状态:", mapUtilsContainer ? "已注入" : "未注入");
+  if (mapUtilsContainer) {
+    console.log("mapUtilsContainer 内容:", mapUtilsContainer);
+    console.log("mapUtilsContainer.instance:", mapUtilsContainer.instance);
+  }
+
+  // 检查 mapUtils 是否可用
+  const checkMapUtilsReady = () => {
+    console.log("检查 mapUtils 可用性...");
+    
+    if (mapUtilsContainer && mapUtilsContainer.instance) {
+      console.log("mapUtilsContainer.instance 存在:", mapUtilsContainer.instance);
+      
+      // 检查是否有 map 属性
+      if (mapUtilsContainer.instance.map) {
+        mapUtils.value = mapUtilsContainer.instance;
+        isMapUtilsReady.value = true;
+        console.log("✅ mapUtils 实例准备就绪", mapUtils.value);
+      } else {
+        console.warn("⚠️ mapUtilsContainer.instance 存在，但没有 map 属性");
+        isMapUtilsReady.value = false;
+        mapUtils.value = null;
+      }
+    } else {
+      console.warn("❌ mapUtils 实例未准备好", mapUtilsContainer);
+      isMapUtilsReady.value = false;
+      mapUtils.value = null;
+    }
+    
+    console.log("isMapUtilsReady 状态:", isMapUtilsReady.value);
+  };
+
+  // 监听 mapUtilsContainer 的变化
   watch(
     () => mapUtilsContainer?.instance,
     (newInstance) => {
-      if (newInstance) {
+      console.log("mapUtilsContainer.instance 发生变化:", newInstance);
+      if (newInstance && newInstance.map) {
         mapUtils.value = newInstance;
-        // 验证实例有效性
-        if (mapUtils.value && mapUtils.value.map) {
-          isMapUtilsReady.value = true;
-          console.log("mapUtils 实例准备就绪");
-        } else {
-          errorMessage.value = "mapUtils 实例无效，地图未初始化";
-        }
+        isMapUtilsReady.value = true;
+        console.log("✅ mapUtils 实例已更新", mapUtils.value);
+      } else {
+        isMapUtilsReady.value = false;
+        mapUtils.value = null;
+        console.warn("❌ mapUtils 实例更新失败");
       }
     },
     { immediate: true }
   );
 
-    onMounted(() => {
-  // 组件挂载后检查 mapUtils 是否存在
-  if (!mapUtils) {
-    console.error('无法获取 mapUtils，请检查组件层级或注入逻辑');
-    return;
-  }
-  // 验证 mapUtils 是否有效（例如检查是否有 map 实例）
-  if (mapUtils.map) {
-    isMapUtilsReady.value = true;
-    console.log('mapUtils 初始化成功');
-  } else {
-    console.error('mapUtils 实例无效，地图未正确初始化');
-  }
-});
+  onMounted(() => {
+    console.log("组件已挂载，开始检查 mapUtils...");
+    
+    // 组件挂载后立即检查
+    checkMapUtilsReady();
+    
+    // 设置定时器定期检查，直到 mapUtils 可用
+    const checkInterval = setInterval(() => {
+      console.log("定时检查 mapUtils 状态...");
+      if (mapUtilsContainer && mapUtilsContainer.instance && mapUtilsContainer.instance.map) {
+        mapUtils.value = mapUtilsContainer.instance;
+        isMapUtilsReady.value = true;
+        console.log("✅ mapUtils 实例准备就绪");
+        clearInterval(checkInterval);
+      } else {
+        console.log("⏳ 等待 mapUtils 实例初始化...", {
+          hasContainer: !!mapUtilsContainer,
+          hasInstance: mapUtilsContainer ? !!mapUtilsContainer.instance : false,
+          hasMap: mapUtilsContainer && mapUtilsContainer.instance ? !!mapUtilsContainer.instance.map : false
+        });
+      }
+    }, 1000);
+    
+    // 30秒后停止检查
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!isMapUtilsReady.value) {
+        console.error("❌ mapUtils 实例初始化超时");
+        // 添加一个备选方案：允许用户手动启用按钮
+        console.warn("⚠️ 地图工具初始化失败，按钮将保持禁用状态");
+      }
+    }, 30000);
+  });
     // 获取表名称列表
     const fetchTableNames = async () => {
       // 重置状态
@@ -380,8 +482,8 @@ export default {
         const data = await response.json();
         geojsonData[tableName] = data;
         selectedTable.value = tableName;
-            // 加载GeoJSON到地图
-    if (mapUtils) {
+    // 加载GeoJSON到地图
+    if (mapUtils.value) {
       // 可自定义样式
       const styleOptions = {
         fillColor: "rgba(0, 0, 255, 0.2)",
@@ -395,7 +497,7 @@ export default {
       const layer = mapUtils.value.loadGeoJsonLayer(
         data,                // GeoJSON对象
         styleOptions,        // 样式配置
-        `${tableName}图层`   // 图层名称
+        `${tableName}图层`,   // 图层名称
       );
       
       console.log(`成功加载图层: ${tableName}`, layer);
@@ -455,13 +557,14 @@ export default {
 
     // 执行查询
     const executeQuery = async () => {
-      if (!queryParams.tableName) {
-        errorMessage.value = "请选择要查询的数据表";
+      if (!isMapUtilsReady.value) {
+        errorMessage.value = "地图工具未准备好，请稍后再试";
         return;
       }
 
-      if (!isMapUtilsReady.value) {
-        errorMessage.value = "地图工具未准备好，请稍后再试";
+      // 如果没有选择表，则查询所有表
+      if (!queryParams.tableName && tableNames.value.length === 0) {
+        errorMessage.value = "请先获取表名称列表";
         return;
       }
 
@@ -469,41 +572,31 @@ export default {
       errorMessage.value = "";
 
       try {
-        // 构建查询参数
-        const params = new URLSearchParams();
-        
-        // 添加查询条件
-        if (queryParams.tableCondition) {
-          params.append('table', queryParams.tableCondition);
-        }
-        if (queryParams.name) {
-          params.append('name', queryParams.name);
-        }
-        if (queryParams.categories) {
-          params.append('categories', queryParams.categories);
-        }
-        if (queryParams.limit) {
-          params.append('limit', queryParams.limit.toString());
-        }
+        // 构建请求体对象 - 如果没有选择表，则查询所有表
+        const requestBody = {
+          table: queryParams.tableName || "all", // 使用"all"表示查询所有表
+          name: queryParams.name || "",
+          categories: queryParams.categories || "",
+          geom: ""
+        };
 
-        // 添加空间查询条件
+        // 构建空间查询条件
         if (queryParams.spatialType === 'point' && queryParams.point) {
           const [lng, lat] = queryParams.point.split(',').map(coord => coord.trim());
           if (lng && lat) {
-            params.append('lng', lng);
-            params.append('lat', lat);
-            params.append('radius', '1000'); // 默认1公里半径
+            // 构建点几何对象的 WKT 格式
+            requestBody.geom = `POINT(${lng} ${lat})`;
           }
         } else if (queryParams.spatialType === 'rectangle' && queryParams.bounds) {
           const [minLng, minLat, maxLng, maxLat] = queryParams.bounds.split(',').map(coord => coord.trim());
           if (minLng && minLat && maxLng && maxLat) {
-            params.append('bounds', `${minLng},${minLat},${maxLng},${maxLat}`);
+            // 构建矩形几何对象的 WKT 格式
+            requestBody.geom = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
           }
         }
 
-        // 构建查询URL - 使用自然语言查询API
-        const queryText = buildNaturalLanguageQuery();
-        const url = `http://localhost:8001/nlq/${encodeURIComponent(queryText)}?${params.toString()}`;
+        // 构建查询URL - 使用后端提供的 POST API
+        const url = "http://localhost:8080/postgis/WGP_db/tables/SpatialTables/geojson";
 
         // 创建超时控制
         const controller = new AbortController();
@@ -511,10 +604,12 @@ export default {
 
         const response = await fetch(url, {
           signal: controller.signal,
-          method: "GET",
+          method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Accept: "application/json",
           },
+          body: JSON.stringify(requestBody)
         });
 
         clearTimeout(timeoutId);
@@ -525,30 +620,34 @@ export default {
 
         const data = await response.json();
 
-        if (data.status === 'success' && data.geojson) {
-          // 存储查询结果
-          queryResults[queryParams.tableName] = data;
-          selectedTable.value = queryParams.tableName;
-          
-          // 加载GeoJSON到地图
-          const styleOptions = {
-            fillColor: "rgba(255, 165, 0, 0.3)", // 橙色，区别于普通加载
-            strokeColor: "#FF8C00",
-            strokeWidth: 2,
-            pointColor: "#FF4500",
-            pointRadius: 8
-          };
-          
-          const layer = mapUtils.value.loadGeoJsonLayer(
-            data.geojson,
-            styleOptions,
-            `${queryParams.tableName}查询结果`
-          );
-          
-          console.log(`查询结果加载成功: ${queryParams.tableName}`, layer);
-        } else {
-          throw new Error(data.error || "查询返回的数据格式不正确");
+        // 假设后端返回的是 GeoJSON 字符串，需要解析为对象
+        let geojsonData;
+        try {
+          geojsonData = typeof data === 'string' ? JSON.parse(data) : data;
+        } catch (parseError) {
+          throw new Error("返回的数据格式不正确，无法解析为 GeoJSON");
         }
+
+        // 存储查询结果
+        queryResults[queryParams.tableName] = geojsonData;
+        selectedTable.value = queryParams.tableName;
+        
+        // 加载GeoJSON到地图
+        const styleOptions = {
+          fillColor: "rgba(255, 165, 0, 0.3)", // 橙色，区别于普通加载
+          strokeColor: "#FF8C00",
+          strokeWidth: 2,
+          pointColor: "#FF4500",
+          pointRadius: 8
+        };
+        
+        const layer = mapUtils.value.loadGeoJsonLayer(
+          geojsonData,
+          styleOptions,
+          `${queryParams.tableName}查询结果`
+        );
+        
+        console.log(`查询结果加载成功: ${queryParams.tableName}`, layer);
       } catch (error) {
         if (error.name === "AbortError") {
           errorMessage.value = `查询超时（${props.timeout / 1000}秒）`;
@@ -561,30 +660,6 @@ export default {
       }
     };
 
-    // 构建自然语言查询
-    const buildNaturalLanguageQuery = () => {
-      let query = `查询${queryParams.tableName}表中的数据`;
-      
-      if (queryParams.tableCondition) {
-        query += `，表名包含"${queryParams.tableCondition}"`;
-      }
-      if (queryParams.name) {
-        query += `，名称包含"${queryParams.name}"`;
-      }
-      if (queryParams.categories) {
-        query += `，分类包含"${queryParams.categories}"`;
-      }
-      if (queryParams.spatialType === 'point' && queryParams.point) {
-        query += `，在点${queryParams.point}附近`;
-      } else if (queryParams.spatialType === 'rectangle' && queryParams.bounds) {
-        query += `，在矩形范围${queryParams.bounds}内`;
-      }
-      if (queryParams.limit) {
-        query += `，返回${queryParams.limit}条记录`;
-      }
-      
-      return query;
-    };
 
     // 重置查询条件
     const resetQuery = () => {
@@ -599,6 +674,383 @@ export default {
       errorMessage.value = "";
     };
 
+    // 开始选点功能
+    const startPointSelection = () => {
+      if (!isMapUtilsReady.value) {
+        errorMessage.value = "地图工具未准备好，请稍后再试";
+        return;
+      }
+
+      isSelectingPoint.value = true;
+      errorMessage.value = "";
+
+      // 清除其他交互状态和地图事件
+      if (isSelectingRectangle.value) {
+        isSelectingRectangle.value = false;
+      }
+      clearAllMapEventListeners();
+      disableMapInteractions();
+
+      let mapClickHandler = null;
+      let timeoutId = null;
+
+      // 清理函数
+      const cleanup = () => {
+        if (mapClickHandler) {
+          mapUtils.value.map.un('singleclick', mapClickHandler);
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        isSelectingPoint.value = false;
+        enableMapInteractions(); // 恢复地图交互
+      };
+
+      // 设置地图点击事件监听器
+      mapClickHandler = (event) => {
+        const coordinate = event.coordinate;
+        const lng = coordinate[0].toFixed(6);
+        const lat = coordinate[1].toFixed(6);
+        
+        // 更新点坐标输入框
+        queryParams.point = `${lng},${lat}`;
+        
+        // 清理所有资源
+        cleanup();
+        
+        console.log(`已选择点坐标: ${lng}, ${lat}`);
+      };
+
+      // 添加地图点击事件监听器（使用singleclick而不是click）
+      mapUtils.value.map.on('singleclick', mapClickHandler);
+      
+      // 设置超时自动取消选择
+      timeoutId = setTimeout(() => {
+        if (isSelectingPoint.value) {
+          cleanup();
+          errorMessage.value = "选点操作已超时，请重新选择";
+        }
+      }, 30000); // 30秒超时
+      
+      console.log("选点功能已启动，请点击地图选择点坐标");
+    };
+
+    // 停止选框功能
+    const stopRectangleSelection = () => {
+      isSelectingRectangle.value = false;
+      errorMessage.value = "";
+    };
+
+
+    // 清除所有地图事件监听器
+    const clearAllMapEventListeners = () => {
+      if (mapUtils.value && mapUtils.value.map) {
+        // 清除所有可能的事件监听器
+        mapUtils.value.map.getInteractions().forEach(interaction => {
+          if (interaction.getActive()) {
+            interaction.setActive(false);
+          }
+        });
+      }
+    };
+
+    // 检查是否正在进行地图交互
+    const isMapInteractionActive = () => {
+      return isSelectingPoint.value || isSelectingRectangle.value;
+    };
+
+    // 禁用地图的默认交互（在选点/选框期间）
+    const disableMapInteractions = () => {
+      if (mapUtils.value && mapUtils.value.map) {
+        // 禁用所有默认交互，但保留我们自己的事件监听器
+        mapUtils.value.map.getInteractions().forEach(interaction => {
+          // 只禁用默认的交互，不要禁用我们自己的事件监听器
+          if (interaction.getActive() && !interaction.get('custom')) {
+            interaction.setActive(false);
+          }
+        });
+      }
+    };
+
+    // 恢复地图的默认交互
+    const enableMapInteractions = () => {
+      if (mapUtils.value && mapUtils.value.map) {
+        // 恢复所有默认交互
+        mapUtils.value.map.getInteractions().forEach(interaction => {
+          interaction.setActive(true);
+        });
+      }
+    };
+
+    // 开始选框功能
+    const startRectangleSelection = () => {
+      if (!isMapUtilsReady.value) {
+        errorMessage.value = "地图工具未准备好，请稍后再试";
+        return;
+      }
+
+      isSelectingRectangle.value = true;
+      errorMessage.value = "";
+
+      // 清除其他交互状态和地图事件
+      if (isSelectingPoint.value) {
+        isSelectingPoint.value = false;
+      }
+      clearAllMapEventListeners();
+      disableMapInteractions();
+
+      // 临时禁用要素点击监听器，避免触发属性弹窗
+      let originalFeatureClickHandler = null;
+      if (mapUtils.value && mapUtils.value.featureClickHandler) {
+        originalFeatureClickHandler = mapUtils.value.featureClickHandler;
+        mapUtils.value.map.un('singleclick', mapUtils.value.featureClickHandler);
+        console.log("已临时禁用要素点击监听器");
+      }
+
+      let startCoordinate = null;
+      let rectangleLayer = null;
+      let mapClickHandler = null;
+      let pointerMoveHandler = null;
+      let timeoutId = null;
+      const rectangleLayerId = 'rectangle-preview-' + Date.now();
+
+      // 清理函数 - 使用更可靠的图层移除方法
+      const cleanup = () => {
+        console.log("开始清理选框资源...");
+        
+        // 先移除事件监听器
+        if (mapClickHandler) {
+          mapUtils.value.map.un('singleclick', mapClickHandler);
+          mapClickHandler = null;
+          console.log("已移除点击事件监听器");
+        }
+        if (pointerMoveHandler) {
+          mapUtils.value.map.un('pointermove', pointerMoveHandler);
+          pointerMoveHandler = null;
+          console.log("已移除鼠标移动事件监听器");
+        }
+        
+        // 恢复要素点击监听器
+        if (originalFeatureClickHandler) {
+          mapUtils.value.map.on('singleclick', originalFeatureClickHandler);
+          console.log("已恢复要素点击监听器");
+        }
+        
+        // 移除所有矩形预览图层 - 使用最彻底的方法
+        console.log("准备移除所有矩形预览图层...");
+        
+        try {
+          // 获取所有图层
+          const layers = mapUtils.value.map.getLayers().getArray();
+          
+          // 查找所有矩形预览图层
+          const previewLayers = layers.filter(layer => {
+            const layerId = layer.get('id');
+            return layerId && layerId.startsWith('rectangle-preview-');
+          });
+          
+          console.log(`找到 ${previewLayers.length} 个预览图层需要移除`);
+          
+          // 一次性移除所有预览图层
+          previewLayers.forEach(layer => {
+            try {
+              // 清理图层内容
+              const source = layer.getSource();
+              if (source) {
+                source.clear();
+              }
+              
+              // 从地图移除图层
+              mapUtils.value.map.removeLayer(layer);
+              console.log(`已移除图层: ${layer.get('id')}`);
+              
+              // 强制释放资源
+              layer.setSource(null);
+              layer.setStyle(null);
+            } catch (layerError) {
+              console.error(`移除图层 ${layer.get('id')} 时出错:`, layerError);
+            }
+          });
+          
+          // 强制地图刷新
+          setTimeout(() => {
+            try {
+              mapUtils.value.map.renderSync();
+              console.log("地图已强制刷新");
+              
+              // 验证移除结果
+              const finalLayers = mapUtils.value.map.getLayers().getArray();
+              const remainingPreviewLayers = finalLayers.filter(layer => {
+                const layerId = layer.get('id');
+                return layerId && layerId.startsWith('rectangle-preview-');
+              });
+              
+              console.log(`移除后剩余预览图层数量: ${remainingPreviewLayers.length}`);
+              
+              if (remainingPreviewLayers.length > 0) {
+                console.warn("仍有预览图层未移除，尝试最终清理");
+                // 最终清理：移除所有可能的预览图层
+                remainingPreviewLayers.forEach(layer => {
+                  try {
+                    mapUtils.value.map.removeLayer(layer);
+                    console.log(`最终清理图层: ${layer.get('id')}`);
+                  } catch (finalError) {
+                    console.error(`最终清理失败:`, finalError);
+                  }
+                });
+              }
+              
+            } catch (renderError) {
+              console.log("地图刷新失败:", renderError);
+            }
+          }, 100);
+          
+        } catch (error) {
+          console.error("清理矩形图层时出错:", error);
+        } finally {
+          // 无论如何都要释放引用
+          rectangleLayer = null;
+        }
+        
+        // 清除超时定时器
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+          console.log("已清除超时定时器");
+        }
+        
+        // 重置状态
+        isSelectingRectangle.value = false;
+        startCoordinate = null;
+        
+        // 恢复地图交互
+        enableMapInteractions();
+        console.log("选框功能清理完成");
+      };
+
+      // 设置地图点击事件监听器（开始绘制）
+      mapClickHandler = (event) => {
+        // 阻止事件冒泡，避免触发要素点击事件
+        event.stopPropagation();
+        
+        if (!startCoordinate) {
+          // 第一次点击：记录起始点
+          startCoordinate = event.coordinate;
+          console.log("开始绘制矩形，请再次点击确定结束点");
+        } else {
+          // 第二次点击：完成矩形绘制
+          const endCoordinate = event.coordinate;
+          
+          // 计算矩形边界
+          const minLng = Math.min(startCoordinate[0], endCoordinate[0]).toFixed(6);
+          const minLat = Math.min(startCoordinate[1], endCoordinate[1]).toFixed(6);
+          const maxLng = Math.max(startCoordinate[0], endCoordinate[0]).toFixed(6);
+          const maxLat = Math.max(startCoordinate[1], endCoordinate[1]).toFixed(6);
+          
+          // 更新矩形范围输入框
+          queryParams.bounds = `${minLng},${minLat},${maxLng},${maxLat}`;
+          
+          // 清理所有资源
+          cleanup();
+          
+          console.log(`已选择矩形范围: ${minLng}, ${minLat}, ${maxLng}, ${maxLat}`);
+        }
+      };
+
+      // 设置鼠标移动事件监听器（实时预览矩形）
+      pointerMoveHandler = (event) => {
+        if (startCoordinate && event.coordinate) {
+          const endCoordinate = event.coordinate;
+          
+          // 如果矩形图层不存在，创建它
+          if (!rectangleLayer) {
+            // 创建临时矩形图层 - 使用更简单的方法
+            const rectangleFeature = new Feature({
+              geometry: new Polygon([
+                [
+                  startCoordinate,
+                  [endCoordinate[0], startCoordinate[1]],
+                  endCoordinate,
+                  [startCoordinate[0], endCoordinate[1]],
+                  startCoordinate
+                ]
+              ])
+            });
+            
+            // 创建新的矢量源和图层
+            const vectorSource = new VectorSource({
+              features: [rectangleFeature]
+            });
+            
+            rectangleLayer = new VectorLayer({
+              source: vectorSource,
+              style: new Style({
+                stroke: new Stroke({
+                  color: 'rgba(0, 123, 255, 0.8)',
+                  width: 3,
+                  lineDash: [5, 5]
+                }),
+                fill: new Fill({
+                  color: 'rgba(0, 123, 255, 0.2)'
+                })
+              })
+            });
+            
+            // 设置图层不可交互，避免触发点击事件
+            rectangleLayer.set('id', 'rectangle-preview-' + Date.now());
+            rectangleLayer.set('interactive', false);
+            
+            // 禁用图层中要素的交互性
+            const previewFeature = rectangleLayer.getSource().getFeatures()[0];
+            previewFeature.set('interactive', false);
+            previewFeature.set('selectable', false);
+            
+            // 直接添加到地图
+            mapUtils.value.map.addLayer(rectangleLayer);
+            console.log("矩形预览图层已创建并添加到地图");
+          } else {
+            // 如果图层已存在，只更新几何形状
+            const rectangleFeature = rectangleLayer.getSource().getFeatures()[0];
+            if (rectangleFeature) {
+              rectangleFeature.setGeometry(new Polygon([
+                [
+                  startCoordinate,
+                  [endCoordinate[0], startCoordinate[1]],
+                  endCoordinate,
+                  [startCoordinate[0], endCoordinate[1]],
+                  startCoordinate
+                ]
+              ]));
+            }
+          }
+        }
+      };
+
+      // 添加事件监听器（使用singleclick而不是click）
+      mapUtils.value.map.on('singleclick', mapClickHandler);
+      mapUtils.value.map.on('pointermove', pointerMoveHandler);
+      
+      // 设置超时自动取消选择
+      timeoutId = setTimeout(() => {
+        if (isSelectingRectangle.value) {
+          cleanup();
+          errorMessage.value = "选框操作已超时，请重新选择";
+        }
+      }, 60000); // 60秒超时
+      
+      console.log("选框功能已启动，请点击地图开始绘制矩形");
+    };
+
+    // 手动启用地图工具
+    const enableMapUtilsManually = () => {
+      isMapUtilsManuallyEnabled.value = true;
+      console.log("✅ 地图工具已手动启用");
+      errorMessage.value = "地图工具已手动启用，但某些功能可能无法正常工作";
+      setTimeout(() => {
+        errorMessage.value = "";
+      }, 3000);
+    };
+
     return {
       tableNames,
       isLoadingTables,
@@ -610,6 +1062,10 @@ export default {
       queryParams,
       isQuerying,
       queryResults,
+      isSelectingPoint,
+      isSelectingRectangle,
+      isMapUtilsReady,
+      isMapUtilsManuallyEnabled,
       fetchTableNames,
       fetchTableGeoJSON,
       clearGeoJSON,
@@ -617,6 +1073,9 @@ export default {
       copyGeoJSON,
       executeQuery,
       resetQuery,
+      startPointSelection,
+      startRectangleSelection,
+      enableMapUtilsManually,
     };
   },
 };
@@ -694,6 +1153,58 @@ h2 {
   gap: 8px;
 }
 
+/* 地图工具状态提示样式 */
+.map-utils-status {
+  margin-bottom: 20px;
+}
+
+.status-warning {
+  background-color: #fff8e6;
+  border-left: 4px solid #ffc107;
+  padding: 12px 15px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #856404;
+}
+
+.status-warning i {
+  color: #ffc107;
+  font-size: 1.1rem;
+}
+
+.status-warning span {
+  flex: 1;
+  font-weight: 500;
+}
+
+.enable-btn {
+  background-color: #ffc107;
+  color: #212529;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.3s;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.enable-btn:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
+.enable-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background-color: #6c757d;
+  color: white;
+}
+
 /* 查询框样式 */
 .query-section {
   margin-bottom: 25px;
@@ -759,6 +1270,44 @@ h2 {
 
 .table-hint i {
   color: #42b983;
+}
+
+/* 坐标输入组样式 */
+.coordinate-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.coordinate-input-group .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.map-select-btn {
+  background-color: #17a2b8;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.3s;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  min-width: fit-content;
+}
+
+.map-select-btn:hover:not(:disabled) {
+  background-color: #138496;
+}
+
+.map-select-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background-color: #6c757d;
 }
 
 .spatial-query-options {

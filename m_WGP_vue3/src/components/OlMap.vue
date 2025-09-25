@@ -88,7 +88,6 @@ export default {
     const modifyInteraction = ref(null);
     const activeDrawType = ref(null);
     const activeMeasureType = ref(null);
-    const mapUtils = new MapUtils(mapElement.value);
 
     // 可绘制的几何类型
     const drawTypes = ["Point", "LineString", "Polygon", "Circle"];
@@ -101,35 +100,34 @@ export default {
       mapUtilsInstance = new MapUtils(mapElement.value);
       mapUtilsContainer.instance = mapUtilsInstance;
 
-      featurePopupElement.value=mapUtilsInstance.featurePopupElement
+      // 等待地图完全初始化
+      setTimeout(() => {
+        if (mapUtilsInstance && mapUtilsInstance.map) {
+          featurePopupElement.value = mapUtilsInstance.featurePopupElement;
 
-      // 添加底图
-      baseLayers.value = mapUtilsInstance.addBaseLayer();
+          // 添加底图
+          baseLayers.value = mapUtilsInstance.addBaseLayer();
 
-      // 创建矢量图层（用于绘制）
-      vectorLayer.value = mapUtilsInstance.createVectorLayer({
-        fillColor: "rgba(255, 255, 255, 0.2)",
-        strokeColor: "#4CAF50",
-        strokeWidth: 2,
-        pointColor: "#4CAF50",
-      });
+          // 创建矢量图层（用于绘制）
+          vectorLayer.value = mapUtilsInstance.createVectorLayer({
+            fillColor: "rgba(255, 255, 255, 0.2)",
+            strokeColor: "#4CAF50",
+            strokeWidth: 2,
+            pointColor: "#4CAF50",
+          });
 
-      vectorLayer.value.set("title", "绘制图层");
-      mapUtilsInstance.map.addLayer(vectorLayer.value);
-      mapUtilsInstance.initFeatureClick()
-      // 添加修改交互
-      modifyInteraction.value = mapUtilsInstance.addModifyInteraction(
-        vectorLayer.value
-      );
-     
-     
-      // 新增：添加要素点击监听
-    // // 定义 showFeatureInfo 和相关变量
-    // const showFeatureInfo = ref(false);
-    // const featureProperties = ref({});
-    // const popupLeft = ref(0);
-    // const popupTop = ref(0);
-      // addFeatureClickListener();
+          vectorLayer.value.set("title", "绘制图层");
+          mapUtilsInstance.map.addLayer(vectorLayer.value);
+          mapUtilsInstance.initFeatureClick();
+          
+          // 添加修改交互
+          modifyInteraction.value = mapUtilsInstance.addModifyInteraction(
+            vectorLayer.value
+          );
+          
+          console.log("地图初始化完成，mapUtils实例已注入");
+        }
+      }, 100);
     };
 
     // 新增：要素点击监听方法

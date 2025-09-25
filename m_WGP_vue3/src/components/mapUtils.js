@@ -13,6 +13,7 @@ import {
 } from "ol/interaction";
 import { getLength, getArea } from "ol/sphere";
 import { LineString, Polygon } from "ol/geom";
+import { getCenter } from "ol/extent";
 import Overlay from "ol/Overlay";
 import Feature from "ol/Feature";
 import {
@@ -86,6 +87,10 @@ export default class MapUtils {
       controls: defaultControls().extend([
         new MousePosition({
           className: "custom-mouse-position",
+          coordinateFormat: function(coordinate) {
+            // 格式化坐标，只显示小数点后2位
+            return coordinate.map(coord => coord.toFixed(2)).join(', ');
+          },
         }),
         this.overviewControl,
         new ScaleLine({
@@ -96,7 +101,6 @@ export default class MapUtils {
         new OlExtLayerSwitcher({
           show_progress: true,
           extent: true,
-
           trash: true,
           reordering: true,
           collapsed: false,
@@ -833,7 +837,17 @@ export default class MapUtils {
     this.stopMeasureTool();
   }
 
-  loadGeoJsonLayer(geoJson, styleOptions = {}, layerName = "GeoJSON Layer") {
+  loadGeoJsonLayer(geoJson, styleOptions = {}, layerName = "GeoJSON Layer", options = {}) {
+    // 默认配置选项
+    const defaultOptions = {
+      autoFitExtent: true, // 是否自动调整视图到图层范围
+      fitPadding: 50, // 调整视图时的边距
+      storeExtent: true, // 是否存储图层范围
+    };
+    
+    // 合并用户配置选项
+    const finalOptions = { ...defaultOptions, ...options };
+
     // 默认样式配置
     const defaultStyle = {
       fillColor: "rgba(255, 255, 255, 0.2)",
@@ -879,18 +893,6 @@ export default class MapUtils {
         }
       },
     });
-    // 添加监听器确保数据加载完成
-    source.on("change", () => {
-      if (source.getState() === "ready") {
-        console.log("实际要素数量:", source.getFeatures().length);
-        this.map.getView().fit(source.getExtent(), this.map.getSize());
-      }
-    });
-
-    // 手动触发加载（如果是通过URL）
-    if (typeof geoJson === "string") {
-      source.refresh();
-    }
 
     // 创建矢量图层
     const layer = new VectorLayer({
@@ -899,6 +901,41 @@ export default class MapUtils {
     });
 
     layer.set("title", layerName);
+    
+    // 存储图层范围到图层属性中
+    if (finalOptions.storeExtent) {
+      layer.set("extent", null); // 初始化为null
+    }
+
+    // 添加监听器确保数据加载完成
+    source.on("change", () => {
+      if (source.getState() === "ready") {
+        const features = source.getFeatures();
+        console.log("实际要素数量:", features.length);
+        
+        // 计算并存储图层范围
+        if (features.length > 0) {
+          const extent = source.getExtent();
+          console.log("图层范围:", extent);
+          
+          if (finalOptions.storeExtent && extent) {
+            layer.set("extent", extent);
+            console.log("图层范围已存储");
+          }
+          
+          // 如果启用自动调整视图，则调整到图层范围
+          if (finalOptions.autoFitExtent && extent) {
+            this.fitToLayerExtent(layer, finalOptions.fitPadding);
+          }
+        }
+      }
+    });
+
+    // 手动触发加载（如果是通过URL）
+    if (typeof geoJson === "string") {
+      source.refresh();
+    }
+
     this.map.addLayer(layer);
 
     return layer;
@@ -928,6 +965,48 @@ export default class MapUtils {
 
       console.log("调整视图到图层范围:", extent);
     }
+  }
+
+  // 获取图层范围
+  getLayerExtent(layer) {
+    const source = layer.getSource();
+    if (source.getFeatures().length === 0) return null;
+    
+    const extent = source.getExtent();
+    if (extent && 
+        !isNaN(extent[0]) && 
+        !isNaN(extent[1]) && 
+        !isNaN(extent[2]) && 
+        !isNaN(extent[3])) {
+      return extent;
+    }
+    return null;
+  }
+
+  // 获取存储的图层范围（如果存在）
+  getStoredLayerExtent(layer) {
+    return layer.get('extent') || null;
+  }
+
+  // 手动跳转到图层范围
+  zoomToLayerExtent(layer, padding = 50) {
+    let extent = null;
+    
+    // 首先尝试获取存储的范围
+    extent = this.getStoredLayerExtent(layer);
+    
+    // 如果没有存储的范围，则实时计算
+    if (!extent) {
+      extent = this.getLayerExtent(layer);
+    }
+    
+    if (extent) {
+      this.fitToLayerExtent(layer, padding);
+      return true;
+    }
+    
+    console.warn("无法获取图层范围，图层可能为空或范围无效");
+    return false;
   }
 
   // 可选：新增方法获取图层中心点
