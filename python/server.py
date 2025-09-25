@@ -172,13 +172,12 @@ def validate_query_input(query: str) -> str:
     
     return ""
 
-def natural_language_to_geojson(query_text: str, geometry_type: str = "all", limit: int = 1000) -> Dict[str, Any]:
+def natural_language_to_geojson(query_text: str, limit: int = 1000) -> Dict[str, Any]:
     """
     将自然语言查询转换为GeoJSON结果
     
     Args:
         query_text: 自然语言查询文本
-        geometry_type: 几何类型过滤 (point/line/polygon/all)
         limit: 限制返回的记录数
         
     Returns:
@@ -223,19 +222,13 @@ def natural_language_to_geojson(query_text: str, geometry_type: str = "all", lim
         connection_string = "postgresql://sagasama:cznb6666@localhost:5432/WGP_db"
         generator = GeoJSONGenerator(connection_string)
         
-        # 根据几何类型过滤
-        if geometry_type != "all":
-            # 这里需要更复杂的逻辑来根据几何类型过滤查询结果
-            # 暂时返回所有结果，由前端过滤
-            geojson_data = generator.query_to_geojson(sql_query)
-        else:
-            geojson_data = generator.query_to_geojson(sql_query)
+        # 直接返回所有几何类型的GeoJSON数据
+        geojson_data = generator.query_to_geojson(sql_query)
         
         return {
             "status": "success",
             "original_query": query_text,
             "generated_sql": sql_query,
-            "geometry_type": geometry_type,
             "feature_count": len(geojson_data.get("features", [])),
             "geojson": geojson_data
         }
@@ -526,7 +519,6 @@ async def get_geometry_types(table_name: str, geometry_column: str = "geom") -> 
 @app.get("/nlq/{query_text}", summary="自然语言查询转GeoJSON")
 async def natural_language_query_to_geojson(
     query_text: str, 
-    geometry_type: str = "all",
     limit: int = 1000
 ) -> Dict[str, Any]:
     """
@@ -534,7 +526,6 @@ async def natural_language_query_to_geojson(
     
     Args:
         query_text: 自然语言查询文本
-        geometry_type: 几何类型过滤 (point/line/polygon/all)
         limit: 限制返回的记录数
         
     Returns:
@@ -546,14 +537,6 @@ async def natural_language_query_to_geojson(
         logger.warning(f"Invalid query input: {query_text}")
         return {"error": validation_error, "status": "error"}
     
-    # 验证几何类型参数
-    valid_geometry_types = ["point", "line", "polygon", "all"]
-    if geometry_type.lower() not in valid_geometry_types:
-        return {
-            "error": f"无效的几何类型。支持的几何类型: {', '.join(valid_geometry_types)}",
-            "status": "error"
-        }
-    
     # 验证limit参数
     if limit < 1 or limit > 10000:
         return {
@@ -562,7 +545,7 @@ async def natural_language_query_to_geojson(
         }
     
     # 调用自然语言到GeoJSON转换函数
-    return natural_language_to_geojson(query_text, geometry_type, limit)
+    return natural_language_to_geojson(query_text, limit)
 
 @app.post("/nlq", summary="自然语言查询转GeoJSON（POST方式）")
 async def natural_language_query_to_geojson_post(
@@ -574,7 +557,6 @@ async def natural_language_query_to_geojson_post(
     Args:
         query_data: 包含查询参数的JSON对象
             - query: 自然语言查询文本（必需）
-            - geometry_type: 几何类型过滤 (point/line/polygon/all，默认为all)
             - limit: 限制返回的记录数（默认为1000）
             
     Returns:
@@ -583,7 +565,6 @@ async def natural_language_query_to_geojson_post(
     try:
         # 提取参数
         query_text = query_data.get("query", "")
-        geometry_type = query_data.get("geometry_type", "all")
         limit = query_data.get("limit", 1000)
         
         # 验证必需参数
@@ -598,14 +579,6 @@ async def natural_language_query_to_geojson_post(
         if validation_error:
             return {"error": validation_error, "status": "error"}
         
-        # 验证几何类型参数
-        valid_geometry_types = ["point", "line", "polygon", "all"]
-        if geometry_type.lower() not in valid_geometry_types:
-            return {
-                "error": f"无效的几何类型。支持的几何类型: {', '.join(valid_geometry_types)}",
-                "status": "error"
-            }
-        
         # 验证limit参数
         if limit < 1 or limit > 10000:
             return {
@@ -614,7 +587,7 @@ async def natural_language_query_to_geojson_post(
             }
         
         # 调用自然语言到GeoJSON转换函数
-        return natural_language_to_geojson(query_text, geometry_type, limit)
+        return natural_language_to_geojson(query_text, limit)
         
     except Exception as e:
         logger.error(f"POST方式处理自然语言查询失败: {str(e)}")

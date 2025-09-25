@@ -4,7 +4,7 @@ public class SpatialTableRequest {
     private String table;
     private String name;
     private String categories;
-    private String geom;
+    private String geom;  // 存储实际的几何对象（WKT格式），可以是点或范围
 
     // 默认构造函数
     public SpatialTableRequest() {

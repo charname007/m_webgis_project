@@ -79,7 +79,20 @@
             AND categories LIKE CONCAT('%', #{categories}, '%')
         </if>
         <if test="geom != null and geom != ''">
-            AND ST_GeometryType(geom) = #{geom}
+            <choose>
+                <!-- 如果geom是点（以POINT开头） -->
+                <when test="geom.startsWith('POINT')">
+                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                </when>
+                <!-- 如果geom是范围（以POLYGON、MULTIPOLYGON、LINESTRING、MULTILINESTRING开头） -->
+                <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
+                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                </when>
+                <!-- 其他几何类型 -->
+                <otherwise>
+                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                </otherwise>
+            </choose>
         </if>
     ) AS sub
 </select>
