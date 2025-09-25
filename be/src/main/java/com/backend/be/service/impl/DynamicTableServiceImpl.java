@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.backend.be.model.SpatialTableRequest;
 import com.backend.be.service.DynamicTableService;
 import com.backend.be.mapper.DynamicTableMapper;
 
@@ -50,5 +51,12 @@ public class DynamicTableServiceImpl implements DynamicTableService {
         // TODO Auto-generated method stub
         // throw new UnsupportedOperationException("Unimplemented method 'getSpatialTableGeojson'");
         return tableMapper.getSpatialTableGeojson(tableName);
+    }
+
+    @Override
+    public String getSpatialTablesGeojson(SpatialTableRequest request) {
+        // 这里可以根据请求参数进行过滤查询
+        // 例如：根据表名、名称、分类等进行过滤
+        return tableMapper.getSpatialTablesGeojson(request);
     }
 }

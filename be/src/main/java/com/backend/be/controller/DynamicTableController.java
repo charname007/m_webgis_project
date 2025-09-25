@@ -6,10 +6,13 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.backend.be.model.SpatialTableRequest;
 import com.backend.be.service.impl.DynamicTableServiceImpl;
 
 
@@ -52,11 +55,14 @@ public class DynamicTableController {
     public String getSpatialTableGeojson(@PathVariable String tableName) {
         return tableService.getSpatialTableGeojson(tableName);
     }
-    @GetMapping("/tables/SpatialTables/{tableName}/querybyname/{name}")
-    public String querybyname(@RequestParam String param) {
-        return new String();
+    // @GetMapping("/tables/SpatialTables/{tableName}/querybyname/{name}")
+    // public String querybyname(@RequestParam String param) {
+    //     return new String();
+    // }
+    @PostMapping("/tables/SpatialTables/geojson")
+    public String getSpatialTablesGeojson(@RequestBody SpatialTableRequest request) {
+        return tableService.getSpatialTablesGeojson(request);
     }
-    
 
 
 }

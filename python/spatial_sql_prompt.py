@@ -46,8 +46,8 @@ PostGIS提供了丰富的空间函数和操作符，你应该优先使用这些�
 
 ### 1. 空间查询必须包含几何数据
 - 所有空间查询都应该包含几何列（通常是"geom"）
-- 使用ST_AsGeoJSON(geom)将几何数据转换为前端可用的格式
-- 示例：SELECT id, name, ST_AsGeoJSON(geom) as geometry FROM table_name
+- 使用ST_AsGeoJSON(ST_Transform(geom, 4326))将几何数据转换为WGS84坐标系并转换为前端可用的格式
+- 示例：SELECT id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM table_name
 
 ### 2. 处理不同类型的几何
 - 点数据（POINT）：用于位置点、兴趣点等
@@ -73,22 +73,22 @@ PostGIS提供了丰富的空间函数和操作符，你应该优先使用这些�
 ## 示例查询模式
 
 ### 基本空间查询：
-SELECT gid, name, ST_AsGeoJSON(geom) as geometry 
+SELECT gid, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry 
 FROM whupoi 
 WHERE geom IS NOT NULL 
 LIMIT 10
 
 ### 距离查询：
-SELECT gid, name, ST_Distance(geom, ST_GeomFromText('POINT(114.0 30.5)')) as distance
+SELECT gid, name, ST_Distance(ST_Transform(geom, 4326), ST_GeomFromText('POINT(114.0 30.5)', 4326)) as distance
 FROM whupoi 
-WHERE ST_DWithin(geom, ST_GeomFromText('POINT(114.0 30.5)'), 1000)
+WHERE ST_DWithin(ST_Transform(geom, 4326), ST_GeomFromText('POINT(114.0 30.5)', 4326), 1000)
 ORDER BY distance ASC
 LIMIT 10
 
 ### 空间关系查询：
 SELECT a.gid, a.name, b.gid, b.name
 FROM table_a a, table_b b
-WHERE ST_Intersects(a.geom, b.geom)
+WHERE ST_Intersects(ST_Transform(a.geom, 4326), ST_Transform(b.geom, 4326))
 
 记住：你是一个空间数据库专家，专注于生成高效、准确的空间SQL查询。
 """
@@ -109,13 +109,13 @@ SQL_AGENT_SPATIAL_PROMPT = """
 
 ## 重要提示
 - 数据库包含空间数据表，几何列通常命名为"geom"
-- 所有空间查询必须包含几何数据，使用ST_AsGeoJSON(geom)进行转换
+- 所有空间查询必须包含几何数据，使用ST_AsGeoJSON(ST_Transform(geom, 4326))将几何数据转换为WGS84坐标系并转换为GeoJSON格式
 - 优先使用PostGIS函数进行空间分析和查询
 - 生成的SQL应该可以直接在PostGIS环境中执行
 
 ## 核心要求
 1. 理解用户的空间查询需求
-2. 生成包含几何数据的SQL查询
+2. 生成包含几何数据的SQL查询，并使用ST_Transform(geom, 4326)确保坐标转换为WGS84坐标系
 3. 使用适当的PostGIS函数
 4. 确保查询的安全性和性能
 
@@ -159,7 +159,7 @@ SPATIAL_SYSTEM_PROMPT_SIMPLE = """
 
 重要要求：
 1. 所有空间查询必须包含几何数据
-2. 使用ST_AsGeoJSON(geom)将几何数据转换为GeoJSON格式
+2. 使用ST_AsGeoJSON(ST_Transform(geom, 4326))将几何数据转换为WGS84坐标系并转换为GeoJSON格式
 3. 优先使用PostGIS函数（ST_Distance、ST_Intersects、ST_Within等）
 4. 生成的SQL应该可以直接在PostGIS环境中执行
 

@@ -68,27 +68,47 @@ class GeoJSONGenerator:
         where_sql = f"WHERE {where_clause}" if where_clause else ""
         limit_sql = f"LIMIT {limit}" if limit else ""
         
-        query = text(f"""
-            SELECT 
-                json_build_object(
-                    'type', 'FeatureCollection',
-                    'features', COALESCE(json_agg(
-                        json_build_object(
-                            'type', 'Feature',
-                            'geometry', ST_AsGeoJSON({geometry_column})::json,
-                            'properties', to_jsonb(row) - '{geometry_column}'
-                        )
-                    ), '[]'::json)
-                ) as geojson
-            FROM (
-                SELECT * FROM {table_name} 
-                {where_sql} 
-                {limit_sql}
-            ) as row
+        # 首先检查几何列的SRID
+        srid_query = text(f"""
+            SELECT DISTINCT ST_SRID({geometry_column}) as srid 
+            FROM {table_name} 
+            WHERE {geometry_column} IS NOT NULL 
+            LIMIT 1
         """)
         
         try:
             with self.engine.connect() as conn:
+                srid_result = conn.execute(srid_query)
+                srid_row = srid_result.fetchone()
+                srid = srid_row.srid if srid_row else None
+                
+                # 根据SRID决定是否使用ST_Transform
+                if srid and srid != 4326 and srid != 0:
+                    # 使用ST_Transform转换到WGS84
+                    geometry_expression = f"ST_AsGeoJSON(ST_Transform({geometry_column}, 4326))"
+                else:
+                    # 如果SRID已经是4326或未知(0)，直接使用ST_AsGeoJSON
+                    geometry_expression = f"ST_AsGeoJSON({geometry_column})"
+                
+                query = text(f"""
+                    SELECT 
+                        json_build_object(
+                            'type', 'FeatureCollection',
+                            'features', COALESCE(json_agg(
+                                json_build_object(
+                                    'type', 'Feature',
+                                    'geometry', {geometry_expression}::json,
+                                    'properties', to_jsonb(row) - '{geometry_column}'
+                                )
+                            ), '[]'::json)
+                        ) as geojson
+                    FROM (
+                        SELECT * FROM {table_name} 
+                        {where_sql} 
+                        {limit_sql}
+                    ) as row
+                """)
+                
                 result = conn.execute(query)
                 geojson_data = result.scalar()
                 # 如果结果是字符串，则解析为JSON；如果已经是字典，则直接返回

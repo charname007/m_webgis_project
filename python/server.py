@@ -6,6 +6,7 @@ import fastapi
 import uvicorn
 from sql_query_agent import SQLQueryAgent  # pyright: ignore[reportMissingImports]
 from spatial_sql_prompt import SQL_AGENT_SPATIAL_PROMPT, SPATIAL_SYSTEM_PROMPT_SIMPLE, SpatialSQLQueryAgent
+from spatial_sql_agent import SpatialSQLQueryAgent as EnhancedSpatialSQLQueryAgent
 from geojson_utils import GeoJSONGenerator
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # 全局变量
 sql_query_agent: Optional[SQLQueryAgent] = None
+spatial_sql_agent: Optional[EnhancedSpatialSQLQueryAgent] = None
 agent_initialized = False
 
 # 配置选项：是否使用空间数据库提示词
@@ -193,7 +195,7 @@ def natural_language_to_geojson(query_text: str, geometry_type: str = "all", lim
         # 构建包含几何查询提示的自然语言查询
         enhanced_query = f"""{query_text}。请生成一个SQL查询，该查询应该：
 1. 包含几何列(geom)
-2. 使用ST_AsGeoJSON函数将几何数据转换为GeoJSON格式
+2. 使用ST_AsGeoJSON(ST_Transform(geom, 4326))将几何数据转换为WGS84坐标系并转换为GeoJSON格式
 3. 返回的结果应该可以直接用于生成GeoJSON FeatureCollection
 
 请直接返回SQL查询语句，不要添加解释。"""
@@ -317,11 +319,11 @@ def extract_sql_from_result(result: str) -> str:
     
     # 分析查询意图并生成相应的SQL
     if "交通" in result or "transport" in result.lower():
-        return "SELECT gid, osm_id, name, highway, barrier, geom FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"
+        return "SELECT gid, osm_id, name, highway, barrier, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"
     elif "点" in result or "point" in result.lower():
-        return "SELECT * FROM whupoi WHERE geom IS NOT NULL LIMIT 10"
+        return "SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE geom IS NOT NULL LIMIT 10"
     else:
-        return "SELECT * FROM whupoi LIMIT 10"
+        return "SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"
 
 def is_valid_sql(sql: str) -> bool:
     """
@@ -620,6 +622,239 @@ async def natural_language_query_to_geojson_post(
             "error": f"处理查询失败: {str(e)}",
             "status": "error"
         }
+
+# 新增空间查询端点
+@app.get("/spatial/health", summary="空间查询健康检查")
+async def spatial_health_check() -> Dict[str, Any]:
+    """空间查询健康检查端点"""
+    try:
+        connector = SQLConnector()
+        spatial_info = connector.get_database_spatial_info()
+        connector.close()
+        
+        return {
+            "status": "healthy",
+            "message": "空间查询功能正常",
+            "spatial_info": spatial_info
+        }
+    except Exception as e:
+        logger.error(f"空间查询健康检查失败: {str(e)}")
+        return {
+            "status": "error",
+            "error": f"空间查询健康检查失败: {str(e)}"
+        }
+
+@app.get("/spatial/tables", summary="获取空间表详细信息")
+async def get_spatial_tables_detailed() -> Dict[str, Any]:
+    """获取空间表的详细信息，包括索引信息"""
+    try:
+        connector = SQLConnector()
+        spatial_tables = connector.get_spatial_tables()
+        
+        # 为每个表添加索引信息
+        for table in spatial_tables:
+            table_name = table["table_name"]
+            indexes = connector.get_spatial_indexes(table_name)
+            table["spatial_indexes"] = indexes
+        
+        connector.close()
+        
+        return {
+            "status": "success",
+            "spatial_tables": spatial_tables,
+            "count": len(spatial_tables)
+        }
+    except Exception as e:
+        logger.error(f"获取空间表详细信息失败: {str(e)}")
+        return {
+            "error": "获取空间表详细信息失败",
+            "details": str(e),
+            "status": "error"
+        }
+
+@app.get("/spatial/query/{query_text}", summary="执行空间SQL查询")
+async def execute_spatial_query(query_text: str) -> Dict[str, Any]:
+    """执行空间SQL查询"""
+    # 输入验证
+    validation_error = validate_query_input(query_text)
+    if validation_error:
+        logger.warning(f"Invalid spatial query input: {query_text}")
+        return {"error": validation_error, "status": "error"}
+    
+    try:
+        # 初始化空间查询代理
+        spatial_agent = EnhancedSpatialSQLQueryAgent()
+        
+        logger.info(f"Processing spatial query: {query_text}")
+        result = spatial_agent.run(query_text)
+        
+        # 分析查询优化建议
+        analysis = spatial_agent.analyze_spatial_query(result)
+        
+        # 如果结果是SQL查询，尝试执行并返回结果
+        if "SELECT" in result.upper() and "FROM" in result.upper():
+            try:
+                query_result = spatial_agent.execute_spatial_query(result)
+                return {
+                    "status": "success",
+                    "query": result,
+                    "analysis": analysis,
+                    "result": query_result
+                }
+            except Exception as e:
+                logger.warning(f"无法执行生成的SQL查询: {e}")
+                return {
+                    "status": "success",
+                    "query": result,
+                    "analysis": analysis,
+                    "warning": f"生成的SQL查询无法执行: {str(e)}"
+                }
+        else:
+            return {
+                "status": "success",
+                "result": result,
+                "analysis": analysis
+            }
+            
+    except Exception as e:
+        logger.error(f"Error processing spatial query '{query_text}': {str(e)}")
+        return {
+            "error": "处理空间查询时发生错误", 
+            "details": str(e),
+            "status": "error"
+        }
+
+@app.post("/spatial/query", summary="执行空间SQL查询（POST方式）")
+async def execute_spatial_query_post(
+    query_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """通过POST方式执行空间SQL查询"""
+    try:
+        # 提取参数
+        query_text = query_data.get("query", "")
+        execute_sql = query_data.get("execute_sql", True)
+        
+        # 验证必需参数
+        if not query_text:
+            return {
+                "error": "查询文本不能为空",
+                "status": "error"
+            }
+        
+        # 输入验证
+        validation_error = validate_query_input(query_text)
+        if validation_error:
+            return {"error": validation_error, "status": "error"}
+        
+        # 初始化空间查询代理
+        spatial_agent = EnhancedSpatialSQLQueryAgent()
+        
+        logger.info(f"Processing spatial query (POST): {query_text}")
+        result = spatial_agent.run(query_text)
+        
+        # 分析查询优化建议
+        analysis = spatial_agent.analyze_spatial_query(result)
+        
+        response_data = {
+            "status": "success",
+            "query": result,
+            "analysis": analysis
+        }
+        
+        # 如果要求执行SQL查询并且结果是有效的SQL
+        if execute_sql and "SELECT" in result.upper() and "FROM" in result.upper():
+            try:
+                query_result = spatial_agent.execute_spatial_query(result)
+                response_data["result"] = query_result
+            except Exception as e:
+                logger.warning(f"无法执行生成的SQL查询: {e}")
+                response_data["warning"] = f"生成的SQL查询无法执行: {str(e)}"
+        else:
+            response_data["result"] = result
+        
+        spatial_agent.close()
+        return response_data
+        
+    except Exception as e:
+        logger.error(f"POST方式处理空间查询失败: {str(e)}")
+        return {
+            "error": f"处理空间查询失败: {str(e)}",
+            "status": "error"
+        }
+
+@app.get("/spatial/functions", summary="获取可用空间函数列表")
+async def get_spatial_functions() -> Dict[str, Any]:
+    """获取数据库中可用的空间函数列表"""
+    try:
+        connector = SQLConnector()
+        function_availability = connector.check_spatial_function_availability()
+        connector.close()
+        
+        return {
+            "status": "success",
+            "spatial_functions": function_availability
+        }
+    except Exception as e:
+        logger.error(f"获取空间函数列表失败: {str(e)}")
+        return {
+            "error": "获取空间函数列表失败",
+            "details": str(e),
+            "status": "error"
+        }
+
+@app.get("/spatial/examples", summary="获取空间查询示例")
+async def get_spatial_query_examples() -> Dict[str, Any]:
+    """获取空间查询示例"""
+    examples = {
+        "distance_queries": [
+            {
+                "description": "查找距离某个点5公里内的所有建筑",
+                "query": "查找距离经度116.4、纬度39.9的点5公里内的所有建筑",
+                "expected_sql": "SELECT * FROM buildings WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(116.4, 39.9), 4326), 5000)"
+            },
+            {
+                "description": "计算两点之间的距离",
+                "query": "计算A点(116.4, 39.9)和B点(116.5, 39.8)之间的距离",
+                "expected_sql": "SELECT ST_Distance(ST_SetSRID(ST_MakePoint(116.4, 39.9), 4326), ST_SetSRID(ST_MakePoint(116.5, 39.8), 4326)) as distance"
+            }
+        ],
+        "spatial_relationship_queries": [
+            {
+                "description": "查找与某个多边形相交的所有道路",
+                "query": "查找与某个多边形相交的所有道路",
+                "expected_sql": "SELECT * FROM roads WHERE ST_Intersects(geom, ST_GeomFromText('POLYGON((...))'))"
+            },
+            {
+                "description": "查找包含在某个区域内的所有点",
+                "query": "查找包含在某个区域内的所有点",
+                "expected_sql": "SELECT * FROM points WHERE ST_Within(geom, ST_GeomFromText('POLYGON((...))'))"
+            }
+        ],
+        "routing_queries": [
+            {
+                "description": "计算从A点到B点的最短路径",
+                "query": "计算从起点到终点的最短路径",
+                "expected_sql": "SELECT * FROM pgr_dijkstra('SELECT id, source, target, cost FROM road_network', start_node_id, end_node_id)"
+            },
+            {
+                "description": "查找距离某个点最近的设施",
+                "query": "查找距离某个点最近的医院",
+                "expected_sql": "SELECT * FROM hospitals ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(116.4, 39.9), 4326)) LIMIT 1"
+            }
+        ],
+        "topology_queries": [
+            {
+                "description": "分析两个多边形的拓扑关系",
+                "query": "分析多边形A和多边形B的拓扑关系",
+                "expected_sql": "SELECT ST_Relate(geom1, geom2) FROM polygons WHERE id IN (1, 2)"
+            }
+        ]
+    }
+    
+    return {
+        "status": "success",
+        "examples": examples
+    }
 
 
 if __name__ == "__main__":

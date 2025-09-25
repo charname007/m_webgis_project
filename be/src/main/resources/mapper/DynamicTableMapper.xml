@@ -57,4 +57,31 @@
     ) AS sub
 </select>
 
+<select id="getSpatialTablesGeojson" parameterType="com.backend.be.model.SpatialTableRequest" resultType="string">
+    SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', jsonb_agg(
+            jsonb_build_object(
+                'type', 'Feature',
+                'geometry', ST_AsGeoJSON(geom)::jsonb,
+                'properties', to_jsonb(sub) - 'geom'
+            )
+        )
+    ) AS geojson
+    FROM (
+        SELECT * 
+        FROM ${table}
+        WHERE 1=1
+        <if test="name != null and name != ''">
+            AND name LIKE CONCAT('%', #{name}, '%')
+        </if>
+        <if test="categories != null and categories != ''">
+            AND categories LIKE CONCAT('%', #{categories}, '%')
+        </if>
+        <if test="geom != null and geom != ''">
+            AND ST_GeometryType(geom) = #{geom}
+        </if>
+    ) AS sub
+</select>
+
 </mapper>
