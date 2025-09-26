@@ -41,60 +41,123 @@
     </resultMap>
 
 <select id="getSpatialTableGeojson" parameterType="string" resultType="string">
-    SELECT jsonb_build_object(
-        'type', 'FeatureCollection',
-        'features', jsonb_agg(
-            jsonb_build_object(
-                'type', 'Feature',
-                'geometry', ST_AsGeoJSON(geom)::jsonb,
-                'properties', to_jsonb(sub) - 'geom'
-            )
-        )
-    ) AS geojson
-    FROM (
-        SELECT * 
-        FROM ${tableName}
-    ) AS sub
+    <!-- 动态检测几何字段 -->
+    <choose>
+        <!-- 对于map_elements表，使用element_location字段 -->
+        <when test="tableName == 'map_elements'">
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(element_location)::jsonb,
+                        'properties', to_jsonb(sub) - 'element_location'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+            ) AS sub
+        </when>
+        <!-- 对于其他表，默认使用geom字段 -->
+        <otherwise>
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(geom)::jsonb,
+                        'properties', to_jsonb(sub) - 'geom'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+            ) AS sub
+        </otherwise>
+    </choose>
 </select>
 
 <select id="getSpatialTablesGeojson" parameterType="com.backend.be.model.SpatialTableRequest" resultType="string">
-    SELECT jsonb_build_object(
-        'type', 'FeatureCollection',
-        'features', jsonb_agg(
-            jsonb_build_object(
-                'type', 'Feature',
-                'geometry', ST_AsGeoJSON(geom)::jsonb,
-                'properties', to_jsonb(sub) - 'geom'
-            )
-        )
-    ) AS geojson
-    FROM (
-        SELECT * 
-        FROM ${table}
-        WHERE 1=1
-        <if test="name != null and name != ''">
-            AND name LIKE CONCAT('%', #{name}, '%')
-        </if>
-        <if test="categories != null and categories != ''">
-            AND categories LIKE CONCAT('%', #{categories}, '%')
-        </if>
-        <if test="geom != null and geom != ''">
-            <choose>
-                <!-- 如果geom是点（以POINT开头） -->
-                <when test="geom.startsWith('POINT')">
-                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
-                </when>
-                <!-- 如果geom是范围（以POLYGON、MULTIPOLYGON、LINESTRING、MULTILINESTRING开头） -->
-                <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
-                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
-                </when>
-                <!-- 其他几何类型 -->
-                <otherwise>
-                    AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
-                </otherwise>
-            </choose>
-        </if>
-    ) AS sub
+    <!-- 动态检测几何字段 -->
+    <choose>
+        <!-- 对于map_elements表，使用element_location字段 -->
+        <when test="table == 'map_elements'">
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(element_location)::jsonb,
+                        'properties', to_jsonb(sub) - 'element_location'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${table}
+                WHERE 1=1
+                <if test="name != null and name != ''">
+                    AND name LIKE CONCAT('%', #{name}, '%')
+                </if>
+                <if test="categories != null and categories != ''">
+                    AND categories LIKE CONCAT('%', #{categories}, '%')
+                </if>
+                <if test="geom != null and geom != ''">
+                    <choose>
+                        <when test="geom.startsWith('POINT')">
+                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                        </when>
+                        <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
+                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                        </when>
+                        <otherwise>
+                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                        </otherwise>
+                    </choose>
+                </if>
+            ) AS sub
+        </when>
+        <!-- 对于其他表，默认使用geom字段 -->
+        <otherwise>
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(geom)::jsonb,
+                        'properties', to_jsonb(sub) - 'geom'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${table}
+                WHERE 1=1
+                <if test="name != null and name != ''">
+                    AND name LIKE CONCAT('%', #{name}, '%')
+                </if>
+                <if test="categories != null and categories != ''">
+                    AND categories LIKE CONCAT('%', #{categories}, '%')
+                </if>
+                <if test="geom != null and geom != ''">
+                    <choose>
+                        <when test="geom.startsWith('POINT')">
+                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                        </when>
+                        <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
+                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                        </when>
+                        <otherwise>
+                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                        </otherwise>
+                    </choose>
+                </if>
+            ) AS sub
+        </otherwise>
+    </choose>
 </select>
 
 </mapper>

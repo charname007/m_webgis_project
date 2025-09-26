@@ -39,26 +39,51 @@
       <h3>空间数据查询</h3>
       <div class="query-form">
         <div class="form-group">
-          <label for="queryTable">选择数据表:</label>
-          <select id="queryTable" v-model="queryParams.tableName" class="form-select" :disabled="tableNames.length === 0">
-            <option value="">请选择表</option>
-            <option v-for="table in tableNames" :key="table" :value="table">{{ table }}</option>
-          </select>
-          <div v-if="tableNames.length === 0" class="table-hint">
-            <i class="fas fa-info-circle"></i>
-            请先点击"获取表名称"按钮加载数据表列表
+          <label for="queryTable">数据表:</label>
+          <div class="table-input-container">
+            <div class="input-with-dropdown">
+              <input
+                id="queryTable"
+                v-model="queryParams.tableName"
+                type="text"
+                placeholder="直接输入表名或从下拉列表选择"
+                class="table-input"
+                list="tableSuggestions"
+                @focus="showTableSuggestions = true"
+                @blur="hideTableSuggestions"
+              >
+              <i class="fas fa-chevron-down dropdown-icon" @click="toggleTableSuggestions"></i>
+              
+              <!-- 下拉建议列表 -->
+              <div v-if="showTableSuggestions && tableNames.length > 0" class="table-suggestions">
+                <div 
+                  v-for="table in filteredTableNames" 
+                  :key="table" 
+                  class="suggestion-item"
+                  @mousedown="selectTable(table)"
+                >
+                  {{ table }}
+                </div>
+                <div v-if="filteredTableNames.length === 0" class="no-suggestions">
+                  无匹配的表名
+                </div>
+              </div>
+            </div>
+            
+            <!-- 表名提示信息 -->
+            <div v-if="tableNames.length === 0" class="table-hint">
+              <i class="fas fa-info-circle"></i>
+              可手动输入表名，或点击"获取表名称"按钮加载表列表
+            </div>
+            <div v-if="tableNames.length > 0 && queryParams.tableName && !tableNames.includes(queryParams.tableName)" class="table-warning">
+              <i class="fas fa-exclamation-triangle"></i>
+              当前输入的表名不在已加载的列表中，但可以继续查询
+            </div>
+            <div v-if="tableNames.length > 0 && queryParams.tableName && tableNames.includes(queryParams.tableName)" class="table-success">
+              <i class="fas fa-check-circle"></i>
+              表名已确认
+            </div>
           </div>
-        </div>
-
-        <div class="form-group">
-          <label for="queryTableCondition">表查询:</label>
-          <input
-            id="queryTableCondition"
-            v-model="queryParams.tableCondition"
-            type="text"
-            placeholder="输入表名关键字（支持模糊查询）"
-            class="form-input"
-          >
         </div>
 
         <div class="form-group">
@@ -282,7 +307,6 @@ export default {
     // 查询相关状态
     const queryParams = reactive({
       tableName: "",
-      tableCondition: "", // 表查询条件
       name: "",
       categories: "",
       spatialType: "point", // point 或 rectangle
@@ -292,6 +316,11 @@ export default {
     });
     const isQuerying = ref(false);
     const queryResults = reactive({});
+    
+    // 表搜索相关状态
+    const tableSearchKeyword = ref("");
+    const filteredTableNames = ref([]);
+    const showTableSuggestions = ref(false);
     
     // 地图交互状态
     const isSelectingPoint = ref(false);
@@ -387,6 +416,63 @@ export default {
       }
     }, 30000);
   });
+
+  // 表搜索处理函数
+  const handleTableSearch = () => {
+    if (!tableSearchKeyword.value.trim()) {
+      // 如果搜索关键词为空，显示所有表
+      filteredTableNames.value = [...tableNames.value];
+    } else {
+      // 根据关键词过滤表名（不区分大小写）
+      const keyword = tableSearchKeyword.value.toLowerCase();
+      filteredTableNames.value = tableNames.value.filter(table => 
+        table.toLowerCase().includes(keyword)
+      );
+    }
+  };
+
+  // 监听表名称变化，更新过滤后的列表
+  watch(tableNames, (newTableNames) => {
+    filteredTableNames.value = [...newTableNames];
+    // 如果当前有搜索关键词，重新应用过滤
+    if (tableSearchKeyword.value.trim()) {
+      handleTableSearch();
+    }
+  }, { immediate: true });
+
+  // 监听搜索关键词变化
+  watch(tableSearchKeyword, () => {
+    handleTableSearch();
+  });
+
+  // 监听表名输入变化，实时过滤建议列表
+  watch(() => queryParams.tableName, (newValue) => {
+    if (newValue && tableNames.value.length > 0) {
+      const keyword = newValue.toLowerCase();
+      filteredTableNames.value = tableNames.value.filter(table => 
+        table.toLowerCase().includes(keyword)
+      );
+    } else {
+      filteredTableNames.value = [...tableNames.value];
+    }
+  });
+
+  // 表输入相关函数
+  const toggleTableSuggestions = () => {
+    showTableSuggestions.value = !showTableSuggestions.value;
+  };
+
+  const hideTableSuggestions = () => {
+    // 延迟隐藏，以便点击建议项时有时间处理
+    setTimeout(() => {
+      showTableSuggestions.value = false;
+    }, 200);
+  };
+
+  const selectTable = (tableName) => {
+    queryParams.tableName = tableName;
+    showTableSuggestions.value = false;
+  };
     // 获取表名称列表
     const fetchTableNames = async () => {
       // 重置状态
@@ -562,11 +648,11 @@ export default {
         return;
       }
 
-      // 如果没有选择表，则查询所有表
-      if (!queryParams.tableName && tableNames.value.length === 0) {
-        errorMessage.value = "请先获取表名称列表";
-        return;
-      }
+      // // 如果没有选择表，则查询所有表
+      // if (!queryParams.tableName && tableNames.value.length === 0) {
+      //   errorMessage.value = "请先获取表名称列表";
+      //   return;
+      // }
 
       isQuerying.value = true;
       errorMessage.value = "";
@@ -594,9 +680,10 @@ export default {
             requestBody.geom = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
           }
         }
+        console.log(requestBody)
 
         // 构建查询URL - 使用后端提供的 POST API
-        const url = "http://localhost:8080/postgis/WGP_db/tables/SpatialTables/geojson";
+        const url = "http://localhost:8081/postgis/WGP_db/tables/SpatialTables/geojson";
 
         // 创建超时控制
         const controller = new AbortController();
@@ -664,7 +751,7 @@ export default {
     // 重置查询条件
     const resetQuery = () => {
       queryParams.tableName = "";
-      queryParams.tableCondition = "";
+      tableSearchKeyword.value = "";
       queryParams.name = "";
       queryParams.categories = "";
       queryParams.spatialType = "point";
@@ -1066,6 +1153,9 @@ export default {
       isSelectingRectangle,
       isMapUtilsReady,
       isMapUtilsManuallyEnabled,
+      tableSearchKeyword,
+      filteredTableNames,
+      showTableSuggestions,
       fetchTableNames,
       fetchTableGeoJSON,
       clearGeoJSON,
@@ -1076,6 +1166,10 @@ export default {
       startPointSelection,
       startRectangleSelection,
       enableMapUtilsManually,
+      handleTableSearch,
+      toggleTableSuggestions,
+      hideTableSuggestions,
+      selectTable,
     };
   },
 };
@@ -1270,6 +1364,192 @@ h2 {
 
 .table-hint i {
   color: #42b983;
+}
+
+.table-warning {
+  font-size: 0.8rem;
+  color: #dc3545;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #fff0f0;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #dc3545;
+}
+
+.table-warning i {
+  color: #dc3545;
+}
+
+.table-success {
+  font-size: 0.8rem;
+  color: #28a745;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #f0fff4;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #28a745;
+}
+
+.table-success i {
+  color: #28a745;
+}
+
+/* 表输入容器样式 */
+.table-input-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-with-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color:#212529
+}
+
+.table-input {
+  padding: 8px 35px 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+.table-input:focus {
+  outline: none;
+  border-color: #42b983;
+  box-shadow: 0 0 0 2px rgba(66, 185, 131, 0.1);
+}
+
+.dropdown-icon {
+  position: absolute;
+  right: 10px;
+  color: #6c757d;
+  font-size: 0.9rem;
+  cursor: pointer;
+  z-index: 1;
+  transition: color 0.2s;
+}
+
+.dropdown-icon:hover {
+  color: #42b983;
+}
+
+.table-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ced4da;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.suggestion-item:hover {
+  background-color: #f8f9fa;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.no-suggestions {
+  padding: 8px 12px;
+  color: #6c757d;
+  font-style: italic;
+  text-align: center;
+}
+
+/* 表搜索容器样式 */
+.table-search-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  padding: 8px 12px 8px 35px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #42b983;
+  box-shadow: 0 0 0 2px rgba(66, 185, 131, 0.1);
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: #6c757d;
+  font-size: 0.9rem;
+  z-index: 1;
+}
+
+.search-no-results {
+  font-size: 0.8rem;
+  color: #dc3545;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #fff0f0;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #dc3545;
+}
+
+.search-no-results i {
+  color: #dc3545;
+}
+
+.search-results-info {
+  font-size: 0.8rem;
+  color: #28a745;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #f0fff4;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #28a745;
+}
+
+.search-results-info i {
+  color: #28a745;
 }
 
 /* 坐标输入组样式 */
