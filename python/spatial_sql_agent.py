@@ -6,7 +6,14 @@ from sql_connector import SQLConnector
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain.agents.agent_types import AgentType
 from langchain_core.output_parsers import StrOutputParser
+from langchain.output_parsers.retry import RetryOutputParser
+from langchain_core.agents import AgentActionMessageLog
+from langchain.agents.format_scratchpad import format_log_to_str
+from langchain.agents.output_parsers import ReActSingleInputOutputParser
+from langchain.schema import AgentAction, AgentFinish
+from langchain.callbacks.base import BaseCallbackHandler
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+import re
 
 # 空间查询系统提示词
 SPATIAL_SYSTEM_PROMPT = """
@@ -100,12 +107,17 @@ class SpatialSQLQueryAgent:
             verbose=True, 
             agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
             handle_parsing_errors=True,
+            output_parser=RetryOutputParser.from_llm(llm=self.llm.llm, parser=StrOutputParser())
+
         )
         
         # 确保输出解析为字符串
         self.chain = self.agent | StrOutputParser()
         
         self.logger = self._setup_logger()
+        
+        # 初始化思维链捕获相关变量
+        self.thought_chain_log = []
     
     def _setup_logger(self) -> logging.Logger:
         """设置日志记录器"""
@@ -157,32 +169,39 @@ class SpatialSQLQueryAgent:
         except Exception as e:
             self.logger.error(f"空间查询处理失败: {e}")
             
-            # 改进的错误处理：尝试从异常中提取有用的信息
+            # 改进的错误处理：使用新的解析器
             error_msg = str(e)
             
             # 检查是否是输出解析错误
             if "output parsing error" in error_msg.lower() or "could not parse llm output" in error_msg.lower():
                 # 尝试从错误消息中提取LLM的实际输出
-                import re
                 llm_output_match = re.search(r"Could not parse LLM output: `(.*?)`", error_msg, re.DOTALL)
                 if llm_output_match:
                     llm_output = llm_output_match.group(1)
                     self.logger.info(f"提取到LLM输出: {llm_output[:200]}...")
                     
-                    # 尝试从LLM输出中提取SQL查询
-                    sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_output, re.DOTALL | re.IGNORECASE)
-                    if sql_match:
-                        sql_query = sql_match.group(1).strip()
-                        self.logger.info(f"从LLM输出中提取到SQL查询: {sql_query[:100]}...")
-                        return sql_query
-                    
-                    # 如果包含Final Answer，提取答案部分
-                    if "Final Answer:" in llm_output:
-                        final_answer = llm_output.split("Final Answer:")[-1].strip()
-                        return final_answer
-                    
-                    # 返回清理后的LLM输出
-                    return f"LLM响应（解析失败）: {llm_output[:500]}..."
+                    # 使用新的解析器处理LLM输出
+                    try:
+                        from parsing_fix import LLMResponseParser
+                        parser = LLMResponseParser()
+                        parsed_result = parser.parse_llm_response(llm_output)
+                        
+                        if parsed_result["status"] == "success":
+                            # 根据解析结果返回适当的内容
+                            if "final_answer" in parsed_result:
+                                return parsed_result["final_answer"]
+                            elif "content" in parsed_result:
+                                return parsed_result["content"]
+                            elif "sql_queries" in parsed_result and parsed_result["sql_queries"]:
+                                return parsed_result["sql_queries"][0]
+                            else:
+                                return llm_output
+                        else:
+                            return f"LLM响应: {llm_output[:500]}..."
+                    except Exception as parse_error:
+                        self.logger.warning(f"使用新解析器失败，回退到原有逻辑: {parse_error}")
+                        # 回退到原有逻辑
+                        return f"LLM响应: {llm_output[:500]}..."
             
             return f"抱歉，处理您的空间查询时出现了问题：{error_msg}"
     
@@ -358,6 +377,91 @@ class SpatialSQLQueryAgent:
                 analysis["optimization_tips"].append("考虑在应用层进行坐标转换，而不是在数据库层")
         
         return analysis
+    
+    def run_with_thought_chain(self, query: str) -> Dict[str, Any]:
+        """
+        执行SQL查询并返回完整的思维链
+        
+        Args:
+            query: 自然语言查询字符串
+            
+        Returns:
+            包含思维链和最终结果的字典
+        """
+        try:
+            if not isinstance(query, str):
+                query = str(query)
+            
+            # 清空之前的思维链日志
+            self.thought_chain_log = []
+            
+            # 创建一个自定义的回调处理器来捕获思维链
+            class ThoughtChainCallbackHandler(BaseCallbackHandler):
+                def __init__(self, agent_instance):
+                    self.agent = agent_instance
+                    self.steps = []
+                
+                def on_agent_action(self, action: AgentAction, **kwargs):
+                    """捕获Agent的每个Action步骤"""
+                    step = {
+                        "type": "action",
+                        "action": action.tool,
+                        "action_input": action.tool_input,
+                        "log": action.log,
+                        "timestamp": kwargs.get('run_id', 'unknown')
+                    }
+                    self.steps.append(step)
+                    self.agent.thought_chain_log.append(step)
+                
+                def on_agent_finish(self, finish: AgentFinish, **kwargs):
+                    """捕获Agent的完成步骤"""
+                    step = {
+                        "type": "final_answer",
+                        "content": finish.return_values.get('output', ''),
+                        "log": finish.log,
+                        "timestamp": kwargs.get('run_id', 'unknown')
+                    }
+                    self.steps.append(step)
+                    self.agent.thought_chain_log.append(step)
+            
+            # 创建回调处理器
+            callback_handler = ThoughtChainCallbackHandler(self)
+            
+            # 增强查询以包含空间提示
+            enhanced_query = self._enhance_spatial_query(query)
+            
+            # 执行查询并捕获思维链
+            result = self.agent.invoke(
+                {"input": enhanced_query},
+                config={"callbacks": [callback_handler]}
+            )
+            
+            # 提取最终结果
+            final_result = result
+            if not isinstance(result, str):
+                if hasattr(result, 'get') and callable(result.get):
+                    final_result = result.get('output', str(result))
+                else:
+                    final_result = str(result)
+            
+            # 后处理结果，确保包含空间信息
+            final_result = self._postprocess_result(final_result, query)
+            
+            return {
+                "status": "success",
+                "final_answer": final_result,
+                "thought_chain": self.thought_chain_log,
+                "step_count": len(self.thought_chain_log)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error in run_with_thought_chain function: {e}")
+            return {
+                "status": "error",
+                "error": f"处理您的请求时出现了问题：{str(e)}",
+                "thought_chain": [],
+                "step_count": 0
+            }
     
     def close(self):
         """清理资源"""

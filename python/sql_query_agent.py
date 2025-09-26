@@ -2,11 +2,18 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Optional, Dict, Any
 from langchain.chains import create_sql_query_chain
+from param import output
 from base_llm import BaseLLM  # pyright: ignore[reportMissingImports]
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain.agents.agent_types import AgentType
 from langchain_core.output_parsers import StrOutputParser
+from langchain.output_parsers.retry import RetryOutputParser
+from langchain_core.agents import AgentActionMessageLog
+from langchain.agents.format_scratchpad import format_log_to_str
+from langchain.agents.output_parsers import ReActSingleInputOutputParser
+from langchain.schema import AgentAction, AgentFinish
+
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 
@@ -45,11 +52,14 @@ class SQLQueryAgent:
             db=self.connector.db, 
             verbose=True, 
             agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            output_parser=RetryOutputParser.from_llm(llm=self.llm.llm, parser=StrOutputParser())
         )
-        
         # 确保输出解析为字符串
         self.chain = self.agent | StrOutputParser()
+        
+        # 初始化思维链捕获相关变量
+        self.thought_chain_log = []
     
     def run(self, query: str) -> str:
         """
@@ -79,6 +89,93 @@ class SQLQueryAgent:
         except Exception as e:
             print(f"Error in run function: {e}")
             return f"抱歉，处理您的请求时出现了问题：{str(e)}"
+    
+    def run_with_thought_chain(self, query: str) -> Dict[str, Any]:
+        """
+        执行SQL查询并返回完整的思维链
+        
+        Args:
+            query: 自然语言查询字符串
+            
+        Returns:
+            包含思维链和最终结果的字典
+        """
+        try:
+            if not isinstance(query, str):
+                query = str(query)
+            
+            # 清空之前的思维链日志
+            self.thought_chain_log = []
+            
+            # 创建一个自定义的回调处理器来捕获思维链
+            from langchain.callbacks.base import BaseCallbackHandler
+            
+            class ThoughtChainCallbackHandler(BaseCallbackHandler):
+                def __init__(self, agent_instance):
+                    self.agent = agent_instance
+                    self.steps = []
+                
+                def on_agent_action(self, action: AgentAction, **kwargs):
+                    """捕获Agent的每个Action步骤"""
+                    # 直接使用AgentAction的属性，避免复杂的AgentActionMessageLog构造
+                    step = {
+                        "type": "action",
+                        "action": action.tool,
+                        "action_input": action.tool_input,
+                        "log": action.log,
+                        "timestamp": kwargs.get('run_id', 'unknown')
+                    }
+                    self.steps.append(step)
+                    self.agent.thought_chain_log.append(step)
+                
+                def on_agent_finish(self, finish: AgentFinish, **kwargs):
+                    """捕获Agent的完成步骤"""
+                    step = {
+                        "type": "final_answer",
+                        "content": finish.return_values.get('output', ''),
+                        "log": finish.log,
+                        "timestamp": kwargs.get('run_id', 'unknown')
+                    }
+                    self.steps.append(step)
+                    self.agent.thought_chain_log.append(step)
+            
+            # 创建回调处理器
+            callback_handler = ThoughtChainCallbackHandler(self)
+            
+            # 执行查询并捕获思维链
+            result = self.agent.invoke(
+                {"input": query},
+                config={"callbacks": [callback_handler]}
+            )
+            
+            # 提取最终结果
+            final_result = result
+            if not isinstance(result, str):
+                if hasattr(result, 'get') and callable(result.get):
+                    final_result = result.get('output', str(result))
+                else:
+                    final_result = str(result)
+            
+            # 使用format_log_to_str格式化思维链
+            formatted_thought_chain = format_log_to_str(self.thought_chain_log) if self.thought_chain_log else ""
+            
+            return {
+                "status": "success",
+                "final_answer": final_result,
+                "thought_chain": self.thought_chain_log,
+                "formatted_thought_chain": formatted_thought_chain,
+                "step_count": len(self.thought_chain_log)
+            }
+            
+        except Exception as e:
+            print(f"Error in run_with_thought_chain function: {e}")
+            return {
+                "status": "error",
+                "error": f"处理您的请求时出现了问题：{str(e)}",
+                "thought_chain": [],
+                "formatted_thought_chain": "",
+                "step_count": 0
+            }
     
     async def chat_with_history(
         self, 

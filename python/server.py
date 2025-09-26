@@ -372,6 +372,117 @@ def extract_sql_from_result(result: str) -> List[str]:
     else:
         return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"]
 
+def extract_thought_chain(result: str) -> List[Dict[str, str]]:
+    """
+    从代理结果中提取思维链（Thought Chain）
+    
+    Args:
+        result: 代理返回的结果字符串
+        
+    Returns:
+        思维链列表，包含thought、action、action_input等信息
+    """
+    # 首先尝试使用新的解析器
+    try:
+        from parsing_fix import LLMResponseParser
+        parser = LLMResponseParser()
+        parsed_result = parser.parse_llm_response(result)
+        
+        if parsed_result["status"] == "success" and "thought_chain" in parsed_result:
+            logger.info(f"使用新解析器提取到{len(parsed_result['thought_chain'])}个思维链步骤")
+            return parsed_result["thought_chain"]
+    except Exception as e:
+        logger.warning(f"使用新解析器失败，回退到原有逻辑: {e}")
+    
+    # 如果新解析器失败，回退到原来的逻辑
+    thought_chain = []
+    
+    # 使用正则表达式提取Thought、Action、Action Input、Final Answer等
+    thought_pattern = r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)"
+    action_pattern = r"Action:\s*(\w+)(?:\s+Action Input:\s*(.*?))?(?=Thought:|Final Answer:|$)"
+    final_answer_pattern = r"Final Answer:\s*(.*?)(?=Thought:|Action:|$)"
+    
+    import re
+    
+    # 提取Thoughts
+    thought_matches = re.findall(thought_pattern, result, re.DOTALL)
+    for i, thought in enumerate(thought_matches):
+        thought_chain.append({
+            "step": i + 1,
+            "type": "thought",
+            "content": thought.strip(),
+            "timestamp": f"step_{i+1}"
+        })
+    
+    # 提取Actions
+    action_matches = re.findall(action_pattern, result, re.DOTALL)
+    for i, (action, action_input) in enumerate(action_matches):
+        thought_chain.append({
+            "step": len(thought_chain) + 1,
+            "type": "action",
+            "action": action.strip(),
+            "action_input": action_input.strip() if action_input else "",
+            "timestamp": f"step_{len(thought_chain)+1}"
+        })
+    
+    # 提取Final Answer
+    final_answer_matches = re.findall(final_answer_pattern, result, re.DOTALL)
+    if final_answer_matches:
+        thought_chain.append({
+            "step": len(thought_chain) + 1,
+            "type": "final_answer",
+            "content": final_answer_matches[0].strip(),
+            "timestamp": "final"
+        })
+    
+    # 如果没有找到标准的思维链格式，尝试从整个结果中提取关键信息
+    if not thought_chain:
+        # 查找所有包含"Thought"、"Action"、"Final Answer"的行
+        lines = result.split('\n')
+        current_step = 1
+        for line in lines:
+            line = line.strip()
+            if line.startswith('Thought:'):
+                thought_chain.append({
+                    "step": current_step,
+                    "type": "thought",
+                    "content": line.replace('Thought:', '').strip(),
+                    "timestamp": f"step_{current_step}"
+                })
+                current_step += 1
+            elif line.startswith('Action:'):
+                action_parts = line.replace('Action:', '').strip().split('Action Input:')
+                action = action_parts[0].strip()
+                action_input = action_parts[1].strip() if len(action_parts) > 1 else ""
+                thought_chain.append({
+                    "step": current_step,
+                    "type": "action",
+                    "action": action,
+                    "action_input": action_input,
+                    "timestamp": f"step_{current_step}"
+                })
+                current_step += 1
+            elif line.startswith('Final Answer:'):
+                thought_chain.append({
+                    "step": current_step,
+                    "type": "final_answer",
+                    "content": line.replace('Final Answer:', '').strip(),
+                    "timestamp": "final"
+                })
+                current_step += 1
+    
+    # 如果仍然没有找到思维链，返回整个结果作为单个thought
+    if not thought_chain:
+        thought_chain.append({
+            "step": 1,
+            "type": "thought",
+            "content": result[:500] + "..." if len(result) > 500 else result,
+            "timestamp": "single_step"
+        })
+    
+    logger.info(f"使用原有逻辑提取到{len(thought_chain)}个思维链步骤")
+    return thought_chain
+
 def is_valid_sql(sql: str) -> bool:
     """
     简单验证SQL语句的有效性
@@ -1031,8 +1142,21 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
             if not initialize_agent():
                 raise Exception("SQL查询代理未初始化")
         
-        # 执行空间查询
-        result = sql_query_agent.run(question)
+        # 执行空间查询并捕获完整思维链
+        thought_chain_result = sql_query_agent.run_with_thought_chain(question)
+        
+        if thought_chain_result["status"] == "success":
+            result = thought_chain_result["final_answer"]
+            thought_chain = thought_chain_result["thought_chain"]
+            step_count = thought_chain_result["step_count"]
+            
+            logger.info(f"捕获到{step_count}个思维链步骤")
+            logger.info(f"最终答案长度: {len(result)}")
+        else:
+            # 如果思维链捕获失败，回退到原来的方法
+            logger.warning("思维链捕获失败，使用回退方法")
+            result = sql_query_agent.run(question)
+            thought_chain = extract_thought_chain(result)
         
         # 提取SQL查询
         sql_queries = extract_sql_from_result(result)
@@ -1055,7 +1179,8 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
             },
             "answer": {
                 "text": result,
-                "analysis": analysis
+                "analysis": analysis,
+                "thought_chain": thought_chain
             },
             "sql": sql_queries,
             "geojson": None
@@ -1171,6 +1296,9 @@ async def _handle_summary_query(question: str, query_analysis: Dict[str, Any],
         # 提取SQL查询
         sql_queries = extract_sql_from_result(result)
         
+        # 提取思维链（Thought Chain）
+        thought_chain = extract_thought_chain(result)
+        
         # 构建响应
         response = {
             "status": "success",
@@ -1181,7 +1309,8 @@ async def _handle_summary_query(question: str, query_analysis: Dict[str, Any],
             },
             "answer": {
                 "text": result,
-                "summary_analysis": "这是一个数据总结查询，提供了统计信息和分析"
+                "summary_analysis": "这是一个数据总结查询，提供了统计信息和分析",
+                "thought_chain": thought_chain
             },
             "sql": sql_queries,
             "geojson": None
@@ -1221,6 +1350,9 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
         # 提取SQL查询
         sql_queries = extract_sql_from_result(result)
         
+        # 提取思维链（Thought Chain）
+        thought_chain = extract_thought_chain(result)
+        
         # 构建响应
         response = {
             "status": "success",
@@ -1230,7 +1362,8 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
                 "analysis": query_analysis
             },
             "answer": {
-                "text": result
+                "text": result,
+                "thought_chain": thought_chain
             },
             "sql": sql_queries,
             "geojson": None
