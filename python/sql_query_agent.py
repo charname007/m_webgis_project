@@ -41,11 +41,11 @@ class SQLQueryAgent:
         
         # 创建SQL代理
         self.agent = create_sql_agent(
-            self.llm.llm, 
+            llm=self.llm.llm, 
             db=self.connector.db, 
             verbose=True, 
             agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION, 
-            handle_parsing_errors=True,
+            handle_parsing_errors=True
         )
         
         # 确保输出解析为字符串

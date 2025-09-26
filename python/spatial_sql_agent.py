@@ -12,6 +12,11 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 SPATIAL_SYSTEM_PROMPT = """
 你是一个专门处理空间数据库查询的AI助手。你精通PostGIS、PgRouting和PostGIS拓扑扩展。
 
+IMPORTANT: 你必须严格遵守以下输出格式要求：
+- 每个"Thought:"后面必须跟着"Action:"和"Action Input:"或者"Final Answer:"
+- 不要跳过任何步骤，确保格式完全正确
+- 使用明确的标记来区分思考、行动和最终答案
+
 重要提示：
 1. 当用户询问空间相关问题时，优先使用PostGIS函数
 2. 对于路径规划问题，使用PgRouting函数
@@ -47,6 +52,15 @@ PostGIS拓扑函数：
 4. 避免危险操作（DROP, DELETE等）
 
 如果查询涉及空间分析，请优先使用空间函数而不是普通SQL操作。
+
+输出格式示例：
+Thought: 我需要先查看数据库中有哪些表
+Action: sql_db_list_tables
+Action Input: ""
+
+或者：
+Thought: 我已经获得了所有需要的信息
+Final Answer: 查询结果是...
 """
 
 class SpatialSQLQueryAgent:
@@ -139,9 +153,38 @@ class SpatialSQLQueryAgent:
             result = self._postprocess_result(result, query)
             
             return result
+            
         except Exception as e:
             self.logger.error(f"空间查询处理失败: {e}")
-            return f"抱歉，处理您的空间查询时出现了问题：{str(e)}"
+            
+            # 改进的错误处理：尝试从异常中提取有用的信息
+            error_msg = str(e)
+            
+            # 检查是否是输出解析错误
+            if "output parsing error" in error_msg.lower() or "could not parse llm output" in error_msg.lower():
+                # 尝试从错误消息中提取LLM的实际输出
+                import re
+                llm_output_match = re.search(r"Could not parse LLM output: `(.*?)`", error_msg, re.DOTALL)
+                if llm_output_match:
+                    llm_output = llm_output_match.group(1)
+                    self.logger.info(f"提取到LLM输出: {llm_output[:200]}...")
+                    
+                    # 尝试从LLM输出中提取SQL查询
+                    sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_output, re.DOTALL | re.IGNORECASE)
+                    if sql_match:
+                        sql_query = sql_match.group(1).strip()
+                        self.logger.info(f"从LLM输出中提取到SQL查询: {sql_query[:100]}...")
+                        return sql_query
+                    
+                    # 如果包含Final Answer，提取答案部分
+                    if "Final Answer:" in llm_output:
+                        final_answer = llm_output.split("Final Answer:")[-1].strip()
+                        return final_answer
+                    
+                    # 返回清理后的LLM输出
+                    return f"LLM响应（解析失败）: {llm_output[:500]}..."
+            
+            return f"抱歉，处理您的空间查询时出现了问题：{error_msg}"
     
     def _enhance_spatial_query(self, query: str) -> str:
         """

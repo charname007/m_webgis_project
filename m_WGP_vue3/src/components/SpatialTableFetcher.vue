@@ -1,15 +1,23 @@
 <template>
-  <div class="spatial-table-fetcher">
+  <div class="spatial-table-fetcher" :class="{ 'collapsed': isCollapsed }" :style="positionStyle"
+    @mousedown="startDrag">
     <div class="header">
-      <h2>空间数据表管理</h2>
-      <button
-        @click="fetchTableNames"
-        :disabled="isLoadingTables"
-        class="fetch-btn"
-      >
-        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoadingTables }"></i>
-        {{ isLoadingTables ? "加载中..." : "获取表名称" }}
-      </button>
+      <div class="header-left">
+        <h2>空间数据表管理</h2>
+        <!-- <div class="drag-handle">
+          <i class="fas fa-arrows-alt"></i>
+        </div> -->
+      </div>
+      <div class="header-right">
+        <button @click="toggleCollapse" class="collapse-btn" :title="isCollapsed ? '展开' : '折叠'">
+          --
+          <i class="fas" :class="isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
+        </button>
+        <button @click="fetchTableNames" :disabled="isLoadingTables" class="fetch-btn">
+          <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoadingTables }"></i>
+          {{ isLoadingTables ? "加载中..." : "获取表名称" }}
+        </button>
+      </div>
     </div>
 
     <!-- 错误提示 -->
@@ -23,11 +31,7 @@
       <div class="status-warning">
         <i class="fas fa-exclamation-triangle"></i>
         <span>地图工具未就绪</span>
-        <button 
-          @click="enableMapUtilsManually" 
-          class="enable-btn"
-          :disabled="isMapUtilsManuallyEnabled"
-        >
+        <button @click="enableMapUtilsManually" class="enable-btn" :disabled="isMapUtilsManuallyEnabled">
           <i class="fas fa-power-off"></i>
           {{ isMapUtilsManuallyEnabled ? "已手动启用" : "手动启用地图工具" }}
         </button>
@@ -42,26 +46,15 @@
           <label for="queryTable">数据表:</label>
           <div class="table-input-container">
             <div class="input-with-dropdown">
-              <input
-                id="queryTable"
-                v-model="queryParams.tableName"
-                type="text"
-                placeholder="直接输入表名或从下拉列表选择"
-                class="table-input"
-                list="tableSuggestions"
-                @focus="showTableSuggestions = true"
-                @blur="hideTableSuggestions"
-              >
+              <input id="queryTable" v-model="queryParams.tableName" type="text" placeholder="直接输入表名或从下拉列表选择"
+                class="table-input" list="tableSuggestions" @focus="showTableSuggestions = true"
+                @blur="hideTableSuggestions">
               <i class="fas fa-chevron-down dropdown-icon" @click="toggleTableSuggestions"></i>
-              
+
               <!-- 下拉建议列表 -->
               <div v-if="showTableSuggestions && tableNames.length > 0" class="table-suggestions">
-                <div 
-                  v-for="table in filteredTableNames" 
-                  :key="table" 
-                  class="suggestion-item"
-                  @mousedown="selectTable(table)"
-                >
+                <div v-for="table in filteredTableNames" :key="table" class="suggestion-item"
+                  @mousedown="selectTable(table)">
                   {{ table }}
                 </div>
                 <div v-if="filteredTableNames.length === 0" class="no-suggestions">
@@ -69,17 +62,19 @@
                 </div>
               </div>
             </div>
-            
+
             <!-- 表名提示信息 -->
             <div v-if="tableNames.length === 0" class="table-hint">
               <i class="fas fa-info-circle"></i>
               可手动输入表名，或点击"获取表名称"按钮加载表列表
             </div>
-            <div v-if="tableNames.length > 0 && queryParams.tableName && !tableNames.includes(queryParams.tableName)" class="table-warning">
+            <div v-if="tableNames.length > 0 && queryParams.tableName && !tableNames.includes(queryParams.tableName)"
+              class="table-warning">
               <i class="fas fa-exclamation-triangle"></i>
               当前输入的表名不在已加载的列表中，但可以继续查询
             </div>
-            <div v-if="tableNames.length > 0 && queryParams.tableName && tableNames.includes(queryParams.tableName)" class="table-success">
+            <div v-if="tableNames.length > 0 && queryParams.tableName && tableNames.includes(queryParams.tableName)"
+              class="table-success">
               <i class="fas fa-check-circle"></i>
               表名已确认
             </div>
@@ -88,45 +83,24 @@
 
         <div class="form-group">
           <label for="queryName">名称查询:</label>
-          <input
-            id="queryName"
-            v-model="queryParams.name"
-            type="text"
-            placeholder="输入名称关键字"
-            class="form-input"
-          >
+          <input id="queryName" v-model="queryParams.name" type="text" placeholder="输入名称关键字" class="form-input">
         </div>
 
         <div class="form-group">
           <label for="queryCategories">分类查询:</label>
-          <input
-            id="queryCategories"
-            v-model="queryParams.categories"
-            type="text"
-            placeholder="输入分类关键字"
-            class="form-input"
-          >
+          <input id="queryCategories" v-model="queryParams.categories" type="text" placeholder="输入分类关键字"
+            class="form-input">
         </div>
 
         <div class="form-group">
           <label>空间范围查询:</label>
           <div class="spatial-query-options">
             <label class="radio-label">
-              <input
-                type="radio"
-                v-model="queryParams.spatialType"
-                value="point"
-                class="radio-input"
-              >
+              <input type="radio" v-model="queryParams.spatialType" value="point" class="radio-input">
               点坐标
             </label>
             <label class="radio-label">
-              <input
-                type="radio"
-                v-model="queryParams.spatialType"
-                value="rectangle"
-                class="radio-input"
-              >
+              <input type="radio" v-model="queryParams.spatialType" value="rectangle" class="radio-input">
               矩形范围
             </label>
           </div>
@@ -135,18 +109,10 @@
         <div v-if="queryParams.spatialType === 'point'" class="form-group">
           <label for="queryPoint">点坐标 (经度,纬度):</label>
           <div class="coordinate-input-group">
-            <input
-              id="queryPoint"
-              v-model="queryParams.point"
-              type="text"
-              placeholder="例如: 114.0,30.5"
-              class="form-input"
-            >
-            <button
-              @click="startPointSelection"
-              :disabled="!(isMapUtilsReady || isMapUtilsManuallyEnabled) || isSelectingPoint"
-              class="map-select-btn"
-            >
+            <input id="queryPoint" v-model="queryParams.point" type="text" placeholder="例如: 114.0,30.5"
+              class="form-input">
+            <button @click="startPointSelection"
+              :disabled="!(isMapUtilsReady || isMapUtilsManuallyEnabled) || isSelectingPoint" class="map-select-btn">
               <i class="fas fa-map-marker-alt" :class="{ 'fa-spin': isSelectingPoint }"></i>
               {{ isSelectingPoint ? "选择中..." : "从地图选点" }}
             </button>
@@ -156,18 +122,11 @@
         <div v-if="queryParams.spatialType === 'rectangle'" class="form-group">
           <label for="queryBounds">矩形范围 (minLon,minLat,maxLon,maxLat):</label>
           <div class="coordinate-input-group">
-            <input
-              id="queryBounds"
-              v-model="queryParams.bounds"
-              type="text"
-              placeholder="例如: 113.5,30.0,114.5,31.0"
-              class="form-input"
-            >
-            <button
-              @click="startRectangleSelection"
+            <input id="queryBounds" v-model="queryParams.bounds" type="text" placeholder="例如: 113.5,30.0,114.5,31.0"
+              class="form-input">
+            <button @click="startRectangleSelection"
               :disabled="!(isMapUtilsReady || isMapUtilsManuallyEnabled) || isSelectingRectangle"
-              class="map-select-btn"
-            >
+              class="map-select-btn">
               <i class="fas fa-vector-square" :class="{ 'fa-spin': isSelectingRectangle }"></i>
               {{ isSelectingRectangle ? "选择中..." : "从地图选框" }}
             </button>
@@ -176,30 +135,16 @@
 
         <div class="form-group">
           <label for="queryLimit">返回记录数:</label>
-          <input
-            id="queryLimit"
-            v-model="queryParams.limit"
-            type="number"
-            min="1"
-            max="1000"
-            placeholder="默认100"
-            class="form-input"
-          >
+          <input id="queryLimit" v-model="queryParams.limit" type="number" min="1" max="1000" placeholder="默认100"
+            class="form-input">
         </div>
 
         <div class="query-actions">
-          <button
-            @click="executeQuery"
-            :disabled="isQuerying"
-            class="query-btn"
-          >
+          <button @click="executeQuery" :disabled="isQuerying" class="query-btn">
             <i class="fas fa-search" :class="{ 'fa-spin': isQuerying }"></i>
             {{ isQuerying ? "查询中..." : "执行查询" }}
           </button>
-          <button
-            @click="resetQuery"
-            class="reset-btn"
-          >
+          <button @click="resetQuery" class="reset-btn">
             <i class="fas fa-redo"></i>
             重置条件
           </button>
@@ -216,15 +161,8 @@
 
       <div v-for="table in tableNames" :key="table" class="table-item">
         <div class="table-name">{{ table }}</div>
-        <button
-          @click="fetchTableGeoJSON(table)"
-          :disabled="isLoadingGeoJSON[table]"
-          class="geojson-btn"
-        >
-          <i
-            class="fas fa-download"
-            :class="{ 'fa-spin': isLoadingGeoJSON[table] }"
-          ></i>
+        <button @click="fetchTableGeoJSON(table)" :disabled="isLoadingGeoJSON[table]" class="geojson-btn">
+          <i class="fas fa-download" :class="{ 'fa-spin': isLoadingGeoJSON[table] }"></i>
           {{ isLoadingGeoJSON[table] ? "获取中..." : "获取GeoJSON" }}
         </button>
       </div>
@@ -244,10 +182,7 @@
     </div>
 
     <!-- GeoJSON 结果区域 -->
-    <div
-      v-if="selectedTable && geojsonData[selectedTable]"
-      class="geojson-result"
-    >
+    <div v-if="selectedTable && geojsonData[selectedTable]" class="geojson-result">
       <div class="result-header">
         <h3>{{ selectedTable }} 的 GeoJSON 数据</h3>
         <button @click="clearGeoJSON(selectedTable)" class="clear-btn">
@@ -263,7 +198,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, watch} from "vue";
+import { ref, reactive, onMounted, watchEffect, watch,computed} from "vue";
 import { getCurrentInstance } from "vue";
 import { provide } from 'vue';
 import { inject } from 'vue';
@@ -303,7 +238,7 @@ export default {
     const isLoadingGeoJSON = reactive({});
     const selectedTable = ref("");
     const copySuccess = ref(false);
-    
+
     // 查询相关状态
     const queryParams = reactive({
       tableName: "",
@@ -316,163 +251,173 @@ export default {
     });
     const isQuerying = ref(false);
     const queryResults = reactive({});
-    
+
     // 表搜索相关状态
     const tableSearchKeyword = ref("");
     const filteredTableNames = ref([]);
     const showTableSuggestions = ref(false);
-    
+
     // 地图交互状态
     const isSelectingPoint = ref(false);
     const isSelectingRectangle = ref(false);
     // 手动启用地图工具的状态
     const isMapUtilsManuallyEnabled = ref(false);
-  // 注入 mapUtils 响应式引用
-  const mapUtilsRef = inject('mapUtils', null);
-  const isMapUtilsReady = ref(false);
-  const mapUtils = ref(null);
 
-  // 调试信息
-  console.log("mapUtilsRef 注入状态:", mapUtilsRef ? "已注入" : "未注入");
-  if (mapUtilsRef) {
-    console.log("mapUtilsRef 内容:", mapUtilsRef);
-    console.log("mapUtilsRef.value:", mapUtilsRef.value);
-  }
+    // 折叠和拖拽相关状态
+    const isCollapsed = ref(false);
+    const isDragging = ref(false);
+    const dragStartX = ref(0);
+    const dragStartY = ref(0);
+    const currentPosition = reactive({
+      x: 0,
+      y: 30
+    });
+    // 注入 mapUtils 响应式引用
+    const mapUtilsRef = inject('mapUtils', null);
+    const isMapUtilsReady = ref(false);
+    const mapUtils = ref(null);
 
-  // 检查 mapUtils 是否可用
-  const checkMapUtilsReady = () => {
-    console.log("检查 mapUtils 可用性...");
-    
-    if (mapUtilsRef && mapUtilsRef.value) {
-      console.log("mapUtilsRef.value 存在:", mapUtilsRef.value);
-      
-      // 检查是否有 map 属性
-      if (mapUtilsRef.value.map) {
-        mapUtils.value = mapUtilsRef.value;
-        isMapUtilsReady.value = true;
-        console.log("✅ mapUtils 实例准备就绪", mapUtils.value);
-      } else {
-        console.warn("⚠️ mapUtilsRef.value 存在，但没有 map 属性");
-        isMapUtilsReady.value = false;
-        mapUtils.value = null;
-      }
-    } else {
-      console.warn("❌ mapUtils 实例未准备好", mapUtilsRef);
-      isMapUtilsReady.value = false;
-      mapUtils.value = null;
+    // 调试信息
+    console.log("mapUtilsRef 注入状态:", mapUtilsRef ? "已注入" : "未注入");
+    if (mapUtilsRef) {
+      console.log("mapUtilsRef 内容:", mapUtilsRef);
+      console.log("mapUtilsRef.value:", mapUtilsRef.value);
     }
-    
-    console.log("isMapUtilsReady 状态:", isMapUtilsReady.value);
-  };
 
-  // 监听 mapUtilsRef 的变化
-  watch(
-    () => mapUtilsRef?.value,
-    (newValue) => {
-      console.log("mapUtilsRef.value 发生变化:", newValue);
-      if (newValue && newValue.map) {
-        mapUtils.value = newValue;
-        isMapUtilsReady.value = true;
-        console.log("✅ mapUtils 实例已更新", mapUtils.value);
+    // 检查 mapUtils 是否可用
+    const checkMapUtilsReady = () => {
+      console.log("检查 mapUtils 可用性...");
+
+      if (mapUtilsRef && mapUtilsRef.value) {
+        console.log("mapUtilsRef.value 存在:", mapUtilsRef.value);
+
+        // 检查是否有 map 属性
+        if (mapUtilsRef.value.map) {
+          mapUtils.value = mapUtilsRef.value;
+          isMapUtilsReady.value = true;
+          console.log("✅ mapUtils 实例准备就绪", mapUtils.value);
+        } else {
+          console.warn("⚠️ mapUtilsRef.value 存在，但没有 map 属性");
+          isMapUtilsReady.value = false;
+          mapUtils.value = null;
+        }
       } else {
+        console.warn("❌ mapUtils 实例未准备好", mapUtilsRef);
         isMapUtilsReady.value = false;
         mapUtils.value = null;
-        console.warn("❌ mapUtils 实例更新失败");
       }
-    },
-    { immediate: true }
-  );
 
-  onMounted(() => {
-    console.log("组件已挂载，开始检查 mapUtils...");
-    
-    // 组件挂载后立即检查
-    checkMapUtilsReady();
-    
-    // 设置定时器定期检查，直到 mapUtils 可用
-    const checkInterval = setInterval(() => {
-      console.log("定时检查 mapUtils 状态...");
-      if (mapUtilsRef && mapUtilsRef.value && mapUtilsRef.value.map) {
-        mapUtils.value = mapUtilsRef.value;
-        isMapUtilsReady.value = true;
-        console.log("✅ mapUtils 实例准备就绪");
+      console.log("isMapUtilsReady 状态:", isMapUtilsReady.value);
+    };
+
+    // 监听 mapUtilsRef 的变化
+    watch(
+      () => mapUtilsRef?.value,
+      (newValue) => {
+        console.log("mapUtilsRef.value 发生变化:", newValue);
+        if (newValue && newValue.map) {
+          mapUtils.value = newValue;
+          isMapUtilsReady.value = true;
+          console.log("✅ mapUtils 实例已更新", mapUtils.value);
+        } else {
+          isMapUtilsReady.value = false;
+          mapUtils.value = null;
+          console.warn("❌ mapUtils 实例更新失败");
+        }
+      },
+      { immediate: true }
+    );
+
+    onMounted(() => {
+      console.log("组件已挂载，开始检查 mapUtils...");
+
+      // 组件挂载后立即检查
+      checkMapUtilsReady();
+
+      // 设置定时器定期检查，直到 mapUtils 可用
+      const checkInterval = setInterval(() => {
+        console.log("定时检查 mapUtils 状态...");
+        if (mapUtilsRef && mapUtilsRef.value && mapUtilsRef.value.map) {
+          mapUtils.value = mapUtilsRef.value;
+          isMapUtilsReady.value = true;
+          console.log("✅ mapUtils 实例准备就绪");
+          clearInterval(checkInterval);
+        } else {
+          console.log("⏳ 等待 mapUtils 实例初始化...", {
+            hasRef: !!mapUtilsRef,
+            hasValue: mapUtilsRef ? !!mapUtilsRef.value : false,
+            hasMap: mapUtilsRef && mapUtilsRef.value ? !!mapUtilsRef.value.map : false
+          });
+        }
+      }, 1000);
+
+      // 30秒后停止检查
+      setTimeout(() => {
         clearInterval(checkInterval);
+        if (!isMapUtilsReady.value) {
+          console.error("❌ mapUtils 实例初始化超时");
+          // 添加一个备选方案：允许用户手动启用按钮
+          console.warn("⚠️ 地图工具初始化失败，按钮将保持禁用状态");
+        }
+      }, 30000);
+    });
+
+    // 表搜索处理函数
+    const handleTableSearch = () => {
+      if (!tableSearchKeyword.value.trim()) {
+        // 如果搜索关键词为空，显示所有表
+        filteredTableNames.value = [...tableNames.value];
       } else {
-        console.log("⏳ 等待 mapUtils 实例初始化...", {
-          hasRef: !!mapUtilsRef,
-          hasValue: mapUtilsRef ? !!mapUtilsRef.value : false,
-          hasMap: mapUtilsRef && mapUtilsRef.value ? !!mapUtilsRef.value.map : false
-        });
+        // 根据关键词过滤表名（不区分大小写）
+        const keyword = tableSearchKeyword.value.toLowerCase();
+        filteredTableNames.value = tableNames.value.filter(table =>
+          table.toLowerCase().includes(keyword)
+        );
       }
-    }, 1000);
-    
-    // 30秒后停止检查
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      if (!isMapUtilsReady.value) {
-        console.error("❌ mapUtils 实例初始化超时");
-        // 添加一个备选方案：允许用户手动启用按钮
-        console.warn("⚠️ 地图工具初始化失败，按钮将保持禁用状态");
+    };
+
+    // 监听表名称变化，更新过滤后的列表
+    watch(tableNames, (newTableNames) => {
+      filteredTableNames.value = [...newTableNames];
+      // 如果当前有搜索关键词，重新应用过滤
+      if (tableSearchKeyword.value.trim()) {
+        handleTableSearch();
       }
-    }, 30000);
-  });
+    }, { immediate: true });
 
-  // 表搜索处理函数
-  const handleTableSearch = () => {
-    if (!tableSearchKeyword.value.trim()) {
-      // 如果搜索关键词为空，显示所有表
-      filteredTableNames.value = [...tableNames.value];
-    } else {
-      // 根据关键词过滤表名（不区分大小写）
-      const keyword = tableSearchKeyword.value.toLowerCase();
-      filteredTableNames.value = tableNames.value.filter(table => 
-        table.toLowerCase().includes(keyword)
-      );
-    }
-  };
-
-  // 监听表名称变化，更新过滤后的列表
-  watch(tableNames, (newTableNames) => {
-    filteredTableNames.value = [...newTableNames];
-    // 如果当前有搜索关键词，重新应用过滤
-    if (tableSearchKeyword.value.trim()) {
+    // 监听搜索关键词变化
+    watch(tableSearchKeyword, () => {
       handleTableSearch();
-    }
-  }, { immediate: true });
+    });
 
-  // 监听搜索关键词变化
-  watch(tableSearchKeyword, () => {
-    handleTableSearch();
-  });
+    // 监听表名输入变化，实时过滤建议列表
+    watch(() => queryParams.tableName, (newValue) => {
+      if (newValue && tableNames.value.length > 0) {
+        const keyword = newValue.toLowerCase();
+        filteredTableNames.value = tableNames.value.filter(table =>
+          table.toLowerCase().includes(keyword)
+        );
+      } else {
+        filteredTableNames.value = [...tableNames.value];
+      }
+    });
 
-  // 监听表名输入变化，实时过滤建议列表
-  watch(() => queryParams.tableName, (newValue) => {
-    if (newValue && tableNames.value.length > 0) {
-      const keyword = newValue.toLowerCase();
-      filteredTableNames.value = tableNames.value.filter(table => 
-        table.toLowerCase().includes(keyword)
-      );
-    } else {
-      filteredTableNames.value = [...tableNames.value];
-    }
-  });
+    // 表输入相关函数
+    const toggleTableSuggestions = () => {
+      showTableSuggestions.value = !showTableSuggestions.value;
+    };
 
-  // 表输入相关函数
-  const toggleTableSuggestions = () => {
-    showTableSuggestions.value = !showTableSuggestions.value;
-  };
+    const hideTableSuggestions = () => {
+      // 延迟隐藏，以便点击建议项时有时间处理
+      setTimeout(() => {
+        showTableSuggestions.value = false;
+      }, 200);
+    };
 
-  const hideTableSuggestions = () => {
-    // 延迟隐藏，以便点击建议项时有时间处理
-    setTimeout(() => {
+    const selectTable = (tableName) => {
+      queryParams.tableName = tableName;
       showTableSuggestions.value = false;
-    }, 200);
-  };
-
-  const selectTable = (tableName) => {
-    queryParams.tableName = tableName;
-    showTableSuggestions.value = false;
-  };
+    };
     // 获取表名称列表
     const fetchTableNames = async () => {
       // 重置状态
@@ -528,11 +473,12 @@ export default {
     // 获取指定表的GeoJSON数据
     const fetchTableGeoJSON = async (tableName) => {
       if (!tableName) return;
-        if (!isMapUtilsReady.value) {
-    errorMessage.value = '地图工具未准备好，请稍后再试';
-    return;}
+      if (!isMapUtilsReady.value) {
+        errorMessage.value = '地图工具未准备好，请稍后再试';
+        return;
+      }
 
-      
+
 
       // 重置状态
       errorMessage.value = "";
@@ -568,31 +514,31 @@ export default {
         const data = await response.json();
         geojsonData[tableName] = data;
         selectedTable.value = tableName;
-    // 加载GeoJSON到地图
-    if (mapUtils.value) {
-      // 可自定义样式
-      const styleOptions = {
-        fillColor: "rgba(0, 0, 255, 0.2)",
-        strokeColor: "#0000FF",
-        strokeWidth: 2,
-        pointColor: "#FF0000",
-        pointRadius: 6
-      };
-      
-      // 调用mapUtils的方法加载图层
-      const layer = mapUtils.value.loadGeoJsonLayer(
-        data,                // GeoJSON对象
-        styleOptions,        // 样式配置
-        `${tableName}图层`,   // 图层名称
-      );
-      
-      console.log(`成功加载图层: ${tableName}`, layer);
-    }
-    else {
+        // 加载GeoJSON到地图
+        if (mapUtils.value) {
+          // 可自定义样式
+          const styleOptions = {
+            fillColor: "rgba(0, 0, 255, 0.2)",
+            strokeColor: "#0000FF",
+            strokeWidth: 2,
+            pointColor: "#FF0000",
+            pointRadius: 6
+          };
 
-      console.error("mapUtils实例未找到");
+          // 调用mapUtils的方法加载图层
+          const layer = mapUtils.value.loadGeoJsonLayer(
+            data,                // GeoJSON对象
+            styleOptions,        // 样式配置
+            `${tableName}图层`,   // 图层名称
+          );
 
-    }
+          console.log(`成功加载图层: ${tableName}`, layer);
+        }
+        else {
+
+          console.error("mapUtils实例未找到");
+
+        }
       } catch (error) {
         if (error.name === "AbortError") {
           errorMessage.value = `请求超时（${props.timeout / 1000}秒）`;
@@ -718,7 +664,7 @@ export default {
         // 存储查询结果
         queryResults[queryParams.tableName] = geojsonData;
         selectedTable.value = queryParams.tableName;
-        
+
         // 加载GeoJSON到地图
         const styleOptions = {
           fillColor: "rgba(255, 165, 0, 0.3)", // 橙色，区别于普通加载
@@ -727,13 +673,13 @@ export default {
           pointColor: "#FF4500",
           pointRadius: 8
         };
-        
+
         const layer = mapUtils.value.loadGeoJsonLayer(
           geojsonData,
           styleOptions,
           `${queryParams.tableName}查询结果`
         );
-        
+
         console.log(`查询结果加载成功: ${queryParams.tableName}`, layer);
       } catch (error) {
         if (error.name === "AbortError") {
@@ -798,19 +744,19 @@ export default {
         const coordinate = event.coordinate;
         const lng = coordinate[0].toFixed(6);
         const lat = coordinate[1].toFixed(6);
-        
+
         // 更新点坐标输入框
         queryParams.point = `${lng},${lat}`;
-        
+
         // 清理所有资源
         cleanup();
-        
+
         console.log(`已选择点坐标: ${lng}, ${lat}`);
       };
 
       // 添加地图点击事件监听器（使用singleclick而不是click）
       mapUtils.value.map.on('singleclick', mapClickHandler);
-      
+
       // 设置超时自动取消选择
       timeoutId = setTimeout(() => {
         if (isSelectingPoint.value) {
@@ -818,7 +764,7 @@ export default {
           errorMessage.value = "选点操作已超时，请重新选择";
         }
       }, 30000); // 30秒超时
-      
+
       console.log("选点功能已启动，请点击地图选择点坐标");
     };
 
@@ -904,7 +850,7 @@ export default {
       // 清理函数 - 使用更可靠的图层移除方法
       const cleanup = () => {
         console.log("开始清理选框资源...");
-        
+
         // 先移除事件监听器
         if (mapClickHandler) {
           mapUtils.value.map.un('singleclick', mapClickHandler);
@@ -916,28 +862,28 @@ export default {
           pointerMoveHandler = null;
           console.log("已移除鼠标移动事件监听器");
         }
-        
+
         // 恢复要素点击监听器
         if (originalFeatureClickHandler) {
           mapUtils.value.map.on('singleclick', originalFeatureClickHandler);
           console.log("已恢复要素点击监听器");
         }
-        
+
         // 移除所有矩形预览图层 - 使用最彻底的方法
         console.log("准备移除所有矩形预览图层...");
-        
+
         try {
           // 获取所有图层
           const layers = mapUtils.value.map.getLayers().getArray();
-          
+
           // 查找所有矩形预览图层
           const previewLayers = layers.filter(layer => {
             const layerId = layer.get('id');
             return layerId && layerId.startsWith('rectangle-preview-');
           });
-          
+
           console.log(`找到 ${previewLayers.length} 个预览图层需要移除`);
-          
+
           // 一次性移除所有预览图层
           previewLayers.forEach(layer => {
             try {
@@ -946,11 +892,11 @@ export default {
               if (source) {
                 source.clear();
               }
-              
+
               // 从地图移除图层
               mapUtils.value.map.removeLayer(layer);
               console.log(`已移除图层: ${layer.get('id')}`);
-              
+
               // 强制释放资源
               layer.setSource(null);
               layer.setStyle(null);
@@ -958,22 +904,22 @@ export default {
               console.error(`移除图层 ${layer.get('id')} 时出错:`, layerError);
             }
           });
-          
+
           // 强制地图刷新
           setTimeout(() => {
             try {
               mapUtils.value.map.renderSync();
               console.log("地图已强制刷新");
-              
+
               // 验证移除结果
               const finalLayers = mapUtils.value.map.getLayers().getArray();
               const remainingPreviewLayers = finalLayers.filter(layer => {
                 const layerId = layer.get('id');
                 return layerId && layerId.startsWith('rectangle-preview-');
               });
-              
+
               console.log(`移除后剩余预览图层数量: ${remainingPreviewLayers.length}`);
-              
+
               if (remainingPreviewLayers.length > 0) {
                 console.warn("仍有预览图层未移除，尝试最终清理");
                 // 最终清理：移除所有可能的预览图层
@@ -986,30 +932,30 @@ export default {
                   }
                 });
               }
-              
+
             } catch (renderError) {
               console.log("地图刷新失败:", renderError);
             }
           }, 100);
-          
+
         } catch (error) {
           console.error("清理矩形图层时出错:", error);
         } finally {
           // 无论如何都要释放引用
           rectangleLayer = null;
         }
-        
+
         // 清除超时定时器
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
           console.log("已清除超时定时器");
         }
-        
+
         // 重置状态
         isSelectingRectangle.value = false;
         startCoordinate = null;
-        
+
         // 恢复地图交互
         enableMapInteractions();
         console.log("选框功能清理完成");
@@ -1019,7 +965,7 @@ export default {
       mapClickHandler = (event) => {
         // 阻止事件冒泡，避免触发要素点击事件
         event.stopPropagation();
-        
+
         if (!startCoordinate) {
           // 第一次点击：记录起始点
           startCoordinate = event.coordinate;
@@ -1027,19 +973,19 @@ export default {
         } else {
           // 第二次点击：完成矩形绘制
           const endCoordinate = event.coordinate;
-          
+
           // 计算矩形边界
           const minLng = Math.min(startCoordinate[0], endCoordinate[0]).toFixed(6);
           const minLat = Math.min(startCoordinate[1], endCoordinate[1]).toFixed(6);
           const maxLng = Math.max(startCoordinate[0], endCoordinate[0]).toFixed(6);
           const maxLat = Math.max(startCoordinate[1], endCoordinate[1]).toFixed(6);
-          
+
           // 更新矩形范围输入框
           queryParams.bounds = `${minLng},${minLat},${maxLng},${maxLat}`;
-          
+
           // 清理所有资源
           cleanup();
-          
+
           console.log(`已选择矩形范围: ${minLng}, ${minLat}, ${maxLng}, ${maxLat}`);
         }
       };
@@ -1048,7 +994,7 @@ export default {
       pointerMoveHandler = (event) => {
         if (startCoordinate && event.coordinate) {
           const endCoordinate = event.coordinate;
-          
+
           // 如果矩形图层不存在，创建它
           if (!rectangleLayer) {
             // 创建临时矩形图层 - 使用更简单的方法
@@ -1063,12 +1009,12 @@ export default {
                 ]
               ])
             });
-            
+
             // 创建新的矢量源和图层
             const vectorSource = new VectorSource({
               features: [rectangleFeature]
             });
-            
+
             rectangleLayer = new VectorLayer({
               source: vectorSource,
               style: new Style({
@@ -1082,16 +1028,16 @@ export default {
                 })
               })
             });
-            
+
             // 设置图层不可交互，避免触发点击事件
             rectangleLayer.set('id', 'rectangle-preview-' + Date.now());
             rectangleLayer.set('interactive', false);
-            
+
             // 禁用图层中要素的交互性
             const previewFeature = rectangleLayer.getSource().getFeatures()[0];
             previewFeature.set('interactive', false);
             previewFeature.set('selectable', false);
-            
+
             // 直接添加到地图
             mapUtils.value.map.addLayer(rectangleLayer);
             console.log("矩形预览图层已创建并添加到地图");
@@ -1116,7 +1062,7 @@ export default {
       // 添加事件监听器（使用singleclick而不是click）
       mapUtils.value.map.on('singleclick', mapClickHandler);
       mapUtils.value.map.on('pointermove', pointerMoveHandler);
-      
+
       // 设置超时自动取消选择
       timeoutId = setTimeout(() => {
         if (isSelectingRectangle.value) {
@@ -1124,7 +1070,7 @@ export default {
           errorMessage.value = "选框操作已超时，请重新选择";
         }
       }, 60000); // 60秒超时
-      
+
       console.log("选框功能已启动，请点击地图开始绘制矩形");
     };
 
@@ -1138,7 +1084,74 @@ export default {
       }, 3000);
     };
 
+    // 折叠功能
+    const toggleCollapse = () => {
+      isCollapsed.value = !isCollapsed.value;
+    };
+
+    // 拖拽功能
+    const startDrag = (event) => {
+      // 防止在按钮等元素上触发拖拽
+      if (event.target.closest('button') || event.target.closest('input') || event.target.closest('select')) {
+        return;
+      }
+      console.log("开始拖拽")
+      isDragging.value = true;
+      dragStartX.value = event.clientX - currentPosition.x;
+      dragStartY.value = event.clientY - currentPosition.y;
+      console.log("dragStartX:", dragStartX.value);
+      console.log("dragStartY:", dragStartY.value);
+      console.log("currentPosition.x:", currentPosition.x);
+      console.log("currentPosition.y:", currentPosition.y);
+      // 添加全局事件监听器
+      document.addEventListener('mousemove', handleDrag);
+      document.addEventListener('mouseup', stopDrag);
+
+      // 防止文本选择
+      event.preventDefault();
+    };
+
+    const handleDrag = (event) => {
+      if (!isDragging.value) return;
+
+      const newX = event.clientX - dragStartX.value;
+      const newY = event.clientY - dragStartY.value;
+
+      // 限制在可视区域内
+      const maxX = window.innerWidth - 400; // 组件宽度
+      const maxY = window.innerHeight - 100; // 组件最小高度
+
+      currentPosition.x = Math.max(0, Math.min(newX, maxX));
+      currentPosition.y = Math.max(0, Math.min(newY, maxY));
+
+      console.log("dragStartX:", dragStartX.value);
+      console.log("dragStartY:", dragStartY.value);
+      console.log("currentPosition.x:", currentPosition.x);
+      console.log("currentPosition.y:", currentPosition.y);
+      // 添加全局事件监听器
+    };
+
+    const stopDrag = () => {
+      isDragging.value = false;
+      document.removeEventListener('mousemove', handleDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    // 计算位置样式
+    const positionStyle = computed(() => ({
+      left: `${currentPosition.x}px`,
+      top: `${currentPosition.y}px`,
+      cursor: isDragging.value ? 'grabbing' : 'grab'
+    }));
+
+    // watch(positionStyle, (newValue, oldValue) => {
+    //   console.log("位置样式已更新:", newValue);
+    // });
     return {
+      isCollapsed,
+      positionStyle,
+      toggleCollapse,
+      startDrag,
       tableNames,
       isLoadingTables,
       errorMessage,
@@ -1177,25 +1190,39 @@ export default {
 
 <style scoped>
 .spatial-table-fetcher {
-  position: absolute; 
-  top: 30px; 
-  left: 0px; /* 保持靠右显示 */
-  z-index: 2000; 
-  width: 400px; /* 增加宽度以适应查询框 */
+  position: absolute;
+  top: 30px;
+  left: 0px;
+  z-index: 2000;
+  width: 400px;
   padding: 20px;
-  background-color: rgba(255, 255, 255, 0.95); /* 轻微透明，增强悬浮感 */
-  border-radius: 8px; /* 圆角更明显 */
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); /* 增强阴影，突出悬浮效果 */
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   max-height: calc(100vh - 100px);
   overflow-y: auto;
-  transition: all 0.3s ease; /* 平滑过渡效果 */
-  backdrop-filter: blur(5px); /* 背景模糊（可选，增强层次感） */
+  transition: all 0.3s ease;
+  backdrop-filter: blur(5px);
+  cursor: grab;
+  user-select: none;
+}
+
+/* 折叠状态 */
+.spatial-table-fetcher.collapsed {
+  max-height: 60px;
+  overflow: hidden;
+  padding-bottom: 10px;
+}
+
+/* 拖拽状态 */
+.spatial-table-fetcher:active {
+  cursor: grabbing;
 }
 
 /* 鼠标悬停时的强化效果 */
 .spatial-table-fetcher:hover {
-  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.2); /* 阴影加深 */
-  transform: translateY(-2px); /* 轻微上浮 */
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
 }
 
 .header {
@@ -1205,12 +1232,72 @@ export default {
   margin-bottom: 20px;
   padding-bottom: 10px;
   border-bottom: 1px solid #eee;
+  cursor: grab;
+}
+
+.header:active {
+  cursor: grabbing;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 h2 {
   margin: 0;
   color: #333;
   font-size: 1.5rem;
+}
+
+.drag-handle {
+  color: #495057;
+  font-size: 1.1rem;
+  cursor: grab;
+  padding: 8px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  background-color: rgba(255, 255, 255, 0.8);
+  border: 1px solid #e0e0e0;
+  margin-right: 10px;
+}
+
+.drag-handle:hover {
+  background-color: rgba(66, 185, 131, 0.1);
+  border-color: #42b983;
+  color: #42b983;
+  transform: scale(1.1);
+}
+
+.collapse-btn {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #e0e0e0;
+  color: #495057;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+  font-weight: 500;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapse-btn:hover {
+  background-color: rgba(66, 185, 131, 0.1);
+  border-color: #42b983;
+  color: #42b983;
+  transform: scale(1.05);
 }
 
 .fetch-btn {
@@ -1412,7 +1499,7 @@ h2 {
   position: relative;
   display: flex;
   align-items: center;
-  color:#212529
+  color: #212529
 }
 
 .table-input {

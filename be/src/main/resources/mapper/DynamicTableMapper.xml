@@ -50,7 +50,7 @@
                 'features', jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(element_location)::jsonb,
+                        'geometry', ST_AsGeoJSON(ST_Transform(element_location, 4326))::jsonb,
                         'properties', to_jsonb(sub) - 'element_location'
                     )
                 )
@@ -67,7 +67,7 @@
                 'features', jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(geom)::jsonb,
+                        'geometry', ST_AsGeoJSON(ST_Transform(geom, 4326))::jsonb,
                         'properties', to_jsonb(sub) - 'geom'
                     )
                 )
@@ -90,7 +90,7 @@
                 'features', jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(element_location)::jsonb,
+                        'geometry', ST_AsGeoJSON(ST_Transform(element_location, 4326))::jsonb,
                         'properties', to_jsonb(sub) - 'element_location'
                     )
                 )
@@ -108,13 +108,13 @@
                 <if test="geom != null and geom != ''">
                     <choose>
                         <when test="geom.startsWith('POINT')">
-                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(element_location, 4326), ST_GeomFromText(#{geom}, 4326))
                         </when>
                         <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
-                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(element_location, 4326), ST_GeomFromText(#{geom}, 4326))
                         </when>
                         <otherwise>
-                            AND ST_Intersects(element_location, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(element_location, 4326), ST_GeomFromText(#{geom}, 4326))
                         </otherwise>
                     </choose>
                 </if>
@@ -127,7 +127,7 @@
                 'features', jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(geom)::jsonb,
+                        'geometry', ST_AsGeoJSON(ST_Transform(geom, 4326))::jsonb,
                         'properties', to_jsonb(sub) - 'geom'
                     )
                 )
@@ -145,13 +145,13 @@
                 <if test="geom != null and geom != ''">
                     <choose>
                         <when test="geom.startsWith('POINT')">
-                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(geom, 4326), ST_GeomFromText(#{geom}, 4326))
                         </when>
                         <when test="geom.startsWith('POLYGON') or geom.startsWith('MULTIPOLYGON') or geom.startsWith('LINESTRING') or geom.startsWith('MULTILINESTRING')">
-                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(geom, 4326), ST_GeomFromText(#{geom}, 4326))
                         </when>
                         <otherwise>
-                            AND ST_Intersects(geom, ST_GeomFromText(#{geom}, 4326))
+                            AND ST_Intersects(ST_Transform(geom, 4326), ST_GeomFromText(#{geom}, 4326))
                         </otherwise>
                     </choose>
                 </if>

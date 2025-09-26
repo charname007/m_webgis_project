@@ -9,18 +9,15 @@ from spatial_sql_prompt import SQL_AGENT_SPATIAL_PROMPT, SPATIAL_SYSTEM_PROMPT_S
 from spatial_sql_agent import SpatialSQLQueryAgent as EnhancedSpatialSQLQueryAgent
 from geojson_utils import GeoJSONGenerator
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
+import re
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 全局变量
-sql_query_agent: Optional[SQLQueryAgent] = None
-spatial_sql_agent: Optional[EnhancedSpatialSQLQueryAgent] = None
+sql_query_agent: Optional[EnhancedSpatialSQLQueryAgent] = None
 agent_initialized = False
-
-# 配置选项：是否使用空间数据库提示词
-USE_SPATIAL_PROMPT = True  # 设置为True使用空间数据库提示词，False使用默认提示词
 
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
@@ -63,26 +60,17 @@ def initialize_agent() -> bool:
         return sql_query_agent is not None
     
     try:
-        logger.info("Initializing SQL Query Agent...")
+        logger.info("Initializing Enhanced Spatial SQL Query Agent...")
         
-        # 根据配置选择使用空间数据库提示词或默认提示词
-        if USE_SPATIAL_PROMPT:
-            # 方式1：使用空间数据库查询代理子类
-            # sql_query_agent = SpatialSQLQueryAgent()
-            
-            # 方式2：直接在SQLQueryAgent中传入空间提示词
-            sql_query_agent = SQLQueryAgent(system_prompt=SPATIAL_SYSTEM_PROMPT_SIMPLE)
-            logger.info("使用空间数据库提示词初始化SQL查询代理")
-        else:
-            # 使用默认提示词
-            sql_query_agent = SQLQueryAgent()
-            logger.info("使用默认提示词初始化SQL查询代理")
+        # 直接使用EnhancedSpatialSQLQueryAgent
+        sql_query_agent = EnhancedSpatialSQLQueryAgent()
+        logger.info("使用EnhancedSpatialSQLQueryAgent初始化SQL查询代理")
         
         agent_initialized = True
-        logger.info("SQL Query Agent initialized successfully")
+        logger.info("Enhanced Spatial SQL Query Agent initialized successfully")
         return True
     except Exception as e:
-        logger.error(f"Failed to initialize SQL Query Agent: {str(e)}")
+        logger.error(f"Failed to initialize Enhanced Spatial SQL Query Agent: {str(e)}")
         sql_query_agent = None
         agent_initialized = False
         return False
@@ -241,7 +229,7 @@ def natural_language_to_geojson(query_text: str, limit: int = 1000) -> Dict[str,
             "original_query": query_text
         }
 
-def extract_sql_from_result(result: str) -> str:
+def extract_sql_from_result(result: str) -> List[str]:
     """
     从SQL查询代理的结果中提取SQL查询语句
     
@@ -249,12 +237,13 @@ def extract_sql_from_result(result: str) -> str:
         result: 代理返回的结果字符串
         
     Returns:
-        提取的SQL查询语句
+        提取的SQL查询语句列表（包含所有执行过的SQL）
     """
-    # 改进的SQL提取逻辑 - 从代理的思考过程中提取
     logger.info(f"开始提取SQL查询，响应长度: {len(result)}")
     
-    # 1. 首先尝试从Action Input中提取
+    sql_queries = []
+    
+    # 1. 提取所有Action Input中的SQL查询（包括中间查询）
     if "Action Input:" in result:
         # 查找所有Action Input
         action_inputs = []
@@ -281,22 +270,34 @@ def extract_sql_from_result(result: str) -> str:
             cleaned_input = action_input.strip().strip('"').strip("'").strip()
             if is_valid_sql(cleaned_input):
                 logger.info(f"从Action Input中提取到SQL: {cleaned_input[:100]}...")
-                return cleaned_input
+                sql_queries.append(cleaned_input)
     
-    # 2. 尝试查找SQL代码块
+    # 2. 提取所有SQL代码块（包括中间查询）
     if "```sql" in result:
         start_index = result.find("```sql") + 6
-        end_index = result.find("```", start_index)
-        if end_index > start_index:
-            sql_content = result[start_index:end_index].strip()
-            if is_valid_sql(sql_content):
-                logger.info(f"从代码块中提取到SQL: {sql_content[:100]}...")
-                return sql_content
+        while start_index > 5:  # 可能有多个代码块
+            end_index = result.find("```", start_index)
+            if end_index > start_index:
+                sql_content = result[start_index:end_index].strip()
+                if is_valid_sql(sql_content):
+                    logger.info(f"从代码块中提取到SQL: {sql_content[:100]}...")
+                    sql_queries.append(sql_content)
+                # 查找下一个代码块
+                start_index = result.find("```sql", end_index)
+                if start_index == -1:
+                    break
+                start_index += 6
+            else:
+                break
     
-    # 3. 查找直接的SQL查询模式
+    # 3. 提取所有直接的SQL查询模式（包括中间查询）
     sql_patterns = [
         r"SELECT\s+.*?\s+FROM\s+.*?(?:\s+WHERE\s+.*?)?(?:\s+LIMIT\s+\d+)?",
         r"SELECT\s+.*?\s+FROM\s+.*",
+        r"CREATE\s+TABLE\s+.*",
+        r"INSERT\s+INTO\s+.*",
+        r"UPDATE\s+.*",
+        r"DELETE\s+FROM\s+.*"
     ]
     
     import re
@@ -305,18 +306,71 @@ def extract_sql_from_result(result: str) -> str:
         for match in matches:
             if is_valid_sql(match):
                 logger.info(f"从正则匹配中提取到SQL: {match[:100]}...")
-                return match.strip()
+                sql_queries.append(match.strip())
     
-    # 4. 如果所有方法都失败，根据查询意图生成一个默认查询
+    # 4. 提取所有执行的SQL查询（从日志中）
+    # 查找类似 "Action: sql_db_query" 后面的查询
+    sql_query_pattern = r"Action:\s+sql_db_query\s+Action Input:\s+([^\n]+)"
+    matches = re.findall(sql_query_pattern, result, re.IGNORECASE | re.DOTALL)
+    for match in matches:
+        cleaned_match = match.strip().strip('"').strip("'").strip()
+        if is_valid_sql(cleaned_match):
+            logger.info(f"从sql_db_query中提取到SQL: {cleaned_match[:100]}...")
+            sql_queries.append(cleaned_match)
+    
+    # 5. 提取所有schema查询
+    schema_pattern = r"Action:\s+sql_db_schema\s+Action Input:\s+([^\n]+)"
+    matches = re.findall(schema_pattern, result, re.IGNORECASE | re.DOTALL)
+    for match in matches:
+        table_name = match.strip().strip('"').strip("'").strip()
+        if table_name:
+            schema_query = f"SELECT * FROM {table_name} LIMIT 1"
+            logger.info(f"从schema查询生成SQL: {schema_query}")
+            sql_queries.append(schema_query)
+    
+    # 6. 提取所有list tables查询
+    list_tables_pattern = r"Action:\s+sql_db_list_tables\s+Action Input:\s*([^\n]*)"
+    matches = re.findall(list_tables_pattern, result, re.IGNORECASE | re.DOTALL)
+    if matches:
+        list_query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        logger.info(f"添加list tables查询: {list_query}")
+        sql_queries.append(list_query)
+    
+    # 7. 过滤和清理SQL查询，只返回完整的查询
+    if sql_queries:
+        # 过滤掉不完整的查询
+        complete_queries = []
+        for query in sql_queries:
+            # 检查查询是否完整（包含SELECT和FROM）
+            if "SELECT" in query.upper() and "FROM" in query.upper():
+                # 检查查询是否以分号结尾或包含完整的语句
+                if not query.strip().endswith(';'):
+                    query = query.strip() + ';'
+                complete_queries.append(query)
+        
+        # 去重但保持顺序
+        unique_queries = []
+        seen = set()
+        for query in complete_queries:
+            # 标准化查询以便去重
+            normalized_query = re.sub(r'\s+', ' ', query.strip().upper())
+            if normalized_query not in seen and len(query.strip()) > 20:  # 确保查询有足够长度
+                seen.add(normalized_query)
+                unique_queries.append(query)
+        
+        logger.info(f"提取到{len(unique_queries)}个完整的SQL查询")
+        return unique_queries
+    
+    # 8. 如果所有方法都失败，根据查询意图生成一个默认查询
     logger.warning(f"无法从代理响应中提取有效的SQL查询，将根据查询意图生成默认查询")
     
     # 分析查询意图并生成相应的SQL
     if "交通" in result or "transport" in result.lower():
-        return "SELECT gid, osm_id, name, highway, barrier, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"
+        return ["SELECT gid, osm_id, name, highway, barrier, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"]
     elif "点" in result or "point" in result.lower():
-        return "SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE geom IS NOT NULL LIMIT 10"
+        return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE geom IS NOT NULL LIMIT 10"]
     else:
-        return "SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"
+        return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"]
 
 def is_valid_sql(sql: str) -> bool:
     """
@@ -827,6 +881,427 @@ async def get_spatial_query_examples() -> Dict[str, Any]:
     return {
         "status": "success",
         "examples": examples
+    }
+
+# 智能查询类型判断函数
+def analyze_query_type(query_text: str) -> Dict[str, Any]:
+    """
+    分析查询类型，判断是否需要执行SQL查询、空间查询或数据总结
+    
+    Args:
+        query_text: 自然语言查询文本
+        
+    Returns:
+        查询类型分析结果
+    """
+    query_lower = query_text.lower()
+    
+    # 空间查询关键词
+    spatial_keywords = [
+        '距离', '附近', '周围', '范围内', '路径', '路线', '最短', '最近',
+        '相交', '包含', '在内', '边界', '面积', '长度', '周长',
+        '点', '线', '面', '多边形', '几何', '空间', '地理',
+        'buffer', 'intersect', 'contain', 'within', 'distance',
+        'route', 'path', 'shortest', 'nearest', 'proximity',
+        'st_', 'geom', 'geometry', '坐标', '经纬度'
+    ]
+    
+    # 数据总结关键词
+    summary_keywords = [
+        '总结', '统计', '汇总', '分析', '报告', '概况', '总数',
+        '平均', '最大', '最小', '分布', '趋势', '比例',
+        'summary', 'statistics', 'analyze', 'report', 'overview',
+        'count', 'average', 'max', 'min', 'distribution'
+    ]
+    
+    # SQL查询关键词
+    sql_keywords = [
+        '查询', '查找', '搜索', '获取', '显示', '列出',
+        'select', 'find', 'search', 'get', 'show', 'list',
+        'where', 'from', 'table', 'column'
+    ]
+    
+    # 判断查询类型
+    is_spatial = any(keyword in query_lower for keyword in spatial_keywords)
+    is_summary = any(keyword in query_lower for keyword in summary_keywords)
+    is_sql = any(keyword in query_lower for keyword in sql_keywords)
+    
+    # 优先级：空间查询 > 数据总结 > 普通SQL查询
+    if is_spatial:
+        query_type = "spatial"
+        priority = 1
+    elif is_summary:
+        query_type = "summary"
+        priority = 2
+    elif is_sql:
+        query_type = "sql"
+        priority = 3
+    else:
+        query_type = "general"
+        priority = 4
+    
+    return {
+        "query_type": query_type,
+        "priority": priority,
+        "is_spatial": is_spatial,
+        "is_summary": is_summary,
+        "is_sql": is_sql,
+        "spatial_keywords_found": [kw for kw in spatial_keywords if kw in query_lower],
+        "summary_keywords_found": [kw for kw in summary_keywords if kw in query_lower],
+        "sql_keywords_found": [kw for kw in sql_keywords if kw in query_lower]
+    }
+
+# 通用智能查询端点
+@app.post("/agent/query", summary="智能代理查询")
+async def intelligent_agent_query(query_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    智能代理查询接口，自动判断查询类型并返回标准化结果
+    
+    Args:
+        query_data: 包含查询参数的JSON对象
+            - question: 自然语言查询文本（必需）
+            - chat_history: 聊天历史记录（可选）
+            - execute_sql: 是否执行SQL查询（默认为True）
+            - return_geojson: 是否返回GeoJSON格式（默认为True）
+            
+    Returns:
+        标准化响应格式：{sql: (), geojson: (如有), question: {}, answer: {}}
+    """
+    try:
+        # 提取参数
+        question = query_data.get("question", "")
+        chat_history = query_data.get("chat_history", [])
+        execute_sql = query_data.get("execute_sql", True)
+        return_geojson = query_data.get("return_geojson", True)
+        
+        # 验证必需参数
+        if not question:
+            return {
+                "status": "error",
+                "error": "查询问题不能为空",
+                "question": {},
+                "answer": {},
+                "sql": None,
+                "geojson": None
+            }
+        
+        # 输入验证
+        validation_error = validate_query_input(question)
+        if validation_error:
+            return {
+                "status": "error",
+                "error": validation_error,
+                "question": {"text": question},
+                "answer": {},
+                "sql": None,
+                "geojson": None
+            }
+        
+        logger.info(f"处理智能代理查询: {question}")
+        
+        # 分析查询类型
+        query_analysis = analyze_query_type(question)
+        logger.info(f"查询类型分析: {query_analysis}")
+        
+        # 根据查询类型选择处理方式
+        if query_analysis["query_type"] == "spatial":
+            return await _handle_spatial_query(question, query_analysis, execute_sql, return_geojson)
+        elif query_analysis["query_type"] == "summary":
+            return await _handle_summary_query(question, query_analysis, execute_sql)
+        else:
+            return await _handle_general_query(question, query_analysis, execute_sql)
+            
+    except Exception as e:
+        logger.error(f"智能代理查询处理失败: {str(e)}")
+        return {
+            "status": "error",
+            "error": f"处理查询失败: {str(e)}",
+            "question": {"text": question},
+            "answer": {},
+            "sql": None,
+            "geojson": None
+        }
+
+async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any], 
+                               execute_sql: bool, return_geojson: bool) -> Dict[str, Any]:
+    """处理空间查询"""
+    try:
+        # 检查并初始化代理
+        if not agent_initialized or sql_query_agent is None:
+            if not initialize_agent():
+                raise Exception("SQL查询代理未初始化")
+        
+        # 执行空间查询
+        result = sql_query_agent.run(question)
+        
+        # 提取SQL查询
+        sql_queries = extract_sql_from_result(result)
+        
+        # 分析查询优化建议（SQLQueryAgent没有analyze_spatial_query方法）
+        analysis = {
+            "has_spatial_functions": any(func in result.upper() for func in ["ST_", "pgr_", "TopoGeo_"]),
+            "spatial_functions_used": [func for func in ["ST_", "pgr_", "TopoGeo_"] if func in result.upper()],
+            "suggestions": [],
+            "optimization_tips": []
+        }
+        
+        # 构建基础响应
+        response = {
+            "status": "success",
+            "question": {
+                "text": question,
+                "type": "spatial",
+                "analysis": query_analysis
+            },
+            "answer": {
+                "text": result,
+                "analysis": analysis
+            },
+            "sql": sql_queries,
+            "geojson": None
+        }
+        
+        # 如果要求执行SQL查询并且有有效的SQL
+        if execute_sql and sql_queries and len(sql_queries) > 0:
+            # 使用第一个SQL查询执行
+            sql_query = sql_queries[0]
+            try:
+                # 修复SQL查询中的表名问题
+                # 如果查询使用了whupois表但实际数据在whupoi表中
+                if "whupois" in sql_query.lower() and "whupoi" not in sql_query.lower():
+                    # 尝试使用whupoi表
+                    fixed_sql = sql_query.replace("whupois", "whupoi")
+                    logger.info(f"修复SQL查询表名: {fixed_sql}")
+                    sql_query = fixed_sql
+                
+                # 修复SQL查询中的SRID问题
+                # 如果查询包含ST_Transform但几何数据没有SRID，需要修复
+                if "ST_Transform" in sql_query.upper() and "SRID" not in sql_query.upper():
+                    # 替换ST_Transform为ST_SetSRID
+                    fixed_sql = sql_query.replace("ST_Transform(geom, 4326)", "ST_SetSRID(geom, 4326)")
+                    logger.info(f"修复SQL查询SRID: {fixed_sql}")
+                    sql_query = fixed_sql
+                
+                # 执行SQL查询
+                connector = SQLConnector()
+                query_result = connector.execute_query(sql_query)
+                
+                # 如果要求返回GeoJSON格式
+                if return_geojson and "geom" in sql_query.lower():
+                    try:
+                        connection_string = "postgresql://sagasama:cznb6666@localhost:5432/WGP_db"
+                        generator = GeoJSONGenerator(connection_string)
+                        
+                        # 使用修复后的SQL查询生成GeoJSON
+                        geojson_data = generator.query_to_geojson(sql_query)
+                        response["geojson"] = geojson_data
+                        response["answer"]["feature_count"] = len(geojson_data.get("features", []))
+                        
+                        # 如果GeoJSON为空，尝试使用更简单的查询
+                        if len(geojson_data.get("features", [])) == 0:
+                            logger.info("GeoJSON为空，尝试使用简化查询")
+                            
+                            # 尝试1: 使用简单的几何查询
+                            simple_sql = sql_query.replace("ST_AsGeoJSON(ST_Transform(geom, 4326))", "ST_AsGeoJSON(geom)")
+                            simple_sql = simple_sql.replace("ST_AsGeoJSON(ST_SetSRID(geom, 4326))", "ST_AsGeoJSON(geom)")
+                            try:
+                                simple_geojson = generator.query_to_geojson(simple_sql)
+                                if len(simple_geojson.get("features", [])) > 0:
+                                    response["geojson"] = simple_geojson
+                                    response["answer"]["feature_count"] = len(simple_geojson.get("features", []))
+                                    logger.info(f"简化查询成功，获取到{len(simple_geojson.get('features', []))}个要素")
+                            except Exception as simple_error:
+                                logger.warning(f"简化查询失败: {simple_error}")
+                            
+                            # 尝试2: 使用基本的几何查询
+                            if len(response.get("geojson", {}).get("features", [])) == 0:
+                                logger.info("尝试基本几何查询")
+                                basic_sql = "SELECT gid, name, ST_AsGeoJSON(geom) as geometry FROM whupoi WHERE name LIKE '%珞珈%' LIMIT 10"
+                                try:
+                                    basic_geojson = generator.query_to_geojson(basic_sql)
+                                    if len(basic_geojson.get("features", [])) > 0:
+                                        response["geojson"] = basic_geojson
+                                        response["answer"]["feature_count"] = len(basic_geojson.get("features", []))
+                                        logger.info(f"基本查询成功，获取到{len(basic_geojson.get('features', []))}个要素")
+                                except Exception as basic_error:
+                                    logger.warning(f"基本查询也失败: {basic_error}")
+                        
+                    except Exception as geojson_error:
+                        logger.warning(f"生成GeoJSON失败: {geojson_error}")
+                        response["answer"]["geojson_warning"] = f"生成GeoJSON失败: {str(geojson_error)}"
+                
+                response["answer"]["query_result"] = query_result
+                connector.close()
+                
+            except Exception as sql_error:
+                logger.warning(f"执行SQL查询失败: {sql_error}")
+                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"处理空间查询失败: {str(e)}")
+        raise e
+
+async def _handle_summary_query(question: str, query_analysis: Dict[str, Any], 
+                               execute_sql: bool) -> Dict[str, Any]:
+    """处理数据总结查询"""
+    try:
+        # 检查并初始化代理
+        if not agent_initialized or sql_query_agent is None:
+            if not initialize_agent():
+                raise Exception("SQL查询代理未初始化")
+        
+        # 增强查询以包含总结提示
+        enhanced_question = f"""
+{question}
+
+请生成一个SQL查询来总结和分析数据。查询应该：
+1. 使用聚合函数（COUNT, SUM, AVG, MAX, MIN等）
+2. 包含适当的分组（GROUP BY）
+3. 提供有意义的统计信息
+4. 如果可能，包含数据分布和趋势分析
+
+请直接返回SQL查询语句和简要的分析说明。
+"""
+        
+        # 执行查询
+        result = sql_query_agent.run(enhanced_question)
+        
+        # 提取SQL查询
+        sql_queries = extract_sql_from_result(result)
+        
+        # 构建响应
+        response = {
+            "status": "success",
+            "question": {
+                "text": question,
+                "type": "summary",
+                "analysis": query_analysis
+            },
+            "answer": {
+                "text": result,
+                "summary_analysis": "这是一个数据总结查询，提供了统计信息和分析"
+            },
+            "sql": sql_queries,
+            "geojson": None
+        }
+        
+        # 如果要求执行SQL查询并且有有效的SQL
+        if execute_sql and sql_queries and len(sql_queries) > 0:
+            # 使用第一个SQL查询执行
+            sql_query = sql_queries[0]
+            try:
+                connector = SQLConnector()
+                query_result = connector.execute_query(sql_query)
+                connector.close()
+                response["answer"]["summary_result"] = query_result
+            except Exception as sql_error:
+                logger.warning(f"执行总结SQL查询失败: {sql_error}")
+                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"处理总结查询失败: {str(e)}")
+        raise e
+
+async def _handle_general_query(question: str, query_analysis: Dict[str, Any], 
+                               execute_sql: bool) -> Dict[str, Any]:
+    """处理普通查询"""
+    try:
+        # 检查并初始化代理
+        if not agent_initialized or sql_query_agent is None:
+            if not initialize_agent():
+                raise Exception("SQL查询代理未初始化")
+        
+        # 执行普通查询
+        result = sql_query_agent.run(question)
+        
+        # 提取SQL查询
+        sql_queries = extract_sql_from_result(result)
+        
+        # 构建响应
+        response = {
+            "status": "success",
+            "question": {
+                "text": question,
+                "type": query_analysis["query_type"],
+                "analysis": query_analysis
+            },
+            "answer": {
+                "text": result
+            },
+            "sql": sql_queries,
+            "geojson": None
+        }
+        
+        # 如果要求执行SQL查询并且有有效的SQL
+        if execute_sql and sql_queries and len(sql_queries) > 0:
+            # 使用第一个SQL查询执行
+            sql_query = sql_queries[0]
+            try:
+                connector = SQLConnector()
+                query_result = connector.execute_query(sql_query)
+                connector.close()
+                response["answer"]["query_result"] = query_result
+            except Exception as sql_error:
+                logger.warning(f"执行SQL查询失败: {sql_error}")
+                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"处理普通查询失败: {str(e)}")
+        raise e
+
+# GET方式的智能查询端点（简化版）
+@app.get("/agent/query/{question}", summary="智能代理查询（GET方式）")
+async def intelligent_agent_query_get(question: str) -> Dict[str, Any]:
+    """
+    GET方式的智能代理查询接口
+    
+    Args:
+        question: 自然语言查询文本
+        
+    Returns:
+        标准化响应格式
+    """
+    return await intelligent_agent_query({
+        "question": question,
+        "execute_sql": True,
+        "return_geojson": True
+    })
+
+# 查询类型分析端点
+@app.post("/agent/analyze", summary="分析查询类型")
+async def analyze_query(query_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    分析查询类型和意图
+    
+    Args:
+        query_data: 包含查询文本的JSON对象
+            - question: 自然语言查询文本（必需）
+            
+    Returns:
+        查询类型分析结果
+    """
+    question = query_data.get("question", "")
+    
+    # 验证必需参数
+    if not question:
+        return {
+            "status": "error",
+            "error": "查询问题不能为空"
+        }
+    
+    # 分析查询类型
+    query_analysis = analyze_query_type(question)
+    
+    return {
+        "status": "success",
+        "question": question,
+        "analysis": query_analysis
     }
 
 

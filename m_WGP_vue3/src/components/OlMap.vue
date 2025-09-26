@@ -234,6 +234,7 @@ export default {
   position: relative;
   width: 100%;
   height: 100vh;
+  overflow: visible; /* 允许子元素溢出容器 */
 }
 
 .map {
@@ -336,35 +337,6 @@ button:disabled {
   margin-right: 8px;
 }
 
-.spatial-table-fetcher {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  /* 保持靠右显示 */
-  z-index: 2000;
-  width: 350px;
-  padding: 20px;
-  background-color: rgba(255, 255, 255, 0.95);
-  /* 轻微透明，增强悬浮感 */
-  border-radius: 8px;
-  /* 圆角更明显 */
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  /* 增强阴影，突出悬浮效果 */
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-  transition: all 0.3s ease;
-  /* 平滑过渡效果 */
-  backdrop-filter: blur(5px);
-  /* 背景模糊（可选，增强层次感） */
-}
-
-/* 鼠标悬停时的强化效果 */
-.spatial-table-fetcher:hover {
-  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.2);
-  /* 阴影加深 */
-  transform: translateY(-2px);
-  /* 轻微上浮 */
-}
 </style>
 
 <style>
@@ -503,16 +475,4 @@ button:disabled {
   color: #000;
 }
 
-.spatial-table-fetcher {
-  position: relative;
-  /* 确保在流中显示 */
-  z-index: 1000;
-  /* 避免被地图图层覆盖 */
-  max-width: 1000px;
-  margin: 20px;
-  /* 改用固定边距，避免在地图容器内居中失败 */
-  padding: 20px;
-  background-color: #fff;
-  /* ... 其他样式 */
-}
 </style>
