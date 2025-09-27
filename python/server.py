@@ -11,6 +11,7 @@ from spatial_sql_agent import SpatialSQLQueryAgent as EnhancedSpatialSQLQueryAge
 from geojson_utils import GeoJSONGenerator
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
 from simple_structured_solution import parse_structured_response
+from query_intent_analyzer import QueryIntentAnalyzer
 import re
 import json
 import ast
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 # 全局变量
 sql_query_agent: Optional[EnhancedSpatialSQLQueryAgent] = None
 agent_initialized = False
+intent_analyzer: Optional[QueryIntentAnalyzer] = None
 
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
@@ -58,10 +60,10 @@ def initialize_agent() -> bool:
     Returns:
         bool: 初始化是否成功
     """
-    global sql_query_agent, agent_initialized
+    global sql_query_agent, agent_initialized, intent_analyzer
     
     if agent_initialized:
-        return sql_query_agent is not None
+        return sql_query_agent is not None and intent_analyzer is not None
     
     try:
         logger.info("Initializing Enhanced Spatial SQL Query Agent...")
@@ -69,9 +71,10 @@ def initialize_agent() -> bool:
         # 直接使用EnhancedSpatialSQLQueryAgent
         sql_query_agent = EnhancedSpatialSQLQueryAgent()
         logger.info("使用EnhancedSpatialSQLQueryAgent初始化SQL查询代理")
-        
+        intent_analyzer = QueryIntentAnalyzer()
+        logger.info("使用EQueryIntentAnalyzer 初始化用户意图分析")
         agent_initialized = True
-        logger.info("Enhanced Spatial SQL Query Agent initialized successfully")
+        logger.info("Enhanced Spatial SQL Query Agent and QueryIntentAnalyzer initialized successfully")
         return True
     except Exception as e:
         logger.error(f"Failed to initialize Enhanced Spatial SQL Query Agent: {str(e)}")
@@ -1076,10 +1079,10 @@ async def get_spatial_query_examples() -> Dict[str, Any]:
         "examples": examples
     }
 
-# 智能查询类型判断函数
+# 智能查询类型判断函数 - 使用LLM意图分析器
 def analyze_query_type(query_text: str) -> Dict[str, Any]:
     """
-    分析查询类型，判断是否需要执行SQL查询、空间查询或数据总结
+    分析查询类型，使用LLM意图分析器判断查询意图
     
     Args:
         query_text: 自然语言查询文本
@@ -1087,62 +1090,96 @@ def analyze_query_type(query_text: str) -> Dict[str, Any]:
     Returns:
         查询类型分析结果
     """
-    query_lower = query_text.lower()
-    
-    # 空间查询关键词
-    spatial_keywords = [
-        '距离', '附近', '周围', '范围内', '路径', '路线', '最短', '最近',
-        '相交', '包含', '在内', '边界', '面积', '长度', '周长',
-        '点', '线', '面', '多边形', '几何', '空间', '地理',
-        'buffer', 'intersect', 'contain', 'within', 'distance',
-        'route', 'path', 'shortest', 'nearest', 'proximity',
-        'st_', 'geom', 'geometry', '坐标', '经纬度'
-    ]
-    
-    # 数据总结关键词
-    summary_keywords = [
-        '总结', '统计', '汇总', '分析', '报告', '概况', '总数',
-        '平均', '最大', '最小', '分布', '趋势', '比例',
-        'summary', 'statistics', 'analyze', 'report', 'overview',
-        'count', 'average', 'max', 'min', 'distribution'
-    ]
-    
-    # SQL查询关键词
-    sql_keywords = [
-        '查询', '查找', '搜索', '获取', '显示', '列出',
-        'select', 'find', 'search', 'get', 'show', 'list',
-        'where', 'from', 'table', 'column'
-    ]
-    
-    # 判断查询类型
-    is_spatial = any(keyword in query_lower for keyword in spatial_keywords)
-    is_summary = any(keyword in query_lower for keyword in summary_keywords)
-    is_sql = any(keyword in query_lower for keyword in sql_keywords)
-    
-    # 优先级：空间查询 > 数据总结 > 普通SQL查询
-    if is_spatial:
-        query_type = "spatial"
-        priority = 1
-    elif is_summary:
-        query_type = "summary"
-        priority = 2
-    elif is_sql:
-        query_type = "sql"
-        priority = 3
-    else:
-        query_type = "general"
-        priority = 4
-    
-    return {
-        "query_type": query_type,
-        "priority": priority,
-        "is_spatial": is_spatial,
-        "is_summary": is_summary,
-        "is_sql": is_sql,
-        "spatial_keywords_found": [kw for kw in spatial_keywords if kw in query_lower],
-        "summary_keywords_found": [kw for kw in summary_keywords if kw in query_lower],
-        "sql_keywords_found": [kw for kw in sql_keywords if kw in query_lower]
-    }
+    try:
+        # 使用全局意图分析器实例
+        if intent_analyzer is None:
+            logger.warning("意图分析器未初始化，尝试初始化")
+            if not initialize_agent():
+                raise Exception("意图分析器初始化失败")
+        
+        # 使用LLM分析意图
+        intent_result = intent_analyzer.analyze_intent(query_text)
+        
+        logger.info(f"LLM意图分析结果: {intent_result}")
+        
+        # 确保返回格式与原有函数兼容
+        return {
+            "query_type": intent_result["query_type"],
+            "priority": intent_result["priority"],
+            "is_spatial": intent_result["is_spatial"],
+            "is_summary": intent_result["is_summary"],
+            "is_sql": intent_result["is_sql"],
+            "spatial_keywords_found": intent_result.get("keywords_found", []),
+            "summary_keywords_found": [],
+            "sql_keywords_found": [],
+            "confidence": intent_result["confidence"],
+            "intent_description": intent_result["intent_description"],
+            "suggested_processing": intent_result["suggested_processing"]
+        }
+        
+    except Exception as e:
+        logger.error(f"LLM意图分析失败，使用回退方法: {e}")
+        
+        # 回退到原有的关键词匹配方法
+        query_lower = query_text.lower()
+        
+        # 空间查询关键词
+        spatial_keywords = [
+            '距离', '附近', '周围', '范围内', '路径', '路线', '最短', '最近',
+            '相交', '包含', '在内', '边界', '面积', '长度', '周长',
+            '点', '线', '面', '多边形', '几何', '空间', '地理',
+            'buffer', 'intersect', 'contain', 'within', 'distance',
+            'route', 'path', 'shortest', 'nearest', 'proximity',
+            'st_', 'geom', 'geometry', '坐标', '经纬度'
+        ]
+        
+        # 数据总结关键词
+        summary_keywords = [
+            '总结', '统计', '汇总', '分析', '报告', '概况', '总数',
+            '平均', '最大', '最小', '分布', '趋势', '比例',
+            'summary', 'statistics', 'analyze', 'report', 'overview',
+            'count', 'average', 'max', 'min', 'distribution'
+        ]
+        
+        # SQL查询关键词
+        sql_keywords = [
+            '查询', '查找', '搜索', '获取', '显示', '列出',
+            'select', 'find', 'search', 'get', 'show', 'list',
+            'where', 'from', 'table', 'column'
+        ]
+        
+        # 判断查询类型
+        is_spatial = any(keyword in query_lower for keyword in spatial_keywords)
+        is_summary = any(keyword in query_lower for keyword in summary_keywords)
+        is_sql = any(keyword in query_lower for keyword in sql_keywords)
+        
+        # 优先级：空间查询 > 数据总结 > 普通SQL查询
+        if is_spatial:
+            query_type = "spatial"
+            priority = 1
+        elif is_summary:
+            query_type = "summary"
+            priority = 2
+        elif is_sql:
+            query_type = "sql"
+            priority = 3
+        else:
+            query_type = "general"
+            priority = 4
+        
+        return {
+            "query_type": query_type,
+            "priority": priority,
+            "is_spatial": is_spatial,
+            "is_summary": is_summary,
+            "is_sql": is_sql,
+            "spatial_keywords_found": [kw for kw in spatial_keywords if kw in query_lower],
+            "summary_keywords_found": [kw for kw in summary_keywords if kw in query_lower],
+            "sql_keywords_found": [kw for kw in sql_keywords if kw in query_lower],
+            "confidence": 0.6,  # 回退结果的置信度较低
+            "intent_description": "使用关键词匹配分析意图（LLM分析失败）",
+            "suggested_processing": "使用通用查询处理"
+        }
 
 # 通用智能查询端点
 @app.post("/agent/query", summary="智能代理查询")
@@ -1423,7 +1460,7 @@ async def _handle_summary_query(question: str, query_analysis: Dict[str, Any],
                 logger.info(f"使用中间步骤中的SQL查询结果，SQL长度: {len(sql_query)}，结果长度: {len(str(query_result))}")
                 
                 # 直接使用中间步骤中的查询结果
-                response["answer"]["summary_result"] = query_result
+                response["answer"]["general_result"] = query_result
                 response["answer"]["executed_sql"] = sql_query
             else:
                 # 如果没有中间结果，尝试使用结构化解析器提取的SQL查询
@@ -1484,7 +1521,8 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
         # # 使用结构化解析器提取SQL查询
         parsed_result = parse_structured_response(final_answer)
         # extracted_answer = parsed_result["answer"]
-        
+                # 使用结构化解析器提取SQL查询
+        sql_queries = [parsed_result.get("sql_query", "")] if parsed_result.get("sql_query") else []
         # 构建响应
         response = {
             "status": "success",
@@ -1508,30 +1546,39 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
             sql_query = sql_info.get("sql", "")
             query_result = sql_info.get("result", "")
             
-            geojson_result=ast.literal_eval(query_result)    
-            geojson_data =geojson_result[0][0]
-
-            
             if sql_query and query_result:
                 logger.info(f"使用中间步骤中的SQL查询结果，SQL长度: {len(sql_query)}，结果长度: {len(str(query_result))}")
                 
                 # 直接使用中间步骤中的查询结果
-                response["geojson"] = geojson_data
+                response["answer"]["general_result"] = query_result
+                response["answer"]["executed_sql"] = sql_query
             else:
                 # 如果没有中间结果，尝试使用结构化解析器提取的SQL查询
-                sql_queries = [parsed_result.get("sql_query", "")] if parsed_result.get("sql_query") else []
                 if sql_queries and len(sql_queries) > 0:
                     sql_query = sql_queries[0]
                     try:
                         connector = SQLConnector()
                         query_result = connector.execute_query(sql_query)
                         connector.close()
-                        response["answer"]["query_result"] = query_result
+                        response["answer"]["general_result"] = query_result
+                        response["answer"]["executed_sql"] = sql_query
                     except Exception as sql_error:
-                        logger.warning(f"执行SQL查询失败: {sql_error}")
+                        logger.warning(f"执行总结SQL查询失败: {sql_error}")
                         response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
-        logger.info(f"使用结构化解析器提取结果: answer长度={len(final_answer)}, geojson要素数={len(geojson_data.get('features', [])) if geojson_data else 0}")
-
+        
+        # 如果仍然没有执行结果，但解析器提取到了SQL查询，尝试执行
+        elif execute_sql and sql_queries and len(sql_queries) > 0:
+            sql_query = sql_queries[0]
+            try:
+                connector = SQLConnector()
+                query_result = connector.execute_query(sql_query)
+                connector.close()
+                response["answer"]["general_result"] = query_result
+                response["answer"]["executed_sql"] = sql_query
+            except Exception as sql_error:
+                logger.warning(f"执行总结SQL查询失败: {sql_error}")
+                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        
         return response
         
     except Exception as e:
