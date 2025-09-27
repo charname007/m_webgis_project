@@ -1,4 +1,5 @@
 import logging
+from math import log
 import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional, List
@@ -9,7 +10,10 @@ from spatial_sql_prompt import SQL_AGENT_SPATIAL_PROMPT, SPATIAL_SYSTEM_PROMPT_S
 from spatial_sql_agent import SpatialSQLQueryAgent as EnhancedSpatialSQLQueryAgent
 from geojson_utils import GeoJSONGenerator
 from sql_connector import SQLConnector  # pyright: ignore[reportMissingImports]
+from simple_structured_solution import parse_structured_response
 import re
+import json
+import ast
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -190,11 +194,14 @@ def natural_language_to_geojson(query_text: str, limit: int = 1000) -> Dict[str,
         # 使用SQL查询代理生成SQL
         sql_result = sql_query_agent.run(enhanced_query)
         
-        # 提取SQL查询语句（假设代理返回包含SQL的字符串）
-        sql_query = extract_sql_from_result(sql_result)
+        # 使用新的结构化解析器提取SQL查询
+        parsed_result = parse_structured_response(sql_result)
+        sql_query = parsed_result.get("sql_query", "")
         
         if not sql_query:
-            raise Exception("无法从代理响应中提取有效的SQL查询")
+            # 如果解析器没有提取到SQL查询，使用默认查询
+            sql_query = "SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"
+            logger.warning("无法从代理响应中提取有效的SQL查询，使用默认查询")
         
         logger.info(f"生成的SQL查询: {sql_query}")
         
@@ -229,152 +236,154 @@ def natural_language_to_geojson(query_text: str, limit: int = 1000) -> Dict[str,
             "original_query": query_text
         }
 
-def extract_sql_from_result(result: str) -> List[str]:
-    """
-    从SQL查询代理的结果中提取SQL查询语句
-    
-    Args:
-        result: 代理返回的结果字符串
-        
-    Returns:
-        提取的SQL查询语句列表（包含所有执行过的SQL）
-    """
-    logger.info(f"开始提取SQL查询，响应长度: {len(result)}")
-    
-    sql_queries = []
-    
-    # 1. 提取所有Action Input中的SQL查询（包括中间查询）
-    if "Action Input:" in result:
-        # 查找所有Action Input
-        action_inputs = []
-        start_index = 0
-        while True:
-            action_start = result.find("Action Input:", start_index)
-            if action_start == -1:
-                break
-            action_start += len("Action Input:")
-            # 查找下一个Action或Final Answer或结束
-            next_action = result.find("Action:", action_start)
-            final_answer = result.find("Final Answer:", action_start)
-            end_index = min(next_action, final_answer) if next_action > 0 and final_answer > 0 else max(next_action, final_answer)
-            if end_index == -1:
-                end_index = len(result)
-            
-            action_input = result[action_start:end_index].strip()
-            action_inputs.append(action_input)
-            start_index = end_index
-        
-        # 检查每个Action Input是否是有效的SQL
-        for action_input in action_inputs:
-            # 清理可能的引号和换行符
-            cleaned_input = action_input.strip().strip('"').strip("'").strip()
-            if is_valid_sql(cleaned_input):
-                logger.info(f"从Action Input中提取到SQL: {cleaned_input[:100]}...")
-                sql_queries.append(cleaned_input)
-    
-    # 2. 提取所有SQL代码块（包括中间查询）
-    if "```sql" in result:
-        start_index = result.find("```sql") + 6
-        while start_index > 5:  # 可能有多个代码块
-            end_index = result.find("```", start_index)
-            if end_index > start_index:
-                sql_content = result[start_index:end_index].strip()
-                if is_valid_sql(sql_content):
-                    logger.info(f"从代码块中提取到SQL: {sql_content[:100]}...")
-                    sql_queries.append(sql_content)
-                # 查找下一个代码块
-                start_index = result.find("```sql", end_index)
-                if start_index == -1:
-                    break
-                start_index += 6
-            else:
-                break
-    
-    # 3. 提取所有直接的SQL查询模式（包括中间查询）
-    sql_patterns = [
-        r"SELECT\s+.*?\s+FROM\s+.*?(?:\s+WHERE\s+.*?)?(?:\s+LIMIT\s+\d+)?",
-        r"SELECT\s+.*?\s+FROM\s+.*",
-        r"CREATE\s+TABLE\s+.*",
-        r"INSERT\s+INTO\s+.*",
-        r"UPDATE\s+.*",
-        r"DELETE\s+FROM\s+.*"
-    ]
-    
-    import re
-    for pattern in sql_patterns:
-        matches = re.findall(pattern, result, re.IGNORECASE | re.DOTALL)
-        for match in matches:
-            if is_valid_sql(match):
-                logger.info(f"从正则匹配中提取到SQL: {match[:100]}...")
-                sql_queries.append(match.strip())
-    
-    # 4. 提取所有执行的SQL查询（从日志中）
-    # 查找类似 "Action: sql_db_query" 后面的查询
-    sql_query_pattern = r"Action:\s+sql_db_query\s+Action Input:\s+([^\n]+)"
-    matches = re.findall(sql_query_pattern, result, re.IGNORECASE | re.DOTALL)
-    for match in matches:
-        cleaned_match = match.strip().strip('"').strip("'").strip()
-        if is_valid_sql(cleaned_match):
-            logger.info(f"从sql_db_query中提取到SQL: {cleaned_match[:100]}...")
-            sql_queries.append(cleaned_match)
-    
-    # 5. 提取所有schema查询
-    schema_pattern = r"Action:\s+sql_db_schema\s+Action Input:\s+([^\n]+)"
-    matches = re.findall(schema_pattern, result, re.IGNORECASE | re.DOTALL)
-    for match in matches:
-        table_name = match.strip().strip('"').strip("'").strip()
-        if table_name:
-            schema_query = f"SELECT * FROM {table_name} LIMIT 1"
-            logger.info(f"从schema查询生成SQL: {schema_query}")
-            sql_queries.append(schema_query)
-    
-    # 6. 提取所有list tables查询
-    list_tables_pattern = r"Action:\s+sql_db_list_tables\s+Action Input:\s*([^\n]*)"
-    matches = re.findall(list_tables_pattern, result, re.IGNORECASE | re.DOTALL)
-    if matches:
-        list_query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-        logger.info(f"添加list tables查询: {list_query}")
-        sql_queries.append(list_query)
-    
-    # 7. 过滤和清理SQL查询，只返回完整的查询
-    if sql_queries:
-        # 过滤掉不完整的查询
-        complete_queries = []
-        for query in sql_queries:
-            # 检查查询是否完整（包含SELECT和FROM）
-            if "SELECT" in query.upper() and "FROM" in query.upper():
-                # 检查查询是否以分号结尾或包含完整的语句
-                if not query.strip().endswith(';'):
-                    query = query.strip() + ';'
-                complete_queries.append(query)
-        
-        # 去重但保持顺序
-        unique_queries = []
-        seen = set()
-        for query in complete_queries:
-            # 标准化查询以便去重
-            normalized_query = re.sub(r'\s+', ' ', query.strip().upper())
-            if normalized_query not in seen and len(query.strip()) > 20:  # 确保查询有足够长度
-                seen.add(normalized_query)
-                unique_queries.append(query)
-        
-        logger.info(f"提取到{len(unique_queries)}个完整的SQL查询")
-        return unique_queries
-    
-    # 8. 如果所有方法都失败，根据查询意图生成一个默认查询
-    logger.warning(f"无法从代理响应中提取有效的SQL查询，将根据查询意图生成默认查询")
-    
-    # 分析查询意图并生成相应的SQL
-    if "交通" in result or "transport" in result.lower():
-        return ["SELECT gid, osm_id, name, highway, barrier, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"]
-    elif "点" in result or "point" in result.lower():
-        return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE geom IS NOT NULL LIMIT 10"]
-    else:
-        return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"]
+
+# 保留原有复杂实现作为参考（注释掉）
+# def extract_sql_from_result_original(result: str) -> List[str]:
+#     """
+#     从SQL查询代理的结果中提取SQL查询语句（原始复杂实现）
+#     
+#     Args:
+#         result: 代理返回的结果字符串
+#         
+#     Returns:
+#         提取的SQL查询语句列表（包含所有执行过的SQL）
+#     """
+#     logger.info(f"开始提取SQL查询，响应长度: {len(result)}")
+#     
+#     sql_queries = []
+#     
+#     # 1. 提取所有Action Input中的SQL查询（包括中间查询）
+#     if "Action Input:" in result:
+#         # 查找所有Action Input
+#         action_inputs = []
+#         start_index = 0
+#         while True:
+#             action_start = result.find("Action Input:", start_index)
+#             if action_start == -1:
+#                 break
+#             action_start += len("Action Input:")
+#             # 查找下一个Action或Final Answer或结束
+#             next_action = result.find("Action:", action_start)
+#             final_answer = result.find("Final Answer:", action_start)
+#             end_index = min(next_action, final_answer) if next_action > 0 and final_answer > 0 else max(next_action, final_answer)
+#             if end_index == -1:
+#                 end_index = len(result)
+#             
+#             action_input = result[action_start:end_index].strip()
+#             action_inputs.append(action_input)
+#             start_index = end_index
+#         
+#         # 检查每个Action Input是否是有效的SQL
+#         for action_input in action_inputs:
+#             # 清理可能的引号和换行符
+#             cleaned_input = action_input.strip().strip('"').strip("'").strip()
+#             if is_valid_sql(cleaned_input):
+#                 logger.info(f"从Action Input中提取到SQL: {cleaned_input[:100]}...")
+#                 sql_queries.append(cleaned_input)
+#     
+#     # 2. 提取所有SQL代码块（包括中间查询）
+#     if "```sql" in result:
+#         start_index = result.find("```sql") + 6
+#         while start_index > 5:  # 可能有多个代码块
+#             end_index = result.find("```", start_index)
+#             if end_index > start_index:
+#                 sql_content = result[start_index:end_index].strip()
+#                 if is_valid_sql(sql_content):
+#                     logger.info(f"从代码块中提取到SQL: {sql_content[:100]}...")
+#                     sql_queries.append(sql_content)
+#                 # 查找下一个代码块
+#                 start_index = result.find("```sql", end_index)
+#                 if start_index == -1:
+#                     break
+#                 start_index += 6
+#             else:
+#                 break
+#     
+#     # 3. 提取所有直接的SQL查询模式（包括中间查询）
+#     sql_patterns = [
+#         r"SELECT\s+.*?\s+FROM\s+.*?(?:\s+WHERE\s+.*?)?(?:\s+LIMIT\s+\d+)?",
+#         r"SELECT\s+.*?\s+FROM\s+.*",
+#         r"CREATE\s+TABLE\s+.*",
+#         r"INSERT\s+INTO\s+.*",
+#         r"UPDATE\s+.*",
+#         r"DELETE\s+FROM\s+.*"
+#     ]
+#     
+#     import re
+#     for pattern in sql_patterns:
+#         matches = re.findall(pattern, result, re.IGNORECASE | re.DOTALL)
+#         for match in matches:
+#             if is_valid_sql(match):
+#                 logger.info(f"从正则匹配中提取到SQL: {match[:100]}...")
+#                 sql_queries.append(match.strip())
+#     
+#     # 4. 提取所有执行的SQL查询（从日志中）
+#     # 查找类似 "Action: sql_db_query" 后面的查询
+#     sql_query_pattern = r"Action:\s+sql_db_query\s+Action Input:\s+([^\n]+)"
+#     matches = re.findall(sql_query_pattern, result, re.IGNORECASE | re.DOTALL)
+#     for match in matches:
+#         cleaned_match = match.strip().strip('"').strip("'").strip()
+#         if is_valid_sql(cleaned_match):
+#             logger.info(f"从sql_db_query中提取到SQL: {cleaned_match[:100]}...")
+#             sql_queries.append(cleaned_match)
+#     
+#     # 5. 提取所有schema查询
+#     schema_pattern = r"Action:\s+sql_db_schema\s+Action Input:\s+([^\n]+)"
+#     matches = re.findall(schema_pattern, result, re.IGNORECASE | re.DOTALL)
+#     for match in matches:
+#         table_name = match.strip().strip('"').strip("'").strip()
+#         if table_name:
+#             schema_query = f"SELECT * FROM {table_name} LIMIT 1"
+#             logger.info(f"从schema查询生成SQL: {schema_query}")
+#             sql_queries.append(schema_query)
+#     
+#     # 6. 提取所有list tables查询
+#     list_tables_pattern = r"Action:\s+sql_db_list_tables\s+Action Input:\s*([^\n]*)"
+#     matches = re.findall(list_tables_pattern, result, re.IGNORECASE | re.DOTALL)
+#     if matches:
+#         list_query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+#         logger.info(f"添加list tables查询: {list_query}")
+#         sql_queries.append(list_query)
+#     
+#     # 7. 过滤和清理SQL查询，只返回完整的查询
+#     if sql_queries:
+#         # 过滤掉不完整的查询
+#         complete_queries = []
+#         for query in sql_queries:
+#             # 检查查询是否完整（包含SELECT和FROM）
+#             if "SELECT" in query.upper() and "FROM" in query.upper():
+#                 # 检查查询是否以分号结尾或包含完整的语句
+#                 if not query.strip().endswith(';'):
+#                     query = query.strip() + ';'
+#                 complete_queries.append(query)
+#         
+#         # 去重但保持顺序
+#         unique_queries = []
+#         seen = set()
+#         for query in complete_queries:
+#             # 标准化查询以便去重
+#             normalized_query = re.sub(r'\s+', ' ', query.strip().upper())
+#             if normalized_query not in seen and len(query.strip()) > 20:  # 确保查询有足够长度
+#                 seen.add(normalized_query)
+#                 unique_queries.append(query)
+#         
+#         logger.info(f"提取到{len(unique_queries)}个完整的SQL查询")
+#         return unique_queries
+#     
+#     # 8. 如果所有方法都失败，根据查询意图生成一个默认查询
+#     logger.warning(f"无法从代理响应中提取有效的SQL查询，将根据查询意图生成默认查询")
+#     
+#     # 分析查询意图并生成相应的SQL
+#     if "交通" in result or "transport" in result.lower():
+#         return ["SELECT gid, osm_id, name, highway, barrier, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE highway IS NOT NULL OR barrier IS NOT NULL LIMIT 10"]
+#     elif "点" in result or "point" in result.lower():
+#         return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi WHERE geom IS NOT NULL LIMIT 10"]
+#     else:
+#         return ["SELECT gid, osm_id, name, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry FROM whupoi LIMIT 10"]
 
 def extract_thought_chain(result: str) -> List[Dict[str, str]]:
     """
-    从代理结果中提取思维链（Thought Chain）
+    从代理结果中提取思维链（Thought Chain）- 简化版
     
     Args:
         result: 代理返回的结果字符串
@@ -382,29 +391,24 @@ def extract_thought_chain(result: str) -> List[Dict[str, str]]:
     Returns:
         思维链列表，包含thought、action、action_input等信息
     """
-    # 首先尝试使用新的解析器
+    # 简化：直接使用thought_chain_log，如果可用
     try:
-        from parsing_fix import LLMResponseParser
-        parser = LLMResponseParser()
-        parsed_result = parser.parse_llm_response(result)
-        
-        if parsed_result["status"] == "success" and "thought_chain" in parsed_result:
-            logger.info(f"使用新解析器提取到{len(parsed_result['thought_chain'])}个思维链步骤")
-            return parsed_result["thought_chain"]
+        # 检查全局代理是否有thought_chain_log
+        global sql_query_agent
+        if sql_query_agent and hasattr(sql_query_agent, 'thought_chain_log') and sql_query_agent.thought_chain_log:
+            logger.info(f"直接使用thought_chain_log，包含{len(sql_query_agent.thought_chain_log)}个步骤")
+            return sql_query_agent.thought_chain_log
     except Exception as e:
-        logger.warning(f"使用新解析器失败，回退到原有逻辑: {e}")
+        logger.warning(f"无法访问thought_chain_log: {e}")
     
-    # 如果新解析器失败，回退到原来的逻辑
+    # 如果thought_chain_log不可用，使用简化解析
     thought_chain = []
     
-    # 使用正则表达式提取Thought、Action、Action Input、Final Answer等
-    thought_pattern = r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)"
-    action_pattern = r"Action:\s*(\w+)(?:\s+Action Input:\s*(.*?))?(?=Thought:|Final Answer:|$)"
-    final_answer_pattern = r"Final Answer:\s*(.*?)(?=Thought:|Action:|$)"
-    
+    # 简化：只查找明显的Thought/Action模式
     import re
     
-    # 提取Thoughts
+    # 查找Thought模式
+    thought_pattern = r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)"
     thought_matches = re.findall(thought_pattern, result, re.DOTALL)
     for i, thought in enumerate(thought_matches):
         thought_chain.append({
@@ -414,7 +418,8 @@ def extract_thought_chain(result: str) -> List[Dict[str, str]]:
             "timestamp": f"step_{i+1}"
         })
     
-    # 提取Actions
+    # 查找Action模式
+    action_pattern = r"Action:\s*(\w+)(?:\s+Action Input:\s*(.*?))?(?=Thought:|Final Answer:|$)"
     action_matches = re.findall(action_pattern, result, re.DOTALL)
     for i, (action, action_input) in enumerate(action_matches):
         thought_chain.append({
@@ -425,7 +430,8 @@ def extract_thought_chain(result: str) -> List[Dict[str, str]]:
             "timestamp": f"step_{len(thought_chain)+1}"
         })
     
-    # 提取Final Answer
+    # 查找Final Answer
+    final_answer_pattern = r"Final Answer:\s*(.*?)(?=Thought:|Action:|$)"
     final_answer_matches = re.findall(final_answer_pattern, result, re.DOTALL)
     if final_answer_matches:
         thought_chain.append({
@@ -435,43 +441,7 @@ def extract_thought_chain(result: str) -> List[Dict[str, str]]:
             "timestamp": "final"
         })
     
-    # 如果没有找到标准的思维链格式，尝试从整个结果中提取关键信息
-    if not thought_chain:
-        # 查找所有包含"Thought"、"Action"、"Final Answer"的行
-        lines = result.split('\n')
-        current_step = 1
-        for line in lines:
-            line = line.strip()
-            if line.startswith('Thought:'):
-                thought_chain.append({
-                    "step": current_step,
-                    "type": "thought",
-                    "content": line.replace('Thought:', '').strip(),
-                    "timestamp": f"step_{current_step}"
-                })
-                current_step += 1
-            elif line.startswith('Action:'):
-                action_parts = line.replace('Action:', '').strip().split('Action Input:')
-                action = action_parts[0].strip()
-                action_input = action_parts[1].strip() if len(action_parts) > 1 else ""
-                thought_chain.append({
-                    "step": current_step,
-                    "type": "action",
-                    "action": action,
-                    "action_input": action_input,
-                    "timestamp": f"step_{current_step}"
-                })
-                current_step += 1
-            elif line.startswith('Final Answer:'):
-                thought_chain.append({
-                    "step": current_step,
-                    "type": "final_answer",
-                    "content": line.replace('Final Answer:', '').strip(),
-                    "timestamp": "final"
-                })
-                current_step += 1
-    
-    # 如果仍然没有找到思维链，返回整个结果作为单个thought
+    # 如果找不到标准格式，返回整个结果作为单个thought
     if not thought_chain:
         thought_chain.append({
             "step": 1,
@@ -480,8 +450,120 @@ def extract_thought_chain(result: str) -> List[Dict[str, str]]:
             "timestamp": "single_step"
         })
     
-    logger.info(f"使用原有逻辑提取到{len(thought_chain)}个思维链步骤")
+    logger.info(f"使用简化逻辑提取到{len(thought_chain)}个思维链步骤")
     return thought_chain
+
+# 保留原有复杂实现作为参考（注释掉）
+# def extract_thought_chain_original(result: str) -> List[Dict[str, str]]:
+#     """
+#     从代理结果中提取思维链（Thought Chain）- 原始复杂实现
+#     
+#     Args:
+#         result: 代理返回的结果字符串
+#         
+#     Returns:
+#         思维链列表，包含thought、action、action_input等信息
+#     """
+#     # 首先尝试使用新的解析器
+#     try:
+#         from parsing_fix import LLMResponseParser
+#         parser = LLMResponseParser()
+#         parsed_result = parser.parse_llm_response(result)
+#         
+#         if parsed_result["status"] == "success" and "thought_chain" in parsed_result:
+#             logger.info(f"使用新解析器提取到{len(parsed_result['thought_chain'])}个思维链步骤")
+#             return parsed_result["thought_chain"]
+#     except Exception as e:
+#         logger.warning(f"使用新解析器失败，回退到原有逻辑: {e}")
+#     
+#     # 如果新解析器失败，回退到原来的逻辑
+#     thought_chain = []
+#     
+#     # 使用正则表达式提取Thought、Action、Action Input、Final Answer等
+#     thought_pattern = r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)"
+#     action_pattern = r"Action:\s*(\w+)(?:\s+Action Input:\s*(.*?))?(?=Thought:|Final Answer:|$)"
+#     final_answer_pattern = r"Final Answer:\s*(.*?)(?=Thought:|Action:|$)"
+#     
+#     import re
+#     
+#     # 提取Thoughts
+#     thought_matches = re.findall(thought_pattern, result, re.DOTALL)
+#     for i, thought in enumerate(thought_matches):
+#         thought_chain.append({
+#             "step": i + 1,
+#             "type": "thought",
+#             "content": thought.strip(),
+#             "timestamp": f"step_{i+1}"
+#         })
+#     
+#     # 提取Actions
+#     action_matches = re.findall(action_pattern, result, re.DOTALL)
+#     for i, (action, action_input) in enumerate(action_matches):
+#         thought_chain.append({
+#             "step": len(thought_chain) + 1,
+#             "type": "action",
+#             "action": action.strip(),
+#             "action_input": action_input.strip() if action_input else "",
+#             "timestamp": f"step_{len(thought_chain)+1}"
+#         })
+#     
+#     # 提取Final Answer
+#     final_answer_matches = re.findall(final_answer_pattern, result, re.DOTALL)
+#     if final_answer_matches:
+#         thought_chain.append({
+#             "step": len(thought_chain) + 1,
+#             "type": "final_answer",
+#             "content": final_answer_matches[0].strip(),
+#             "timestamp": "final"
+#         })
+#     
+#     # 如果没有找到标准的思维链格式，尝试从整个结果中提取关键信息
+#     if not thought_chain:
+#         # 查找所有包含"Thought"、"Action"、"Final Answer"的行
+#         lines = result.split('\n')
+#         current_step = 1
+#         for line in lines:
+#             line = line.strip()
+#             if line.startswith('Thought:'):
+#                 thought_chain.append({
+#                     "step": current_step,
+#                     "type": "thought",
+#                     "content": line.replace('Thought:', '').strip(),
+#                     "timestamp": f"step_{current_step}"
+#                 })
+#                 current_step += 1
+#             elif line.startswith('Action:'):
+#                 action_parts = line.replace('Action:', '').strip().split('Action Input:')
+#                 action = action_parts[0].strip()
+#                 action_input = action_parts[1].strip() if len(action_parts) > 1 else ""
+#                 thought_chain.append({
+#                     "step": current_step,
+#                     "type": "action",
+#                     "action": action,
+#                     "action_input": action_input,
+#                     "timestamp": f"step_{current_step}"
+#                 })
+#                 current_step += 1
+#             elif line.startswith('Final Answer:'):
+#                 thought_chain.append({
+#                     "step": current_step,
+#                     "type": "final_answer",
+#                     "content": line.replace('Final Answer:', '').strip(),
+#                     "timestamp": "final"
+#                 })
+#                 current_step += 1
+#     
+#     # 如果仍然没有找到思维链，返回整个结果作为单个thought
+#     if not thought_chain:
+#         thought_chain.append({
+#             "step": 1,
+#             "type": "thought",
+#             "content": result[:500] + "..." if len(result) > 500 else result,
+#             "timestamp": "single_step"
+#         })
+#     
+#     logger.info(f"使用原有逻辑提取到{len(thought_chain)}个思维链步骤")
+#     return thought_chain
 
 def is_valid_sql(sql: str) -> bool:
     """
@@ -1115,7 +1197,8 @@ async def intelligent_agent_query(query_data: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"查询类型分析: {query_analysis}")
         
         # 根据查询类型选择处理方式
-        if query_analysis["query_type"] == "spatial":
+        # 对于包含"查询"关键词的查询，也使用空间查询处理方式，以便使用run_with_thought_chain
+        if query_analysis["query_type"] == "spatial" or "查询" in question or "查询" in query_analysis.get("sql_keywords_found", []):
             return await _handle_spatial_query(question, query_analysis, execute_sql, return_geojson)
         elif query_analysis["query_type"] == "summary":
             return await _handle_summary_query(question, query_analysis, execute_sql)
@@ -1142,32 +1225,48 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
             if not initialize_agent():
                 raise Exception("SQL查询代理未初始化")
         
-        # 执行空间查询并捕获完整思维链
+        # 执行空间查询并捕获完整思维链（包括SQL查询结果）
         thought_chain_result = sql_query_agent.run_with_thought_chain(question)
-        
-        if thought_chain_result["status"] == "success":
-            result = thought_chain_result["final_answer"]
+        logger.info(f"思维链结果状态: {thought_chain_result['status']}")
+
+        if thought_chain_result["status"] in ["success", "partial_success"]:
+            final_answer = thought_chain_result["final_answer"]
             thought_chain = thought_chain_result["thought_chain"]
             step_count = thought_chain_result["step_count"]
+            sql_queries_with_results = thought_chain_result.get("sql_queries_with_results", [])
             
-            logger.info(f"捕获到{step_count}个思维链步骤")
-            logger.info(f"最终答案长度: {len(result)}")
+            logger.info(f"捕获到{step_count}个思维链步骤，{len(sql_queries_with_results)}个SQL查询及其执行结果")
+            logger.info(f"最终答案长度: {len(final_answer)}")
+            
+            # 直接从中间步骤获取SQL查询和结果，不再需要提取
+            sql_queries = []
+            for sql_info in sql_queries_with_results:
+                if sql_info.get("sql"):
+                    sql_queries.append(sql_info["sql"])
         else:
             # 如果思维链捕获失败，回退到原来的方法
             logger.warning("思维链捕获失败，使用回退方法")
-            result = sql_query_agent.run(question)
-            thought_chain = extract_thought_chain(result)
+            final_answer = sql_query_agent.run(question)
+            thought_chain = extract_thought_chain(final_answer)
+            # 使用结构化解析器提取SQL查询
+            parsed_result = parse_structured_response(final_answer)
+            sql_queries = [parsed_result.get("sql_query", "")] if parsed_result.get("sql_query") else []
+            sql_queries_with_results = []
         
-        # 提取SQL查询
-        sql_queries = extract_sql_from_result(result)
-        
-        # 分析查询优化建议（SQLQueryAgent没有analyze_spatial_query方法）
+        # 分析查询优化建议
         analysis = {
-            "has_spatial_functions": any(func in result.upper() for func in ["ST_", "pgr_", "TopoGeo_"]),
-            "spatial_functions_used": [func for func in ["ST_", "pgr_", "TopoGeo_"] if func in result.upper()],
+            "has_spatial_functions": any(func in final_answer.upper() for func in ["ST_", "pgr_", "TopoGeo_"]),
+            "spatial_functions_used": [func for func in ["ST_", "pgr_", "TopoGeo_"] if func in final_answer.upper()],
             "suggestions": [],
             "optimization_tips": []
         }
+        
+        # 使用新的结构化解析器从final_answer中提取answer和geojson
+        # parsed_result = parse_structured_response(final_answer)
+        # extracted_answer = parsed_result["answer"]
+        # extracted_geojson = parsed_result["geojson"]
+
+        # logger.info(f"使用结构化解析器提取结果: answer长度={len(final_answer)}, geojson要素数={len(geojson_data.get('features', [])) if geojson_data else 0}")
         
         # 构建基础响应
         response = {
@@ -1178,46 +1277,38 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
                 "analysis": query_analysis
             },
             "answer": {
-                "text": result,
+                "text": final_answer,
                 "analysis": analysis,
                 "thought_chain": thought_chain
             },
-            "sql": sql_queries,
-            "geojson": None
+            "sql_queries_with_results": sql_queries_with_results,  # 直接返回SQL查询和结果
+            "geojson": None  
         }
         
-        # 如果要求执行SQL查询并且有有效的SQL
-        if execute_sql and sql_queries and len(sql_queries) > 0:
-            # 使用第一个SQL查询执行
-            sql_query = sql_queries[0]
-            try:
-                # 修复SQL查询中的表名问题
-                # 如果查询使用了whupois表但实际数据在whupoi表中
-                if "whupois" in sql_query.lower() and "whupoi" not in sql_query.lower():
-                    # 尝试使用whupoi表
-                    fixed_sql = sql_query.replace("whupois", "whupoi")
-                    logger.info(f"修复SQL查询表名: {fixed_sql}")
-                    sql_query = fixed_sql
+        # 如果要求执行SQL查询并且有有效的SQL查询结果
+        if execute_sql and sql_queries_with_results and len(sql_queries_with_results) > 0:
+            # 使用第一个SQL查询的执行结果（已经包含在中间步骤中）
+            sql_info = sql_queries_with_results[-1]
+            sql_query = sql_info.get("sql", "")
+            query_result = sql_info.get("result", "")
+            
+            geojson_result=ast.literal_eval(query_result)    
+            geojson_data =geojson_result[0][0]
+            if sql_query and query_result:
+                logger.info(f"使用中间步骤中的SQL查询结果，SQL长度: {len(sql_query)}，结果长度: {len(str(query_result))}")
+                logger.info(f"SQL查询: {sql_query}")
+                logger.info(f"查询结果: {query_result}")
+                logger.info(f"GeoJSON数据: {geojson_result}")
+                # 直接使用中间步骤中的查询结果
+                response["geojson"] = geojson_data
                 
-                # 修复SQL查询中的SRID问题
-                # 如果查询包含ST_Transform但几何数据没有SRID，需要修复
-                if "ST_Transform" in sql_query.upper() and "SRID" not in sql_query.upper():
-                    # 替换ST_Transform为ST_SetSRID
-                    fixed_sql = sql_query.replace("ST_Transform(geom, 4326)", "ST_SetSRID(geom, 4326)")
-                    logger.info(f"修复SQL查询SRID: {fixed_sql}")
-                    sql_query = fixed_sql
-                
-                # 执行SQL查询
-                connector = SQLConnector()
-                query_result = connector.execute_query(sql_query)
-                
-                # 如果要求返回GeoJSON格式
-                if return_geojson and "geom" in sql_query.lower():
+                # 如果要求返回GeoJSON格式并且查询包含几何数据，但还没有从final_answer中提取到geojson
+                if return_geojson and "geom" in sql_query.lower() and geojson_data is None:
                     try:
                         connection_string = "postgresql://sagasama:cznb6666@localhost:5432/WGP_db"
                         generator = GeoJSONGenerator(connection_string)
                         
-                        # 使用修复后的SQL查询生成GeoJSON
+                        # 使用SQL查询生成GeoJSON
                         geojson_data = generator.query_to_geojson(sql_query)
                         response["geojson"] = geojson_data
                         response["answer"]["feature_count"] = len(geojson_data.get("features", []))
@@ -1254,14 +1345,10 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
                     except Exception as geojson_error:
                         logger.warning(f"生成GeoJSON失败: {geojson_error}")
                         response["answer"]["geojson_warning"] = f"生成GeoJSON失败: {str(geojson_error)}"
-                
-                response["answer"]["query_result"] = query_result
-                connector.close()
-                
-            except Exception as sql_error:
-                logger.warning(f"执行SQL查询失败: {sql_error}")
-                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
-        
+            else:
+                logger.warning("中间步骤中的SQL查询结果不完整，无法使用")
+            logger.info(f"使用结构化解析器提取结果: answer长度={len(final_answer)}, geojson要素数={len(geojson_data.get('features', [])) if geojson_data else 0}")
+
         return response
         
     except Exception as e:
@@ -1270,14 +1357,14 @@ async def _handle_spatial_query(question: str, query_analysis: Dict[str, Any],
 
 async def _handle_summary_query(question: str, query_analysis: Dict[str, Any], 
                                execute_sql: bool) -> Dict[str, Any]:
-    """处理数据总结查询"""
+    """处理数据总结查询 - 直接执行查询并返回分析结果"""
     try:
         # 检查并初始化代理
         if not agent_initialized or sql_query_agent is None:
             if not initialize_agent():
                 raise Exception("SQL查询代理未初始化")
         
-        # 增强查询以包含总结提示
+        # 增强查询以包含总结提示 - 简洁直接地要求执行查询
         enhanced_question = f"""
 {question}
 
@@ -1287,17 +1374,26 @@ async def _handle_summary_query(question: str, query_analysis: Dict[str, Any],
 3. 提供有意义的统计信息
 4. 如果可能，包含数据分布和趋势分析
 
-请直接返回SQL查询语句和简要的分析说明。
+请执行它并返回详细的分析说明。
 """
         
-        # 执行查询
-        result = sql_query_agent.run(enhanced_question)
+        # 执行查询并尝试捕获思维链结果
+        thought_chain_result = sql_query_agent.run_with_thought_chain(enhanced_question)
         
-        # 提取SQL查询
-        sql_queries = extract_sql_from_result(result)
+        if thought_chain_result["status"] in ["success", "partial_success"]:
+            final_answer = thought_chain_result["final_answer"]
+            thought_chain = thought_chain_result["thought_chain"]
+            sql_queries_with_results = thought_chain_result.get("sql_queries_with_results", [])
+        else:
+            # 如果思维链捕获失败，回退到原来的方法
+            logger.warning("思维链捕获失败，使用回退方法")
+            final_answer = sql_query_agent.run(enhanced_question)
+            thought_chain = extract_thought_chain(final_answer)
+            sql_queries_with_results = []
         
-        # 提取思维链（Thought Chain）
-        thought_chain = extract_thought_chain(result)
+        # 使用结构化解析器提取SQL查询
+        parsed_result = parse_structured_response(final_answer)
+        sql_queries = [parsed_result.get("sql_query", "")] if parsed_result.get("sql_query") else []
         
         # 构建响应
         response = {
@@ -1308,23 +1404,50 @@ async def _handle_summary_query(question: str, query_analysis: Dict[str, Any],
                 "analysis": query_analysis
             },
             "answer": {
-                "text": result,
+                "text": final_answer,
                 "summary_analysis": "这是一个数据总结查询，提供了统计信息和分析",
                 "thought_chain": thought_chain
             },
-            "sql": sql_queries,
+            "sql_queries_with_results": sql_queries_with_results,  # 返回SQL查询和结果
             "geojson": None
         }
         
-        # 如果要求执行SQL查询并且有有效的SQL
-        if execute_sql and sql_queries and len(sql_queries) > 0:
-            # 使用第一个SQL查询执行
+        # 如果要求执行SQL查询并且有有效的SQL查询结果
+        if execute_sql and sql_queries_with_results and len(sql_queries_with_results) > 0:
+            # 使用最后一个SQL查询的执行结果（通常是最完整的）
+            sql_info = sql_queries_with_results[-1]
+            sql_query = sql_info.get("sql", "")
+            query_result = sql_info.get("result", "")
+            
+            if sql_query and query_result:
+                logger.info(f"使用中间步骤中的SQL查询结果，SQL长度: {len(sql_query)}，结果长度: {len(str(query_result))}")
+                
+                # 直接使用中间步骤中的查询结果
+                response["answer"]["summary_result"] = query_result
+                response["answer"]["executed_sql"] = sql_query
+            else:
+                # 如果没有中间结果，尝试使用结构化解析器提取的SQL查询
+                if sql_queries and len(sql_queries) > 0:
+                    sql_query = sql_queries[0]
+                    try:
+                        connector = SQLConnector()
+                        query_result = connector.execute_query(sql_query)
+                        connector.close()
+                        response["answer"]["summary_result"] = query_result
+                        response["answer"]["executed_sql"] = sql_query
+                    except Exception as sql_error:
+                        logger.warning(f"执行总结SQL查询失败: {sql_error}")
+                        response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        
+        # 如果仍然没有执行结果，但解析器提取到了SQL查询，尝试执行
+        elif execute_sql and sql_queries and len(sql_queries) > 0:
             sql_query = sql_queries[0]
             try:
                 connector = SQLConnector()
                 query_result = connector.execute_query(sql_query)
                 connector.close()
                 response["answer"]["summary_result"] = query_result
+                response["answer"]["executed_sql"] = sql_query
             except Exception as sql_error:
                 logger.warning(f"执行总结SQL查询失败: {sql_error}")
                 response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
@@ -1344,14 +1467,23 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
             if not initialize_agent():
                 raise Exception("SQL查询代理未初始化")
         
-        # 执行普通查询
-        result = sql_query_agent.run(question)
+        # 执行查询并尝试捕获思维链结果
+        thought_chain_result = sql_query_agent.run_with_thought_chain(question)
         
-        # 提取SQL查询
-        sql_queries = extract_sql_from_result(result)
+        if thought_chain_result["status"] in ["success", "partial_success"]:
+            final_answer = thought_chain_result["final_answer"]
+            thought_chain = thought_chain_result["thought_chain"]
+            sql_queries_with_results = thought_chain_result.get("sql_queries_with_results", [])
+        else:
+            # 如果思维链捕获失败，回退到原来的方法
+            logger.warning("思维链捕获失败，使用回退方法")
+            final_answer = sql_query_agent.run(question)
+            thought_chain = extract_thought_chain(final_answer)
+            sql_queries_with_results = []
         
-        # 提取思维链（Thought Chain）
-        thought_chain = extract_thought_chain(result)
+        # # 使用结构化解析器提取SQL查询
+        parsed_result = parse_structured_response(final_answer)
+        # extracted_answer = parsed_result["answer"]
         
         # 构建响应
         response = {
@@ -1362,26 +1494,44 @@ async def _handle_general_query(question: str, query_analysis: Dict[str, Any],
                 "analysis": query_analysis
             },
             "answer": {
-                "text": result,
+                "text": final_answer,
                 "thought_chain": thought_chain
             },
-            "sql": sql_queries,
+            "sql_queries_with_results": sql_queries_with_results,  # 返回SQL查询和结果
             "geojson": None
         }
         
-        # 如果要求执行SQL查询并且有有效的SQL
-        if execute_sql and sql_queries and len(sql_queries) > 0:
-            # 使用第一个SQL查询执行
-            sql_query = sql_queries[0]
-            try:
-                connector = SQLConnector()
-                query_result = connector.execute_query(sql_query)
-                connector.close()
-                response["answer"]["query_result"] = query_result
-            except Exception as sql_error:
-                logger.warning(f"执行SQL查询失败: {sql_error}")
-                response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
-        
+        # 如果要求执行SQL查询并且有有效的SQL查询结果
+        if execute_sql and sql_queries_with_results and len(sql_queries_with_results) > 0:
+            # 使用最后一个SQL查询的执行结果（通常是最完整的）
+            sql_info = sql_queries_with_results[-1]
+            sql_query = sql_info.get("sql", "")
+            query_result = sql_info.get("result", "")
+            
+            geojson_result=ast.literal_eval(query_result)    
+            geojson_data =geojson_result[0][0]
+
+            
+            if sql_query and query_result:
+                logger.info(f"使用中间步骤中的SQL查询结果，SQL长度: {len(sql_query)}，结果长度: {len(str(query_result))}")
+                
+                # 直接使用中间步骤中的查询结果
+                response["geojson"] = geojson_data
+            else:
+                # 如果没有中间结果，尝试使用结构化解析器提取的SQL查询
+                sql_queries = [parsed_result.get("sql_query", "")] if parsed_result.get("sql_query") else []
+                if sql_queries and len(sql_queries) > 0:
+                    sql_query = sql_queries[0]
+                    try:
+                        connector = SQLConnector()
+                        query_result = connector.execute_query(sql_query)
+                        connector.close()
+                        response["answer"]["query_result"] = query_result
+                    except Exception as sql_error:
+                        logger.warning(f"执行SQL查询失败: {sql_error}")
+                        response["answer"]["sql_warning"] = f"执行SQL查询失败: {str(sql_error)}"
+        logger.info(f"使用结构化解析器提取结果: answer长度={len(final_answer)}, geojson要素数={len(geojson_data.get('features', [])) if geojson_data else 0}")
+
         return response
         
     except Exception as e:

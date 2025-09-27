@@ -9,7 +9,7 @@ import json
 import time
 
 # API基础URL
-BASE_URL = "http://localhost:8003"
+BASE_URL = "http://localhost:8001"
 
 def test_health_check():
     """测试健康检查端点"""
@@ -189,7 +189,7 @@ def main():
     
     print("\n" + "="*60)
     print("测试完成！")
-    print("API接口地址: http://localhost:8003")
+    print("API接口地址: http://localhost:8001")
     print("主要端点:")
     print("- POST /agent/query - 智能代理查询")
     print("- GET  /agent/query/{question} - GET方式查询")

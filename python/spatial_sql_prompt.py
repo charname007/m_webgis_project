@@ -119,7 +119,32 @@ SQL_AGENT_SPATIAL_PROMPT = """
 3. 使用适当的PostGIS函数
 4. 确保查询的安全性和性能
 
-请根据用户的问题生成相应的空间SQL查询。
+## 响应格式要求
+你必须使用以下JSON格式返回最终答案：
+
+{
+  "answer": "你的自然语言回答，解释查询结果和发现",
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point/LineString/Polygon",
+          "coordinates": [经度, 纬度]
+        },
+        "properties": {
+          "字段1": "值1",
+          "字段2": "值2"
+        }
+      }
+    ]
+  }
+}
+
+如果查询不涉及空间数据或不需要返回GeoJSON，可以省略geojson字段。
+
+请根据用户的问题生成相应的空间SQL查询，并按照上述格式返回结果。
 """
 
 # 空间数据库查询代理子类
@@ -163,7 +188,36 @@ SPATIAL_SYSTEM_PROMPT_SIMPLE = """
 3. 优先使用PostGIS函数（ST_Distance、ST_Intersects、ST_Within等）
 4. 生成的SQL应该可以直接在PostGIS环境中执行
 
-请根据用户的问题生成相应的空间SQL查询。
+## 响应格式要求
+你必须严格按照以下JSON格式返回最终答案：
+
+```json
+{
+  "answer": "你的自然语言回答，解释查询结果和发现",
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point/LineString/Polygon",
+          "coordinates": [经度, 纬度]
+        },
+        "properties": {
+          "字段1": "值1",
+          "字段2": "值2"
+        }
+      }
+    ]
+  }
+}
+```
+
+如果查询不涉及空间数据或不需要返回GeoJSON，可以省略geojson字段。
+
+请确保你的响应是有效的JSON格式，可以直接被解析。
+
+请根据用户的问题生成相应的空间SQL查询，并按照上述格式返回结果。
 """
 
 if __name__ == "__main__":

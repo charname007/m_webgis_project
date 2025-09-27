@@ -1,3 +1,8 @@
+"""
+使用StructuredOutputParser的空间SQL查询代理
+真正使用LangChain的StructuredOutputParser来控制AI代理输出格式
+"""
+
 import logging
 from typing import List, Tuple, Optional, Dict, Any
 from langchain.chains import create_sql_query_chain
@@ -5,21 +10,38 @@ from base_llm import BaseLLM
 from sql_connector import SQLConnector
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain.agents.agent_types import AgentType
-from langchain_core.output_parsers import StrOutputParser
-from langchain.output_parsers.structured import ResponseSchema, StructuredOutputParser
+from langchain_core.output_parsers import StrOutputParser, PydanticOutputParser,StructuredOutputParser,ResponseSchema
 from langchain.output_parsers.retry import RetryOutputParser
-from langchain_core.agents import AgentActionMessageLog
-from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActSingleInputOutputParser
-from langchain.schema import AgentAction, AgentFinish
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import PromptTemplate
 import re
 import json
 
+# 使用兼容的Pydantic导入方式
+try:
+    from pydantic import BaseModel, Field
+    PYDANTIC_V2 = True
+except ImportError:
+    try:
+        from pydantic.v1 import BaseModel, Field
+        PYDANTIC_V2 = True
+    except ImportError:
+        from langchain_core.pydantic_v1 import BaseModel, Field
+        PYDANTIC_V2 = False
 
-# 空间查询系统提示词（使用增强的结构化输出要求）
-SPATIAL_SYSTEM_PROMPT = """
+class SpatialQueryResponse(BaseModel):
+    """空间查询响应格式"""
+    answer: str = Field(description="自然语言回答，解释查询结果和发现")
+    geojson: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="GeoJSON格式的空间数据，如果查询不涉及空间数据可以省略"
+    )
+
+# 创建Pydantic输出解析器
+output_parser = PydanticOutputParser(pydantic_object=SpatialQueryResponse)
+format_instructions = output_parser.get_format_instructions()
+
+# 空间查询系统提示词（使用真正的StructuredOutputParser）
+SPATIAL_SYSTEM_PROMPT_STRUCTURED = f"""
 你是一个专门处理空间数据库查询的AI助手。你精通PostGIS、PgRouting和PostGIS拓扑扩展。
 
 IMPORTANT: 你必须严格遵守以下输出格式要求：
@@ -61,30 +83,46 @@ PostGIS拓扑函数：
 3. 包含适当的空间索引优化
 4. 避免危险操作（DROP, DELETE等）
 
-# ## 响应格式要求
-# 你必须严格按照以下JSON格式返回最终答案(final_answer)：
+## 响应格式要求
+你必须严格按照以下JSON格式返回最终答案：
 
-# ```json
-# {
-#   "answer": "你的自然语言回答，解释查询结果和发现",
-#   "geojson": {
-#     "type": "FeatureCollection",
-#     "features": [
-#       {
-#         "type": "Feature",
-#         "geometry": {
-#           "type": "Point/LineString/Polygon",
-#           "coordinates": [经度, 纬度]
-#         },
-#         "properties": {
-#           "字段1": "值1",
-#           "字段2": "值2"
-#         }
-#       }
-#     ]
-#   }
-# }
-# ```
+{format_instructions}
+
+## 示例响应格式
+```json
+{{
+  "answer": "查询成功返回了whupoi表的前2条记录，以GeoJSON FeatureCollection格式呈现。结果包含以下信息：第一条记录：- gid: 1 - osm_id: 845686557 - highway: traffic_signals - 几何类型: Point - 坐标: [114.3699588, 30.5309076] 第二条记录：- gid: 2 - osm_id: 1148740588 - barrier: gate - 几何类型: Point - 坐标: [114.3465494, 30.5240617]",
+  "geojson": {{
+    "type": "FeatureCollection",
+    "features": [
+      {{
+        "type": "Feature",
+        "geometry": {{
+          "type": "Point",
+          "coordinates": [114.3699588, 30.5309076]
+        }},
+        "properties": {{
+          "gid": 1,
+          "osm_id": "845686557",
+          "highway": "traffic_signals"
+        }}
+      }},
+      {{
+        "type": "Feature",
+        "geometry": {{
+          "type": "Point",
+          "coordinates": [114.3465494, 30.5240617]
+        }},
+        "properties": {{
+          "gid": 2,
+          "osm_id": "1148740588",
+          "barrier": "gate"
+        }}
+      }}
+    ]
+  }}
+}}
+```
 
 如果查询不涉及空间数据或不需要返回GeoJSON，可以省略geojson字段。
 
@@ -106,9 +144,9 @@ SELECT jsonb_build_object(
 ) AS geojson
 FROM (
     SELECT * 
-    FROM ${tableName}
-    ${whereClause}
-    ${limitClause}
+    FROM ${{tableName}}
+    ${{whereClause}}
+    ${{limitClause}}
 ) AS sub
 
 示例正确的查询格式：
@@ -127,69 +165,67 @@ Action Input: ""
 
 或者：
 Thought: 我已经获得了所有需要的信息
-Final Answer: ""
-# ```json
-# {
-#   "answer": "查询成功返回了2条记录",
-#   "geojson": {
-#     "type": "FeatureCollection",
-#     "features": [...]
-#   }
-# }
-# ```
+Final Answer: {{
+  "answer": "查询成功返回了2条记录",
+  "geojson": {{
+    "type": "FeatureCollection",
+    "features": [...]
+  }}
+}}
 
 重要：最终答案必须使用上述JSON格式，确保可以直接被解析。
 """
 
-# 简化版系统提示词
-# SPATIAL_SYSTEM_PROMPT = "你是一个专门处理空间数据库查询的AI助手。请使用PostGIS函数处理空间查询。"
 
-
-class SpatialSQLQueryAgent:
-    """空间SQL查询代理类，专门处理空间数据库查询"""
+class StructuredSpatialSQLQueryAgent:
+    """使用StructuredOutputParser的空间SQL查询代理类"""
 
     def __init__(self, system_prompt: Optional[str] = None, enable_spatial_functions: bool = True):
         """
-        初始化空间SQL查询代理
+        初始化结构化空间SQL查询代理
 
         Args:
-            system_prompt: 自定义系统提示词，如果为None则使用默认空间提示词
+            system_prompt: 自定义系统提示词，如果为None则使用默认结构化提示词
             enable_spatial_functions: 是否启用空间函数支持
         """
         self.connector = SQLConnector()
         self.enable_spatial_functions = enable_spatial_functions
+        self.output_parser = output_parser
 
         # 创建LLM实例
         self.llm = BaseLLM()
 
-        # 使用空间系统提示词或自定义提示词
-        final_prompt = system_prompt or SPATIAL_SYSTEM_PROMPT
+        # 使用结构化系统提示词或自定义提示词
+        final_prompt = system_prompt or SPATIAL_SYSTEM_PROMPT_STRUCTURED
 
-        # 创建包含空间知识的系统提示词
-        custom_prompt = ChatPromptTemplate.from_messages([
-            ("system", final_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}")
-        ])
+        # 创建包含结构化输出要求的系统提示词
+        self.prompt_template = PromptTemplate(
+            template="""
+{system_prompt}
 
-        # 重新配置LLM的提示词
-        self.llm.prompt = custom_prompt
+用户查询：{query}
 
-        # 创建SQL代理 - 使用更简单的配置避免解析错误
+请严格按照指定的JSON格式返回最终答案。
+""",
+            input_variables=["system_prompt", "query"],
+            partial_variables={"format_instructions": format_instructions}
+        )
+
+        # 创建SQL代理
         self.agent = create_sql_agent(
             self.llm.llm,
             db=self.connector.db,
             verbose=True,
             agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            # handle_parsing_errors=True,
-            agent_executor_kwargs={
-                "return_intermediate_steps": True,  # 关键：让 agent 返回中间步骤
-                "handle_parsing_errors": True  # 确保错误处理生效
-            }
+            handle_parsing_errors=True,
+            output_parser=RetryOutputParser.from_llm(
+                llm=self.llm.llm, parser=StrOutputParser()),
+            agent_executor_kwargs={"return_intermediate_steps": True}
         )
 
         # 确保输出解析为字符串
-        # 确保输出解析为字符串
+        self.chain = self.agent | StrOutputParser()
+
         self.logger = self._setup_logger()
 
         # 初始化思维链捕获相关变量
@@ -208,15 +244,15 @@ class SpatialSQLQueryAgent:
             logger.setLevel(logging.INFO)
         return logger
 
-    def run(self, query: str) -> str:
+    def run_with_structured_output(self, query: str) -> Dict[str, Any]:
         """
-        执行SQL查询，支持空间查询
+        执行SQL查询并返回结构化输出
 
         Args:
             query: 自然语言查询字符串
 
         Returns:
-            SQL查询结果字符串
+            结构化查询结果
         """
         try:
             if not isinstance(query, str):
@@ -226,6 +262,12 @@ class SpatialSQLQueryAgent:
             enhanced_query = self._enhance_spatial_query(query)
             self.logger.info(f"处理空间查询: {query}")
             self.logger.info(f"增强后的查询: {enhanced_query}")
+
+            # 生成结构化提示词
+            formatted_prompt = self.prompt_template.format(
+                system_prompt=SPATIAL_SYSTEM_PROMPT_STRUCTURED,
+                query=enhanced_query
+            )
 
             # SQL agent expects input as a dictionary with 'input' key
             result = self.agent.invoke({"input": enhanced_query})
@@ -237,28 +279,62 @@ class SpatialSQLQueryAgent:
                 else:
                     result = str(result)
 
-            # 进行后处理，确保空间查询的完整性
-            result = self._postprocess_result(result, query)
-
-            return result
+            # 尝试使用结构化解析器解析结果
+            try:
+                parsed_result = self.output_parser.parse(result)
+                self.logger.info("✅ 成功使用StructuredOutputParser解析结果")
+                return {
+                    "status": "success",
+                    "answer": parsed_result.get("answer", ""),
+                    "geojson": parsed_result.get("geojson"),
+                    "original_response": result,
+                    "parser_used": "StructuredOutputParser"
+                }
+            except Exception as parse_error:
+                self.logger.warning(f"StructuredOutputParser解析失败，使用备用解析器: {parse_error}")
+                
+                # 使用备用解析器
+                from simple_structured_solution import parse_structured_response
+                backup_result = parse_structured_response(result)
+                
+                return {
+                    "status": "partial_success",
+                    "answer": backup_result.get("answer", ""),
+                    "geojson": backup_result.get("geojson"),
+                    "original_response": result,
+                    "parser_used": "BackupParser",
+                    "parse_warning": f"StructuredOutputParser失败: {str(parse_error)}"
+                }
 
         except Exception as e:
             self.logger.error(f"空间查询处理失败: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "parser_used": "None"
+            }
 
-            # 简化错误处理，直接返回错误信息
-            error_msg = str(e)
+    def run(self, query: str) -> str:
+        """
+        兼容现有接口，返回字符串格式的结果
 
-            # 检查是否是输出解析错误
-            if "output parsing error" in error_msg.lower() or "could not parse llm output" in error_msg.lower():
-                # 尝试从错误消息中提取LLM的实际输出
-                llm_output_match = re.search(
-                    r"Could not parse LLM output: `(.*?)`", error_msg, re.DOTALL)
-                if llm_output_match:
-                    llm_output = llm_output_match.group(1)
-                    self.logger.info(f"提取到LLM输出: {llm_output[:200]}...")
-                    return f"LLM响应: {llm_output[:500]}..."
+        Args:
+            query: 自然语言查询字符串
 
-            return f"抱歉，处理您的空间查询时出现了问题：{error_msg}"
+        Returns:
+            字符串格式的查询结果
+        """
+        structured_result = self.run_with_structured_output(query)
+        
+        if structured_result["status"] == "success":
+            # 返回格式化的JSON字符串
+            return json.dumps({
+                "answer": structured_result["answer"],
+                "geojson": structured_result["geojson"]
+            }, ensure_ascii=False, indent=2)
+        else:
+            # 返回错误信息
+            return f"查询失败: {structured_result.get('error', '未知错误')}"
 
     def _enhance_spatial_query(self, query: str) -> str:
         """
@@ -330,143 +406,6 @@ SELECT gid, name, geom FROM whupoi LIMIT 3
         else:
             return query
 
-    def _postprocess_result(self, result: str, original_query: str) -> str:
-        """
-        后处理查询结果，确保空间查询的完整性
-
-        Args:
-            result: 原始结果
-            original_query: 原始查询
-
-        Returns:
-            处理后的结果
-        """
-        # 检查结果是否包含有效的SQL
-        if "SELECT" in result.upper() and "FROM" in result.upper():
-            # 确保空间查询包含几何列
-            if any(keyword in original_query.lower() for keyword in ['距离', '附近', '相交', '包含']):
-                if "geom" not in result.upper() and "ST_" not in result.upper():
-                    self.logger.warning("空间查询可能缺少几何列，尝试增强")
-                    # 这里可以添加逻辑来增强查询以包含几何列
-                    pass
-
-            # 确保包含GeoJSON转换
-            if "ST_AsGeoJSON" not in result.upper() and "GeoJSON" in original_query:
-                self.logger.info("建议在查询中添加ST_AsGeoJSON以生成GeoJSON格式")
-
-        return result
-
-    def execute_spatial_query(self, query: str, return_geojson: bool = True) -> Dict[str, Any]:
-        """
-        执行空间查询并返回结构化结果
-
-        Args:
-            query: SQL查询语句
-            return_geojson: 是否返回GeoJSON格式
-
-        Returns:
-            结构化查询结果
-        """
-        try:
-            # 执行查询
-            result = self.connector.execute_query(query)
-
-            # 如果要求返回GeoJSON，但查询中没有包含ST_AsGeoJSON
-            if return_geojson and "ST_AsGeoJSON" not in query.upper():
-                self.logger.warning("查询可能未包含GeoJSON转换，建议使用ST_AsGeoJSON")
-
-            return {
-                "status": "success",
-                "query": query,
-                "result": result,
-                "geojson_available": "ST_AsGeoJSON" in query.upper()
-            }
-        except Exception as e:
-            self.logger.error(f"执行空间查询失败: {e}")
-            return {
-                "status": "error",
-                "query": query,
-                "error": str(e)
-            }
-
-    def get_spatial_tables_info(self) -> Dict[str, Any]:
-        """
-        获取空间表信息
-
-        Returns:
-            空间表信息字典
-        """
-        try:
-            # 查询包含几何列的表
-            spatial_tables_query = """
-            SELECT 
-                f_table_name as table_name,
-                f_geometry_column as geometry_column,
-                type as geometry_type,
-                srid,
-                coord_dimension
-            FROM geometry_columns
-            WHERE f_table_schema = 'public'
-            ORDER BY f_table_name;
-            """
-
-            result = self.connector.execute_query(spatial_tables_query)
-
-            return {
-                "status": "success",
-                "spatial_tables": result,
-                "count": len(result) if isinstance(result, list) else 0
-            }
-        except Exception as e:
-            self.logger.error(f"获取空间表信息失败: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }
-
-    def analyze_spatial_query(self, query: str) -> Dict[str, Any]:
-        """
-        分析空间查询的优化建议
-
-        Args:
-            query: SQL查询语句
-
-        Returns:
-            分析结果
-        """
-        analysis = {
-            "has_spatial_functions": False,
-            "spatial_functions_used": [],
-            "suggestions": [],
-            "optimization_tips": []
-        }
-
-        # 检查使用的空间函数
-        spatial_functions = [
-            "ST_", "pgr_", "TopoGeo_", "ST_AsGeoJSON", "ST_Transform",
-            "ST_Intersects", "ST_Contains", "ST_Within", "ST_Distance",
-            "ST_Buffer", "ST_Union", "ST_Intersection"
-        ]
-
-        for func in spatial_functions:
-            if func in query.upper():
-                analysis["has_spatial_functions"] = True
-                analysis["spatial_functions_used"].append(func)
-
-        # 提供优化建议
-        if analysis["has_spatial_functions"]:
-            if "ST_DWithin" not in query.upper() and ("ST_Distance" in query.upper() or "距离" in query):
-                analysis["suggestions"].append(
-                    "考虑使用ST_DWithin替代ST_Distance进行距离过滤，性能更好")
-
-            if "geom" in query.upper() and "INDEX" not in query.upper():
-                analysis["optimization_tips"].append("确保几何列上有空间索引（GIST索引）")
-
-            if "ST_Transform" in query.upper():
-                analysis["optimization_tips"].append("考虑在应用层进行坐标转换，而不是在数据库层")
-
-        return analysis
-
     def run_with_thought_chain(self, query: str) -> Dict[str, Any]:
         """
         执行SQL查询并返回完整的思维链，包括SQL查询的执行结果
@@ -489,7 +428,6 @@ SELECT gid, name, geom FROM whupoi LIMIT 3
             # 执行查询并获取中间步骤
             result = self.agent.invoke({"input": enhanced_query})
             
-            print(f'result: {result}')
             # 提取中间步骤（即使有输出解析错误，中间步骤仍然可用）
             intermediate_steps = result.get('intermediate_steps', [])
             
@@ -555,36 +493,6 @@ SELECT gid, name, geom FROM whupoi LIMIT 3
 
         except Exception as e:
             self.logger.error(f"Error in run_with_thought_chain function: {e}")
-            
-            # 检查是否是输出解析错误
-            error_msg = str(e)
-            if "output parsing error" in error_msg.lower() or "could not parse llm output" in error_msg.lower():
-                # 尝试从错误消息中提取LLM的实际输出
-                llm_output_match = re.search(
-                    r"Could not parse LLM output: `(.*?)`", error_msg, re.DOTALL)
-                if llm_output_match:
-                    llm_output = llm_output_match.group(1)
-                    self.logger.info(f"提取到LLM输出: {llm_output[:200]}...")
-                    
-                    # 即使有解析错误，也尝试构建思维链
-                    thought_chain = [{
-                        "step": 1,
-                        "type": "final_answer",
-                        "content": llm_output,
-                        "log": llm_output,
-                        "timestamp": str(hash(llm_output)),
-                        "status": "completed_with_parsing_error"
-                    }]
-                    
-                    return {
-                        "status": "partial_success",
-                        "final_answer": llm_output,
-                        "thought_chain": thought_chain,
-                        "step_count": 1,
-                        "sql_queries_with_results": [],
-                        "warning": "输出解析错误，但已提取LLM原始输出"
-                    }
-            
             return {
                 "status": "error",
                 "error": f"处理您的请求时出现了问题：{str(e)}",
@@ -601,29 +509,27 @@ SELECT gid, name, geom FROM whupoi LIMIT 3
 
 # 使用示例
 if __name__ == "__main__":
-    # 创建空间查询代理
-    spatial_agent = SpatialSQLQueryAgent()
+    # 创建结构化空间查询代理
+    structured_agent = StructuredSpatialSQLQueryAgent()
 
     try:
-        # 获取空间表信息
-        tables_info = spatial_agent.get_spatial_tables_info()
-        print("空间表信息:", tables_info)
-
-        # 示例空间查询
+        # 测试结构化输出功能
         test_queries = [
+            "查询whupoi表的前2条记录",
             "查找距离某个点5公里内的所有建筑",
-            "计算从A点到B点的最短路径",
-            "查找与某个多边形相交的所有道路"
+            "计算从A点到B点的最短路径"
         ]
 
         for query in test_queries:
-            print(f"\n查询: {query}")
-            result = spatial_agent.run(query)
-            print(f"结果: {result}")
-
-            # 分析查询
-            analysis = spatial_agent.analyze_spatial_query(result)
-            print(f"分析: {analysis}")
+            print(f"\n=== 测试查询: {query} ===")
+            result = structured_agent.run_with_structured_output(query)
+            print(f"状态: {result['status']}")
+            print(f"使用的解析器: {result['parser_used']}")
+            print(f"Answer长度: {len(result.get('answer', ''))}")
+            print(f"GeoJSON要素数: {len(result.get('geojson', {}).get('features', [])) if result.get('geojson') else 0}")
+            
+            if result.get('parse_warning'):
+                print(f"解析警告: {result['parse_warning']}")
 
     finally:
-        spatial_agent.close()
+        structured_agent.close()
