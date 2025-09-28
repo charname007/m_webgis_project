@@ -31,6 +31,8 @@ import Overview from "ol-ext/control/Overview";
 import FeatureList from "ol-ext/control/FeatureList";
 import Scale from "ol-ext/control/Scale";
 import SearchCoordinates from "ol-ext/control/SearchCoordinates";
+import SearchFeature from "ol-ext/control/SearchFeature";
+
 import OverlayControl from "ol-ext/control/Overlay";
 import LayerShop from "ol-ext/control/LayerShop";
 import Gauge from "ol-ext/control/Gauge";
@@ -43,6 +45,14 @@ import "ol-ext/dist/ol-ext.min.css";
 import "ol/ol.css";
 import { unByKey } from "ol/Observable";
 import GeoJSON from "ol/format/GeoJSON";
+// import 'oles/control/Measure.css';
+// import 'oles/tool/Measure.css'
+// import '../assets/oles.css'
+// import "https://unpkg.com/oles/lib/oles.css"
+// import Measure from 'oles/control/Measure';
+import '../assets/map-controls.css'
+// import { proj } from "oles";
+
 // 确保 OverviewMap 不会被 tree-shaking 移除
 // const ensureOverviewMap = () => {
 //   if (typeof OverviewMap === 'undefined') {
@@ -138,6 +148,10 @@ export default class MapUtils {
           controls: [
             new FullScreen({ className: "custom-fullscreen" }),
             new ZoomToExtent({ className: "custom-zoom-to-extent" }),
+        //             new Measure({
+        //   className: "custom-measure",  
+        // })
+
           ],
         }),
         // new Scale(),
@@ -146,29 +160,19 @@ export default class MapUtils {
         // new FeatureList(),
         // new Gauge({ className: "custom-gauge" }),
         new Disable({ className: "custom-disable" }),
-        new SearchCoordinates({ className: "custom-search-coordinates" }),
+        new SearchCoordinates({ className: "custom-search-coordinates",
+          projection: "EPSG:4326",
+        }),
         // new LayerShop({ className: "custom-layer-shop" }),
-        new Select({ className: "custom-select" }),
+        // new Select({ className: "custom-select" }),
         new CenterPosition({ className: "custom-center-position" }),
         new Notification({ className: "custom-notification" }),
-        //          new Measure({
-        //   type: 'LineString', // 初始测量类型：LineString(距离)、Polygon(面积)、Angle(角度)
-        //   units: 'kilometers', // 单位：kilometers、meters、miles等
-        //   decimals: 2, // 小数位数
-        //   label: true, // 在图形上显示测量结果
-        //   tooltip: true, // 显示鼠标跟随提示
-        //   style: null, // 使用默认样式，可自定义
-        //   activeColor: '#ff0000', // 激活状态颜色
-        //   drawStyle: { // 绘制时样式
-        //     stroke: {
-        //       color: '#ff0000',
-        //       width: 2
-        //     },
-        //     fill: {
-        //       color: 'rgba(255, 0, 0, 0.1)'
-        //     }
-        //   }
-        // })
+        // new Scale({
+        //   className: "custom-scale",
+        //   units: "metric",
+        //   minWidth: 100,
+        // }),
+
       ]),
     });
 
