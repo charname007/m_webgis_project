@@ -9,13 +9,13 @@
         </div> -->
       </div>
       <div class="header-right">
-        <button @click="toggleCollapse" class="collapse-btn" :title="isCollapsed ? '展开' : '折叠'">
-          --
-          <i class="fas" :class="isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
-        </button>
+
         <button @click="fetchTableNames" :disabled="isLoadingTables" class="fetch-btn">
           <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoadingTables }"></i>
           {{ isLoadingTables ? "加载中..." : "获取表名称" }}
+        </button>
+        <button @click="toggleCollapse" class="collapse-btn" :title="isCollapsed ? '展开' : '折叠'">
+          —— <i class="fas" :class="isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
         </button>
       </div>
     </div>
@@ -47,8 +47,7 @@
           <div class="table-input-container">
             <div class="input-with-dropdown">
               <input id="queryTable" v-model="queryParams.tableName" type="text" placeholder="直接输入表名或从下拉列表选择"
-                class="table-input" list="tableSuggestions" @focus="showTableSuggestions = true"
-                @blur="hideTableSuggestions">
+                class="table-input" @focus="showTableSuggestions = true" @blur="hideTableSuggestions">
               <i class="fas fa-chevron-down dropdown-icon" @click="toggleTableSuggestions"></i>
 
               <!-- 下拉建议列表 -->
@@ -152,6 +151,73 @@
       </div>
     </div>
 
+    <!-- 已加载的空间表列表 -->
+    <div v-if="loadedTables.length > 0" class="loaded-tables-section">
+      <div class="section-header">
+        <h3>已加载的空间表</h3>
+        <span class="table-count">{{ loadedTables.length }} 个表</span>
+      </div>
+      <div class="loaded-tables-list">
+        <div v-for="tableName in loadedTables" :key="tableName" class="loaded-table-item"
+          :class="{ 'active': selectedTableForFeatures === tableName }" @click="selectTableForFeatures(tableName)">
+          <div class="loaded-table-info">
+            <span class="loaded-table-name">{{ tableName }}</span>
+            <span class="feature-count">
+              {{ geojsonData[tableName]?.features?.length || 0 }} 个要素
+            </span>
+          </div>
+          <div class="loaded-table-actions">
+            <button @click.stop="clearGeoJSON(tableName)" class="remove-btn" title="移除表">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 要素属性表格 -->
+    <div v-if="selectedTableForFeatures && featuresData.length > 0" class="features-table-section">
+      <div class="section-header">
+        <h3>{{ selectedTableForFeatures }} 的要素</h3>
+        <div class="table-controls">
+          <span class="feature-count-info">共 {{ featuresData.length }} 个要素</span>
+          <button @click="clearFeatureDisplay" class="clear-features-btn">
+            <i class="fas fa-times"></i> 关闭
+          </button>
+        </div>
+      </div>
+      <div class="features-table-container">
+        <table class="features-table">
+          <thead>
+            <tr>
+              <th>序号</th>
+              <!-- <th>几何类型</th> -->
+              <!-- <th>几何(WKT)</th> -->
+              <th v-for="key in getAttributeKeys(featuresData[0] || {})" :key="key">
+                {{ key }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="feature in featuresData" :key="feature.id" class="feature-row">
+              <td class="feature-id">{{ feature.id }}</td>
+              <!-- <td class="geometry-type">
+                <span class="geometry-badge" :class="getGeometryTypeClass(feature.geometry_type)">
+                  {{ feature.geometry_type }}
+                </span>
+              </td> -->
+              <!-- <td class="geometry-wkt">
+                <span class="wkt-text">{{ getGeometryWKT(feature.geometry) }}</span>
+              </td> -->
+              <td v-for="key in getAttributeKeys(feature)" :key="key" class="feature-attribute">
+                <span class="attribute-value">{{ getAttributeValue(feature, key) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 表名称列表 -->
     <div v-if="tableNames.length > 0" class="table-list">
       <div class="list-header">
@@ -198,7 +264,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, watchEffect, watch,computed} from "vue";
+import { ref, reactive, onMounted, watchEffect, watch, computed } from "vue";
 import { getCurrentInstance } from "vue";
 import { provide } from 'vue';
 import { inject } from 'vue';
@@ -251,6 +317,10 @@ export default {
     });
     const isQuerying = ref(false);
     const queryResults = reactive({});
+
+    // 已加载表和要素展示相关状态
+    const selectedTableForFeatures = ref(""); // 当前选中用于展示要素的表
+    const featuresData = ref([]); // 当前展示的要素数据
 
     // 表搜索相关状态
     const tableSearchKeyword = ref("");
@@ -389,6 +459,35 @@ export default {
     watch(tableSearchKeyword, () => {
       handleTableSearch();
     });
+
+    // 计算属性：已加载的空间表列表
+    const loadedTables = computed(() => {
+      return Object.keys(geojsonData).filter(tableName => geojsonData[tableName]);
+    });
+
+    // 选择表展示要素
+    const selectTableForFeatures = (tableName) => {
+      selectedTableForFeatures.value = tableName;
+      const geoJsonData = geojsonData[tableName];
+
+      if (geoJsonData && geoJsonData.features) {
+        // 提取要素的属性数据，包括几何信息
+        featuresData.value = geoJsonData.features.map((feature, index) => ({
+          id: index + 1,
+          // geometry_type: feature.geometry.type,
+          // geometry: feature.geometry, // 添加几何对象
+          ...feature.properties // 展开所有属性
+        }));
+      } else {
+        featuresData.value = [];
+      }
+    };
+
+    // 清除要素展示
+    const clearFeatureDisplay = () => {
+      selectedTableForFeatures.value = "";
+      featuresData.value = [];
+    };
 
     // 监听表名输入变化，实时过滤建议列表
     watch(() => queryParams.tableName, (newValue) => {
@@ -557,6 +656,11 @@ export default {
         delete geojsonData[tableName];
         if (selectedTable.value === tableName) {
           selectedTable.value = "";
+        }
+        // 如果当前选中的表被清除，也要清除要素展示
+        if (selectedTableForFeatures.value === tableName) {
+          selectedTableForFeatures.value = "";
+          featuresData.value = [];
         }
       }
     };
@@ -1144,6 +1248,83 @@ export default {
       cursor: isDragging.value ? 'grabbing' : 'grab'
     }));
 
+    // 辅助函数：获取要素属性键名
+    const getAttributeKeys = (feature) => {
+      if (!feature || typeof feature !== 'object') {
+        return [];
+      }
+      return Object.keys(feature).filter(k => k !== 'id' && k !== 'geometry_type');
+    };
+
+    // 辅助函数：获取几何类型的CSS类名
+    const getGeometryTypeClass = (geometryType) => {
+      if (!geometryType || typeof geometryType !== 'string') {
+        return '';
+      }
+      return geometryType.toLowerCase();
+    };
+
+    // 辅助函数：获取属性值，确保安全访问
+    const getAttributeValue = (feature, key) => {
+      if (!feature || typeof feature !== 'object' || !key) {
+        return '';
+      }
+      const value = feature[key];
+      return value !== null && value !== undefined ? String(value) : '';
+    };
+
+    // 辅助函数：将GeoJSON几何转换为WKT格式
+    const getGeometryWKT = (geometry) => {
+      if (!geometry || typeof geometry !== 'object') {
+        return '';
+      }
+
+      const { type, coordinates } = geometry;
+
+      try {
+        switch (type) {
+          case 'Point':
+            return `POINT(${coordinates[0].toFixed(6)} ${coordinates[1].toFixed(6)})`;
+
+          case 'LineString':
+            const lineCoords = coordinates.map(coord =>
+              `${coord[0].toFixed(6)} ${coord[1].toFixed(6)}`
+            ).join(', ');
+            return `LINESTRING(${lineCoords})`;
+
+          case 'Polygon':
+            const polygonCoords = coordinates[0].map(coord =>
+              `${coord[0].toFixed(6)} ${coord[1].toFixed(6)}`
+            ).join(', ');
+            return `POLYGON((${polygonCoords}))`;
+
+          case 'MultiPoint':
+            const multiPointCoords = coordinates.map(coord =>
+              `${coord[0].toFixed(6)} ${coord[1].toFixed(6)}`
+            ).join(', ');
+            return `MULTIPOINT(${multiPointCoords})`;
+
+          case 'MultiLineString':
+            const multiLineCoords = coordinates.map(line =>
+              `(${line.map(coord => `${coord[0].toFixed(6)} ${coord[1].toFixed(6)}`).join(', ')})`
+            ).join(', ');
+            return `MULTILINESTRING(${multiLineCoords})`;
+
+          case 'MultiPolygon':
+            const multiPolygonCoords = coordinates.map(polygon =>
+              `(${polygon[0].map(coord => `${coord[0].toFixed(6)} ${coord[1].toFixed(6)}`).join(', ')})`
+            ).join(', ');
+            return `MULTIPOLYGON(${multiPolygonCoords})`;
+
+          default:
+            return `UNKNOWN(${type})`;
+        }
+      } catch (error) {
+        console.error('几何转换WKT失败:', error);
+        return `ERROR: ${type}`;
+      }
+    };
+
     // watch(positionStyle, (newValue, oldValue) => {
     //   console.log("位置样式已更新:", newValue);
     // });
@@ -1183,6 +1364,15 @@ export default {
       toggleTableSuggestions,
       hideTableSuggestions,
       selectTable,
+      loadedTables,
+      selectedTableForFeatures,
+      featuresData,
+      selectTableForFeatures,
+      clearFeatureDisplay,
+      getAttributeKeys,
+      getGeometryTypeClass,
+      getAttributeValue,
+      getGeometryWKT,
     };
   },
 };
@@ -1920,5 +2110,309 @@ h2 {
 
 .copy-btn.copied {
   background-color: #4caf50;
+}
+
+/* 已加载空间表列表样式 */
+.loaded-tables-section {
+  margin-bottom: 25px;
+  padding: 15px;
+  background-color: #f0f8ff;
+  border-radius: 8px;
+  border: 1px solid #b3d9ff;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.section-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.table-count {
+  font-size: 0.8rem;
+  color: #666;
+  background-color: rgba(66, 185, 131, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+  border: 1px solid #42b983;
+}
+
+.loaded-tables-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loaded-table-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background-color: white;
+  border: 1px solid #e0e7ff;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.loaded-table-item:hover {
+  background-color: #f8faff;
+  border-color: #42b983;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.loaded-table-item.active {
+  background-color: #e6f3ff;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+}
+
+.loaded-table-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.loaded-table-name {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.95rem;
+}
+
+.feature-count {
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+}
+
+.loaded-table-actions {
+  display: flex;
+  align-items: center;
+}
+
+.remove-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-size: 0.8rem;
+}
+
+.remove-btn:hover {
+  background-color: #c82333;
+}
+
+/* 要素属性表格样式 */
+.features-table-section {
+  margin-bottom: 25px;
+  padding: 15px;
+  background-color: #fff5f5;
+  border-radius: 8px;
+  border: 1px solid #ffc9c9;
+  color: #212529
+}
+
+.table-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.feature-count-info {
+  font-size: 0.8rem;
+  color: #666;
+  background-color: rgba(255, 193, 7, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+  border: 1px solid #ffc107;
+}
+
+.clear-features-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.clear-features-btn:hover {
+  background-color: #545b62;
+}
+
+.features-table-container {
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background-color: white;
+}
+
+.features-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.features-table thead {
+  background-color: #f8f9fa;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.features-table th {
+  padding: 8px 6px;
+  text-align: left;
+  border-bottom: 2px solid #dee2e6;
+  border-right: 1px solid #dee2e6;
+  font-weight: 600;
+  color: #495057;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.features-table th:last-child {
+  border-right: none;
+}
+
+.features-table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.features-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.features-table tbody tr:nth-child(even) {
+  background-color: #fbfbfb;
+}
+
+.features-table td {
+  padding: 6px;
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #dee2e6;
+  vertical-align: top;
+  max-width: 120px;
+  word-wrap: break-word;
+}
+
+.features-table td:last-child {
+  border-right: none;
+}
+
+.feature-id {
+  font-weight: 600;
+  color: #007bff;
+  text-align: center;
+  width: 50px;
+}
+
+.geometry-type {
+  text-align: center;
+  width: 80px;
+}
+
+.geometry-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.geometry-badge.point {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.geometry-badge.linestring {
+  background-color: #cce5ff;
+  color: #004085;
+  border: 1px solid #b3d9ff;
+}
+
+.geometry-badge.polygon {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.geometry-badge.multipoint,
+.geometry-badge.multilinestring,
+.geometry-badge.multipolygon {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.feature-attribute {
+  max-width: 150px;
+}
+
+.attribute-value {
+  display: block;
+  word-break: break-word;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .features-table {
+    font-size: 0.75rem;
+  }
+
+  .features-table th,
+  .features-table td {
+    padding: 4px;
+  }
+
+  .feature-attribute {
+    max-width: 100px;
+  }
+}
+
+/* 滚动条样式 */
+.features-table-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.features-table-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.features-table-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.features-table-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 </style>

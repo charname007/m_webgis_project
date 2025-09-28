@@ -23,13 +23,38 @@ import {
   ScaleLine,
   ZoomToExtent,
   defaults as defaultControls,
+  ZoomSlider,
+
 } from "ol/control";
-import OlExtLayerSwitcher from "ol-ext/control/LayerSwitcher";
+import LayerSwitcher  from "ol-ext/control/LayerSwitcher";
 import Bar from "ol-ext/control/Bar";
+import Overview from "ol-ext/control/Overview";
+import FeatureList from "ol-ext/control/FeatureList";
+import Scale from 'ol-ext/control/Scale';
+import SearchCoordinates from "ol-ext/control/SearchCoordinates";
+import OverlayControl from "ol-ext/control/Overlay";
+import LayerShop from "ol-ext/control/LayerShop";
+import Gauge from "ol-ext/control/Gauge";
+import Disable from "ol-ext/control/Disable";
+import CenterPosition from "ol-ext/control/CenterPosition";
+import Select from "ol-ext/control/Select";
+import Notification from "ol-ext/control/Notification";
 import { XYZ } from "ol/source";
 import "ol-ext/dist/ol-ext.min.css";
+import "ol/ol.css"
 import { unByKey } from "ol/Observable";
 import GeoJSON from "ol/format/GeoJSON";
+// 确保 OverviewMap 不会被 tree-shaking 移除
+// const ensureOverviewMap = () => {
+//   if (typeof OverviewMap === 'undefined') {
+//     console.warn('OverviewMap is not available');
+//   }
+//   return OverviewMap;
+// };
+
+// // 强制引用 OverviewMap 确保不被 tree-shaking 移除
+// ensureOverviewMap();
+
 export default class MapUtils {
   constructor(target) {
     this.map = this.#initMap(target);
@@ -98,7 +123,7 @@ export default class MapUtils {
           units: "metric",
           minWidth: 100,
         }),
-        new OlExtLayerSwitcher({
+        new LayerSwitcher ({
           show_progress: true,
           extent: true,
           trash: true,
@@ -110,11 +135,40 @@ export default class MapUtils {
           controls: [
             new FullScreen({ className: "custom-fullscreen" }),
             new ZoomToExtent({ className: "custom-zoom-to-extent" }),
+
           ],
         }),
+        // new Scale(),
+        // new OverlayControl()
+        new ZoomSlider(),
+        new FeatureList(),
+            // new Gauge({ className: "custom-gauge" }),
+            new Disable({ className: "custom-disable" }),
+            new SearchCoordinates({ className: "custom-search-coordinates" }),
+            // new LayerShop({ className: "custom-layer-shop" }),
+            new Select({ className: "custom-select" }),
+            new CenterPosition({ className: "custom-center-position" }),
+            new Notification({ className: "custom-notification" }),
+//          new Measure({
+//   type: 'LineString', // 初始测量类型：LineString(距离)、Polygon(面积)、Angle(角度)
+//   units: 'kilometers', // 单位：kilometers、meters、miles等
+//   decimals: 2, // 小数位数
+//   label: true, // 在图形上显示测量结果
+//   tooltip: true, // 显示鼠标跟随提示
+//   style: null, // 使用默认样式，可自定义
+//   activeColor: '#ff0000', // 激活状态颜色
+//   drawStyle: { // 绘制时样式
+//     stroke: {
+//       color: '#ff0000',
+//       width: 2
+//     },
+//     fill: {
+//       color: 'rgba(255, 0, 0, 0.1)'
+//     }
+//   }
+// })
       ]),
     });
-    
 
     return this.map;
   }
@@ -927,10 +981,10 @@ export default class MapUtils {
             layer.set("extent", extent);
             console.log("图层范围已存储");
             
-            // 强制刷新OlExtLayerSwitcher，确保zoomtoextent按钮显示
+            // 强制刷新LayerSwitcher ，确保zoomtoextent按钮显示
             setTimeout(() => {
               this.map.getControls().forEach(control => {
-                if (control instanceof OlExtLayerSwitcher) {
+                if (control instanceof LayerSwitcher ) {
                   // 使用正确的方法刷新图层切换器
                   if (control.drawPanel) {
                     control.drawPanel();

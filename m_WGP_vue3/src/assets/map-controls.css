@@ -180,6 +180,9 @@
   left: 0% !important;
   z-index: 1000 !important;
   transition: all 0.3s ease !important;
+
+
+
 }
 
 /* 概览控件展开状态样式 */
@@ -188,6 +191,9 @@
   border-radius: 8px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
   background: rgba(255, 255, 255, 0.95) !important;
+  height: auto!important;
+  width: auto!important;
+
 }
 
 /* 概览控件折叠状态样式 */

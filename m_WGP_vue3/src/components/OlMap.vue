@@ -2,7 +2,7 @@
   <div class="map-container">
     <div ref="mapElement" class="map"></div>
 
-    <div class="map-controls">
+    <!-- <div class="map-controls">
       <div class="control-group">
         <h3>绘制工具</h3>
         <button v-for="type in drawTypes" :key="type" @click="activateDrawTool(type)"
@@ -35,9 +35,10 @@
           删除最后一个
         </button>
       </div>
-    </div>
+    </div> -->
 
-    <slot></slot>
+    <slot name="SpatialTableFetcher"></slot>
+    
 
   </div>
 
@@ -47,6 +48,7 @@
 import { onMounted, ref, onUnmounted } from "vue";
 import MapUtils from "./mapUtils";
 import { provide } from "vue";
+import SpatialTableFetcher from "./SpatialTableFetcher.vue";
 
 export default {
   name: "OlMap",
@@ -235,6 +237,8 @@ export default {
   width: 100%;
   height: 100vh;
   overflow: visible; /* 允许子元素溢出容器 */
+  display: flex;
+  flex-direction: row;
 }
 
 .map {
@@ -253,6 +257,7 @@ export default {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
   z-index: 1000;
   max-width: 200px;
+  
 }
 
 .control-group {
