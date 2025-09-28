@@ -24,13 +24,12 @@ import {
   ZoomToExtent,
   defaults as defaultControls,
   ZoomSlider,
-
 } from "ol/control";
-import LayerSwitcher  from "ol-ext/control/LayerSwitcher";
+import LayerSwitcher from "ol-ext/control/LayerSwitcher";
 import Bar from "ol-ext/control/Bar";
 import Overview from "ol-ext/control/Overview";
 import FeatureList from "ol-ext/control/FeatureList";
-import Scale from 'ol-ext/control/Scale';
+import Scale from "ol-ext/control/Scale";
 import SearchCoordinates from "ol-ext/control/SearchCoordinates";
 import OverlayControl from "ol-ext/control/Overlay";
 import LayerShop from "ol-ext/control/LayerShop";
@@ -41,7 +40,7 @@ import Select from "ol-ext/control/Select";
 import Notification from "ol-ext/control/Notification";
 import { XYZ } from "ol/source";
 import "ol-ext/dist/ol-ext.min.css";
-import "ol/ol.css"
+import "ol/ol.css";
 import { unByKey } from "ol/Observable";
 import GeoJSON from "ol/format/GeoJSON";
 // 确保 OverviewMap 不会被 tree-shaking 移除
@@ -58,33 +57,33 @@ import GeoJSON from "ol/format/GeoJSON";
 export default class MapUtils {
   constructor(target) {
     this.map = this.#initMap(target);
-  // 状态管理 - 确保所有交互状态可追踪
-  this.state = {
-    // 测量相关状态
-    measure: {
-      draw: null,
-      layer: null,
-      tooltip: null,
-      sketch: null,
-      listener: null,
-      helpTooltip: null,
-      helpTooltipElement: null,
-      tooltipElement: null,
-      type: null, // 新增：记录当前测量类型
-      overlays: [], // 新增：存储测量相关的overlay
-    },
-    // 绘制相关状态
-    draw: {
-      interaction: null,
-      snap: null,
-    },
-    // 要素高亮相关状态
-    highlight: {
-      currentFeature: null, // 当前高亮的要素
-      originalStyle: null, // 原始样式
-      highlightedLayer: null, // 高亮要素所在的图层
-    },
-  };
+    // 状态管理 - 确保所有交互状态可追踪
+    this.state = {
+      // 测量相关状态
+      measure: {
+        draw: null,
+        layer: null,
+        tooltip: null,
+        sketch: null,
+        listener: null,
+        helpTooltip: null,
+        helpTooltipElement: null,
+        tooltipElement: null,
+        type: null, // 新增：记录当前测量类型
+        overlays: [], // 新增：存储测量相关的overlay
+      },
+      // 绘制相关状态
+      draw: {
+        interaction: null,
+        snap: null,
+      },
+      // 要素高亮相关状态
+      highlight: {
+        currentFeature: null, // 当前高亮的要素
+        originalStyle: null, // 原始样式
+        highlightedLayer: null, // 高亮要素所在的图层
+      },
+    };
   }
 
   // 初始化地图（私有方法）
@@ -95,15 +94,19 @@ export default class MapUtils {
       projection: "EPSG:4326",
     });
 
-    this.overviewControl = new OverviewMap({
-      collapsed: false,
+    this.overviewControl = new Overview({
+      // collapsed: false,
       layers: [new TileLayer({ source: new OSM() })],
-      view: new View({
-        projection: "EPSG:4326",
-        center: [116.39722, 39.9096],
-        zoom: 6,
-      }),
+      // view: new View({
+      //   projection: "EPSG:4326",
+      //   center: [116.39722, 39.9096],
+      //   zoom: 6,
+      // }),
+      projection: "EPSG:4326",
+      align: "bottom-left",
+      // className: "custom-overview",
     });
+
 
     this.map = new Map({
       target: target,
@@ -112,9 +115,9 @@ export default class MapUtils {
       controls: defaultControls().extend([
         new MousePosition({
           className: "custom-mouse-position",
-          coordinateFormat: function(coordinate) {
+          coordinateFormat: function (coordinate) {
             // 格式化坐标，只显示小数点后2位
-            return coordinate.map(coord => coord.toFixed(2)).join(', ');
+            return coordinate.map((coord) => coord.toFixed(2)).join(", ");
           },
         }),
         this.overviewControl,
@@ -123,7 +126,7 @@ export default class MapUtils {
           units: "metric",
           minWidth: 100,
         }),
-        new LayerSwitcher ({
+        new LayerSwitcher({
           show_progress: true,
           extent: true,
           trash: true,
@@ -135,38 +138,37 @@ export default class MapUtils {
           controls: [
             new FullScreen({ className: "custom-fullscreen" }),
             new ZoomToExtent({ className: "custom-zoom-to-extent" }),
-
           ],
         }),
         // new Scale(),
         // new OverlayControl()
         new ZoomSlider(),
-        new FeatureList(),
-            // new Gauge({ className: "custom-gauge" }),
-            new Disable({ className: "custom-disable" }),
-            new SearchCoordinates({ className: "custom-search-coordinates" }),
-            // new LayerShop({ className: "custom-layer-shop" }),
-            new Select({ className: "custom-select" }),
-            new CenterPosition({ className: "custom-center-position" }),
-            new Notification({ className: "custom-notification" }),
-//          new Measure({
-//   type: 'LineString', // 初始测量类型：LineString(距离)、Polygon(面积)、Angle(角度)
-//   units: 'kilometers', // 单位：kilometers、meters、miles等
-//   decimals: 2, // 小数位数
-//   label: true, // 在图形上显示测量结果
-//   tooltip: true, // 显示鼠标跟随提示
-//   style: null, // 使用默认样式，可自定义
-//   activeColor: '#ff0000', // 激活状态颜色
-//   drawStyle: { // 绘制时样式
-//     stroke: {
-//       color: '#ff0000',
-//       width: 2
-//     },
-//     fill: {
-//       color: 'rgba(255, 0, 0, 0.1)'
-//     }
-//   }
-// })
+        // new FeatureList(),
+        // new Gauge({ className: "custom-gauge" }),
+        new Disable({ className: "custom-disable" }),
+        new SearchCoordinates({ className: "custom-search-coordinates" }),
+        // new LayerShop({ className: "custom-layer-shop" }),
+        new Select({ className: "custom-select" }),
+        new CenterPosition({ className: "custom-center-position" }),
+        new Notification({ className: "custom-notification" }),
+        //          new Measure({
+        //   type: 'LineString', // 初始测量类型：LineString(距离)、Polygon(面积)、Angle(角度)
+        //   units: 'kilometers', // 单位：kilometers、meters、miles等
+        //   decimals: 2, // 小数位数
+        //   label: true, // 在图形上显示测量结果
+        //   tooltip: true, // 显示鼠标跟随提示
+        //   style: null, // 使用默认样式，可自定义
+        //   activeColor: '#ff0000', // 激活状态颜色
+        //   drawStyle: { // 绘制时样式
+        //     stroke: {
+        //       color: '#ff0000',
+        //       width: 2
+        //     },
+        //     fill: {
+        //       color: 'rgba(255, 0, 0, 0.1)'
+        //     }
+        //   }
+        // })
       ]),
     });
 
@@ -416,8 +418,7 @@ export default class MapUtils {
       this.map.removeOverlay(this.state.measure.helpTooltip);
       this.state.measure.helpTooltip = null;
     }
-    this.clearMeasureResults()
-
+    this.clearMeasureResults();
 
     // 移除DOM元素
     if (
@@ -855,15 +856,17 @@ export default class MapUtils {
     if (this.state.highlight.currentFeature) {
       // 如果要素有原始样式，恢复原始样式
       if (this.state.highlight.originalStyle) {
-        this.state.highlight.currentFeature.setStyle(this.state.highlight.originalStyle);
+        this.state.highlight.currentFeature.setStyle(
+          this.state.highlight.originalStyle
+        );
       } else {
         // 如果没有保存原始样式，则清除样式（让图层样式生效）
         this.state.highlight.currentFeature.setStyle(null);
       }
-      
+
       // 强制刷新要素显示
       this.state.highlight.currentFeature.changed();
-      
+
       // 重置状态
       this.state.highlight.currentFeature = null;
       this.state.highlight.originalStyle = null;
@@ -891,14 +894,19 @@ export default class MapUtils {
     this.stopMeasureTool();
   }
 
-  loadGeoJsonLayer(geoJson, styleOptions = {}, layerName = "GeoJSON Layer", options = {}) {
+  loadGeoJsonLayer(
+    geoJson,
+    styleOptions = {},
+    layerName = "GeoJSON Layer",
+    options = {}
+  ) {
     // 默认配置选项
     const defaultOptions = {
       autoFitExtent: true, // 是否自动调整视图到图层范围
       fitPadding: 50, // 调整视图时的边距
       storeExtent: true, // 是否存储图层范围
     };
-    
+
     // 合并用户配置选项
     const finalOptions = { ...defaultOptions, ...options };
 
@@ -955,36 +963,35 @@ export default class MapUtils {
     });
 
     layer.set("title", layerName);
-    
+
     // 存储图层范围到图层属性中
     if (finalOptions.storeExtent) {
       layer.set("extent", null); // 初始化为null
     }
-    
 
     // 添加标志跟踪是否已处理初始加载
     let isInitialLoadProcessed = false;
-    
+
     // 添加监听器确保数据加载完成
     source.once("change", () => {
       if (source.getState() === "ready") {
         const features = source.getFeatures();
-        
+
         // 只在第一次数据加载完成时处理范围计算和视图调整
         if (!isInitialLoadProcessed && features.length > 0) {
           console.log("实际要素数量:", features.length);
-          
+
           const extent = source.getExtent();
           console.log("图层范围:", extent);
-          
+
           if (finalOptions.storeExtent && extent) {
             layer.set("extent", extent);
             console.log("图层范围已存储");
-            
+
             // 强制刷新LayerSwitcher ，确保zoomtoextent按钮显示
             setTimeout(() => {
-              this.map.getControls().forEach(control => {
-                if (control instanceof LayerSwitcher ) {
+              this.map.getControls().forEach((control) => {
+                if (control instanceof LayerSwitcher) {
                   // 使用正确的方法刷新图层切换器
                   if (control.drawPanel) {
                     control.drawPanel();
@@ -992,17 +999,17 @@ export default class MapUtils {
                     control.render();
                   }
                   // 触发图层变化事件，让LayerSwitcher重新检测范围
-                  this.map.dispatchEvent('change:layer');
+                  this.map.dispatchEvent("change:layer");
                 }
               });
             }, 100);
           }
-          
+
           // 如果启用自动调整视图，则调整到图层范围
           if (finalOptions.autoFitExtent && extent) {
             this.fitToLayerExtent(layer, finalOptions.fitPadding);
           }
-          
+
           // 标记为已处理，避免后续交互重复触发
           isInitialLoadProcessed = true;
         }
@@ -1012,7 +1019,6 @@ export default class MapUtils {
     // 手动触发加载（如果是通过URL）
     if (typeof geoJson === "string") {
       source.refresh();
-
     }
     this.map.addLayer(layer);
 
@@ -1049,13 +1055,15 @@ export default class MapUtils {
   getLayerExtent(layer) {
     const source = layer.getSource();
     if (source.getFeatures().length === 0) return null;
-    
+
     const extent = source.getExtent();
-    if (extent && 
-        !isNaN(extent[0]) && 
-        !isNaN(extent[1]) && 
-        !isNaN(extent[2]) && 
-        !isNaN(extent[3])) {
+    if (
+      extent &&
+      !isNaN(extent[0]) &&
+      !isNaN(extent[1]) &&
+      !isNaN(extent[2]) &&
+      !isNaN(extent[3])
+    ) {
       return extent;
     }
     return null;
@@ -1063,26 +1071,26 @@ export default class MapUtils {
 
   // 获取存储的图层范围（如果存在）
   getStoredLayerExtent(layer) {
-    return layer.get('extent') || null;
+    return layer.get("extent") || null;
   }
 
   // 手动跳转到图层范围
   zoomToLayerExtent(layer, padding = 50) {
     let extent = null;
-    
+
     // 首先尝试获取存储的范围
     extent = this.getStoredLayerExtent(layer);
-    
+
     // 如果没有存储的范围，则实时计算
     if (!extent) {
       extent = this.getLayerExtent(layer);
     }
-    
+
     if (extent) {
       this.fitToLayerExtent(layer, padding);
       return true;
     }
-    
+
     console.warn("无法获取图层范围，图层可能为空或范围无效");
     return false;
   }
@@ -1140,24 +1148,21 @@ export default class MapUtils {
       let clickedFeature = null;
       let clickedLayer = null;
 
-      this.map.forEachFeatureAtPixel(
-        evt.pixel,
-        (feature, layer) => {
-          console.log("点击到要素:", feature);
-          features.push(feature);
-          clickedFeature = feature;
-          clickedLayer = layer;
-        }
-      );
-      
+      this.map.forEachFeatureAtPixel(evt.pixel, (feature, layer) => {
+        console.log("点击到要素:", feature);
+        features.push(feature);
+        clickedFeature = feature;
+        clickedLayer = layer;
+      });
+
       if (features.length > 0) {
         // 高亮点击的要素
         this.#highlightFeature(clickedFeature, clickedLayer);
-        
+
         // 显示属性弹窗
         const properties = clickedFeature.getProperties();
         this.showFeaturePopup(properties, evt.coordinate);
-        
+
         console.log("要素高亮并显示属性弹窗");
       } else {
         // 未点击到要素，清除高亮并隐藏弹窗
@@ -1240,12 +1245,12 @@ export default class MapUtils {
       transition: all 0.2s ease;
     `;
     closeBtn.onmouseover = () => {
-      closeBtn.style.background = '#c0392b';
-      closeBtn.style.transform = 'scale(1.1)';
+      closeBtn.style.background = "#c0392b";
+      closeBtn.style.transform = "scale(1.1)";
     };
     closeBtn.onmouseout = () => {
-      closeBtn.style.background = '#e74c3c';
-      closeBtn.style.transform = 'scale(1)';
+      closeBtn.style.background = "#e74c3c";
+      closeBtn.style.transform = "scale(1)";
     };
     closeBtn.onclick = () => this.hideFeaturePopup();
 
@@ -1268,7 +1273,7 @@ export default class MapUtils {
     `;
 
     // Webkit浏览器滚动条样式
-    const scrollbarStyle = document.createElement('style');
+    const scrollbarStyle = document.createElement("style");
     scrollbarStyle.textContent = `
       .${className} div::-webkit-scrollbar {
         width: 6px;
@@ -1294,10 +1299,10 @@ export default class MapUtils {
       element: this.featurePopupElement,
       positioning: "bottom-center",
       stopEvent: false,
-      offset: [0, -15]
+      offset: [0, -15],
     });
     this.map.addOverlay(this.featurePopup);
-    
+
     console.log("要素弹窗创建完成 - 优化版");
   }
 
@@ -1313,13 +1318,13 @@ export default class MapUtils {
       console.warn("要素弹窗未初始化，请先调用 createFeaturePopup 方法");
       return;
     }
-    
+
     // 如果弹窗已经显示，则忽略（必须关闭当前弹窗才能显示新的）
     if (this.isPopupVisible) {
       console.log("弹窗已显示，忽略新的显示请求");
       return;
     }
-    
+
     // 清空之前的内容
     if (!coordinate || !Array.isArray(coordinate)) {
       console.warn("坐标为空，无法显示弹窗");
@@ -1336,8 +1341,8 @@ export default class MapUtils {
     `;
 
     // 统计有效属性数量
-    const validProperties = Object.entries(properties).filter(([key]) => 
-      !['geometry', 'id'].includes(key)
+    const validProperties = Object.entries(properties).filter(
+      ([key]) => !["geometry", "id"].includes(key)
     );
 
     if (validProperties.length === 0) {
@@ -1367,12 +1372,12 @@ export default class MapUtils {
         `;
 
         propertyItem.onmouseover = () => {
-          propertyItem.style.background = '#e8f4fd';
-          propertyItem.style.transform = 'translateX(2px)';
+          propertyItem.style.background = "#e8f4fd";
+          propertyItem.style.transform = "translateX(2px)";
         };
         propertyItem.onmouseout = () => {
-          propertyItem.style.background = '#f8f9fa';
-          propertyItem.style.transform = 'translateX(0)';
+          propertyItem.style.background = "#f8f9fa";
+          propertyItem.style.transform = "translateX(0)";
         };
 
         const keySpan = document.createElement("span");
@@ -1389,7 +1394,8 @@ export default class MapUtils {
         `;
 
         const valueSpan = document.createElement("span");
-        valueSpan.textContent = value !== null && value !== undefined ? value.toString() : '空值';
+        valueSpan.textContent =
+          value !== null && value !== undefined ? value.toString() : "空值";
         valueSpan.style.cssText = `
           color: #34495e;
           font-size: 13px;
@@ -1428,20 +1434,25 @@ export default class MapUtils {
     // 设置弹窗位置和显示（添加动画效果）
     this.featurePopup.setPosition(coordinate);
     this.featurePopupElement.style.display = "block";
-    
+
     // 更新弹窗状态
     this.isPopupVisible = true;
-    
+
     // 添加显示动画
     this.featurePopupElement.style.opacity = "0";
     this.featurePopupElement.style.transform = "translateY(10px) scale(0.95)";
-    
+
     setTimeout(() => {
       this.featurePopupElement.style.opacity = "1";
       this.featurePopupElement.style.transform = "translateY(0) scale(1)";
     }, 10);
-    
-    console.log("要素弹窗显示:", properties, "属性数量:", validProperties.length);
+
+    console.log(
+      "要素弹窗显示:",
+      properties,
+      "属性数量:",
+      validProperties.length
+    );
   }
 
   /**
@@ -1452,7 +1463,7 @@ export default class MapUtils {
       // 添加隐藏动画
       this.featurePopupElement.style.opacity = "0";
       this.featurePopupElement.style.transform = "translateY(10px) scale(0.95)";
-      
+
       setTimeout(() => {
         this.featurePopupElement.style.display = "none";
         // 更新弹窗状态

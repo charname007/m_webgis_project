@@ -173,8 +173,8 @@
   color: #2980b9;
 }
 
-/* OverviewMap 概览控件样式 - 位置向上调整 */
-.ol-overviewmap {
+/* overview 概览控件样式 - 位置向上调整 */
+.ol-overview {
   position: absolute !important;
   bottom: 35px !important;  /* 从默认的10px调整为80px，向上移动70px */
   left: 0% !important;
@@ -186,7 +186,7 @@
 }
 
 /* 概览控件展开状态样式 */
-.ol-overviewmap:not(.ol-collapsed) {
+.ol-overview:not(.ol-collapsed) {
   border: 2px solid rgba(52, 152, 219, 0.8) !important;
   border-radius: 8px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
@@ -197,7 +197,7 @@
 }
 
 /* 概览控件折叠状态样式 */
-.ol-overviewmap.ol-collapsed {
+.ol-overviewp.ol-collapsed {
   border: 1px solid rgba(52, 152, 219, 0.5) !important;
   border-radius: 4px !important;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
@@ -205,7 +205,7 @@
 }
 
 /* 概览控件按钮样式 */
-.ol-overviewmap .ol-overviewmap-button {
+.ol-overview .ol-overview-button {
   background: rgba(52, 152, 219, 0.9) !important;
   border: none !important;
   border-radius: 4px !important;
@@ -216,25 +216,25 @@
   transition: all 0.2s ease !important;
 }
 
-.ol-overviewmap .ol-overviewmap-button:hover {
+.ol-overview .ol-overview-button:hover {
   background: rgba(41, 128, 185, 0.9) !important;
   transform: scale(1.05) !important;
 }
 
 /* 概览地图画布样式 */
-.ol-overviewmap .ol-overviewmap-map {
+.ol-overview .ol-overview-map {
   border-radius: 6px !important;
   overflow: hidden !important;
 }
 
 /* 概览控件中的地图视图样式 */
-.ol-overviewmap .ol-viewport {
+.ol-overview .ol-viewport {
   border-radius: 6px !important;
 }
 
 /* 响应式设计 - 移动端适配 */
 @media (max-width: 768px) {
-  .ol-overviewmap {
+  .ol-overview {
     bottom: 60px !important;  /* 移动端向上调整更多 */
     right: 5px !important;
     transform: scale(0.9) !important;
@@ -243,21 +243,21 @@
 
 /* 暗色主题支持 */
 @media (prefers-color-scheme: dark) {
-  .ol-overviewmap:not(.ol-collapsed) {
+  .ol-overview:not(.ol-collapsed) {
     border-color: rgba(93, 173, 226, 0.8) !important;
     background: rgba(40, 40, 40, 0.95) !important;
   }
   
-  .ol-overviewmap.ol-collapsed {
+  .ol-overview.ol-collapsed {
     border-color: rgba(93, 173, 226, 0.5) !important;
     background: rgba(40, 40, 40, 0.9) !important;
   }
   
-  .ol-overviewmap .ol-overviewmap-button {
+  .ol-overview .ol-overview-button {
     background: rgba(93, 173, 226, 0.9) !important;
   }
   
-  .ol-overviewmap .ol-overviewmap-button:hover {
+  .ol-overview .ol-overview-button:hover {
     background: rgba(52, 152, 219, 0.9) !important;
   }
 }
