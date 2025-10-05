@@ -275,6 +275,7 @@ import VectorSource from 'ol/source/Vector';
 import Style from 'ol/style/Style';
 import Stroke from 'ol/style/Stroke';
 import Fill from 'ol/style/Fill';
+import API_CONFIG from '@/config/api.js';
 
 export default {
   name: "SpatialTableFetcher",
@@ -529,7 +530,9 @@ export default {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), props.timeout);
 
-        const response = await fetch(props.tableNamesUrl, {
+        // 使用 API config 构建 URL
+        const url = API_CONFIG.buildURL(API_CONFIG.endpoints.spatialTables.list);
+        const response = await fetch(url, {
           signal: controller.signal,
           method: "GET",
           headers: {
@@ -732,8 +735,8 @@ export default {
         }
         console.log(requestBody)
 
-        // 构建查询URL - 使用后端提供的 POST API
-        const url = "http://localhost:8081/postgis/WGP_db/tables/SpatialTables/geojson";
+        // 构建查询URL - 使用动态配置
+        const url = API_CONFIG.buildURL(API_CONFIG.endpoints.spatialTables.geojson);
 
         // 创建超时控制
         const controller = new AbortController();

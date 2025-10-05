@@ -1,0 +1,240 @@
+"""
+LangGraph边条件模块 - Sight Server
+定义工作流的条件边函数
+"""
+
+import logging
+from typing import Literal
+
+from ..schemas import AgentState
+
+logger = logging.getLogger(__name__)
+
+
+def should_retry_or_fail(
+    state: AgentState
+) -> Literal["handle_error", "validate_results"]:
+    """
+    条件边: 判断SQL执行后是否应该重试还是继续
+
+    决策逻辑:
+    1. 如果没有错误 → 继续验证结果
+    2. 如果有错误且可以重试 → 进入错误处理节点
+    3. 如果错误不可恢复 → 继续（在validate_results/check_results中会停止）
+
+    Args:
+        state: Agent状态
+
+    Returns:
+        下一个节点名称: "handle_error" 或 "validate_results"
+    """
+    error = state.get("error")
+    retry_count = state.get("retry_count", 0)
+    max_retries = state.get("max_retries", 5)
+
+    # 没有错误，正常继续到验证节点
+    if not error:
+        logger.info("[Edge: should_retry_or_fail] No error, proceeding to validate_results")
+        return "validate_results"
+
+    # 有错误但已达重试上限
+    if retry_count >= max_retries:
+        logger.warning(
+            f"[Edge: should_retry_or_fail] Max retries reached "
+            f"({retry_count}/{max_retries}), proceeding to validate_results with error"
+        )
+        return "validate_results"
+
+    # 有错误且可以重试
+    logger.info(
+        f"[Edge: should_retry_or_fail] Error detected (retry {retry_count}/{max_retries}), "
+        f"going to handle_error"
+    )
+    return "handle_error"
+
+
+def should_continue_querying(
+    state: AgentState
+) -> Literal["generate_sql", "generate_answer"]:
+    """
+    条件边: 判断是否继续查询
+
+    决策逻辑:
+    1. 如果有错误 → 生成答案（结束）
+    2. 如果达到最大迭代次数 → 生成答案（结束）
+    3. 如果 should_continue=False → 生成答案（结束）
+    4. 否则 → 继续生成SQL（循环）
+
+    Args:
+        state: Agent状态
+
+    Returns:
+        下一个节点名称: "generate_sql" 或 "generate_answer"
+    """
+    # 检查错误
+    if state.get("error"):
+        logger.info("[Edge: should_continue_querying] Error detected, going to generate_answer")
+        return "generate_answer"
+
+    # 检查迭代次数
+    current_step = state.get("current_step", 0)
+    max_iterations = state.get("max_iterations", 10)
+
+    if current_step >= max_iterations:
+        logger.info(
+            f"[Edge: should_continue_querying] Max iterations reached "
+            f"({current_step}/{max_iterations}), going to generate_answer"
+        )
+        return "generate_answer"
+
+    # 检查 should_continue 标志
+    should_continue = state.get("should_continue", False)
+
+    if not should_continue:
+        logger.info("[Edge: should_continue_querying] should_continue=False, going to generate_answer")
+        return "generate_answer"
+
+    # 继续查询
+    logger.info(
+        f"[Edge: should_continue_querying] Continuing query "
+        f"(step {current_step}/{max_iterations})"
+    )
+    return "generate_sql"
+
+
+def should_requery(
+    state: AgentState
+) -> Literal["generate_sql", "check_results"]:
+    """
+    条件边: 根据验证结果决定是否重新查询
+
+    决策逻辑:
+    1. 获取最新的验证结果
+    2. 如果验证通过 → 继续到 check_results
+    3. 如果验证失败且未达重试上限 → 返回 generate_sql 重新查询
+    4. 如果验证失败但已达重试上限 → 继续到 check_results（停止重试）
+
+    Args:
+        state: Agent状态
+
+    Returns:
+        下一个节点名称: "generate_sql" 或 "check_results"
+    """
+    # 获取验证历史
+    validation_history = state.get("validation_history", [])
+
+    # 如果没有验证历史，默认继续
+    if not validation_history:
+        logger.info("[Edge: should_requery] No validation history, proceeding to check_results")
+        return "check_results"
+
+    # 获取最新验证结果
+    last_validation = validation_history[-1]
+    is_valid = last_validation.get("is_valid", True)
+
+    # 验证通过，继续正常流程
+    if is_valid:
+        logger.info("[Edge: should_requery] Validation passed, proceeding to check_results")
+        return "check_results"
+
+    # 验证失败，检查重试次数
+    validation_retry_count = state.get("validation_retry_count", 0)
+    max_validation_retries = state.get("max_validation_retries", 3)
+
+    if validation_retry_count >= max_validation_retries:
+        logger.warning(
+            f"[Edge: should_requery] Validation failed but max retries reached "
+            f"({validation_retry_count}/{max_validation_retries}), proceeding to check_results"
+        )
+        return "check_results"
+
+    # 验证失败且可以重试
+    logger.info(
+        f"[Edge: should_requery] Validation failed, requerying "
+        f"(attempt {validation_retry_count + 1}/{max_validation_retries})"
+    )
+    return "generate_sql"
+
+
+# 其他可能的条件边函数（未来扩展）
+
+def should_use_spatial_query(state: AgentState) -> Literal["spatial_node", "regular_node"]:
+    """
+    条件边: 判断是否使用空间查询节点
+
+    （示例，暂未使用）
+
+    Args:
+        state: Agent状态
+
+    Returns:
+        下一个节点名称
+    """
+    if state.get("requires_spatial", False):
+        return "spatial_node"
+    else:
+        return "regular_node"
+
+
+# 测试代码
+if __name__ == "__main__":
+    # 配置日志
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    print("=== 条件边测试 ===\n")
+
+    # 测试1: 正常继续
+    print("--- 测试1: 正常继续 ---")
+    state1: AgentState = {
+        "query": "测试",
+        "enhanced_query": "测试",
+        "query_intent": "query",
+        "requires_spatial": False,
+        "sql_history": [],
+        "execution_results": [],
+        "thought_chain": [],
+        "current_step": 1,
+        "current_sql": None,
+        "current_result": None,
+        "should_continue": True,
+        "max_iterations": 3,
+        "error": None,
+        "session_history": [],
+        "conversation_id": None,
+        "knowledge_base": None,
+        "learned_patterns": [],
+        "saved_checkpoint_id": None,
+        "saved_checkpoint_step": None,
+        "is_resumed_from_checkpoint": False,
+        "last_checkpoint_time": None,
+        "final_data": None,
+        "answer": "",
+        "status": "pending",
+        "message": ""
+    }
+    result1 = should_continue_querying(state1)
+    print(f"Result: {result1}\n")
+
+    # 测试2: 达到最大迭代次数
+    print("--- 测试2: 达到最大迭代次数 ---")
+    state2 = state1.copy()
+    state2["current_step"] = 3
+    result2 = should_continue_querying(state2)
+    print(f"Result: {result2}\n")
+
+    # 测试3: 有错误
+    print("--- 测试3: 有错误 ---")
+    state3 = state1.copy()
+    state3["error"] = "测试错误"
+    result3 = should_continue_querying(state3)
+    print(f"Result: {result3}\n")
+
+    # 测试4: should_continue=False
+    print("--- 测试4: should_continue=False ---")
+    state4 = state1.copy()
+    state4["should_continue"] = False
+    result4 = should_continue_querying(state4)
+    print(f"Result: {result4}\n")

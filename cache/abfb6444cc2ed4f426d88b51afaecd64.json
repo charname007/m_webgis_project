@@ -1,0 +1,27 @@
+{
+  "status": "success",
+  "answer": "根据您的查询「查询浙江省的5A景区」，未找到匹配的数据。建议您调整查询条件或检查数据源。",
+  "data": null,
+  "count": 0,
+  "message": "查询完成，但未找到匹配数据",
+  "sql": "SELECT json_agg(json_build_object(\n    'name', COALESCE(ts.name, a.name),\n    'level', a.level,\n    'province', a.\"所属省份\",\n    'city', a.\"所属城市\",\n    'district', a.\"所属区县\",\n    'address', COALESCE(ts.\"地址\", a.address),\n    'rating', CASE \n        WHEN ts.\"评分\" ~ '^\\d+(\\.\\d+)?$' THEN ts.\"评分\"::numeric \n        ELSE NULL \n    END,\n    'ticket_price', ts.\"门票\",\n    'introduction', ts.\"介绍\",\n    'opening_hours', ts.\"开放时间\",\n    'suggested_duration', ts.\"建议游玩时间\",\n    'best_season', ts.\"建议季节\",\n    'tips', ts.\"小贴士\",\n    'image_url', ts.\"图片链接\",\n    'link', ts.\"链接\",\n    'coordinates', CASE \n        WHEN a.lng_wgs84 IS NOT NULL AND a.lat_wgs84 IS NOT NULL \n        THEN json_build_array(a.lng_wgs84, a.lat_wgs84)\n        ELSE NULL \n    END,\n    'data_source', CASE \n        WHEN ts.id IS NOT NULL AND a.gid IS NOT NULL THEN 'both'\n        WHEN ts.id IS NOT NULL THEN 'tourist_spot_only' \n        ELSE 'a_sight_only'\n    END\n)) as result\nFROM a_sight a\nLEFT JOIN tourist_spot ts ON (\n    ts.name LIKE a.name || '%' OR \n    TRIM(SPLIT_PART(ts.name, ' ', 1)) = a.name\n)\nWHERE a.\"所属省份\" = '浙江省' AND a.level = '5A';",
+  "intent_info": {
+    "intent_type": "query",
+    "is_spatial": false,
+    "confidence": 0.9,
+    "reasoning": "用户查询中明确使用了'查询'这一关键词，表明用户需要获取浙江省5A级景区的具体列表信息，而不是统计数量。查询中没有涉及任何空间概念如距离、附近、周边等关键词，因此判断为非空间查询。意图非常明确，置信度较高。",
+    "keywords_matched": [
+      "查询"
+    ],
+    "prompt_type": "scenic_query",
+    "description": "用户查询中明确使用了'查询'这一关键词，表明用户需要获取浙江省5A级景区的具体列表信息，而不是统计数量。查询中没有涉及任何空间概念如距离、附近、周边等关键词，因此判断为非空间查询。意图非常明确，置信度较高。",
+    "analysis_details": {
+      "method": "llm_with_pydantic",
+      "model": "deepseek-chat",
+      "summary_score": 0.0,
+      "spatial_score": 0.0,
+      "scenic_score": 0.5
+    },
+    "semantic_enhanced": true
+  }
+}

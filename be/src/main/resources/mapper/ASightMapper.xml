@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.backend.be.mapper.ASightMapper">
+
+<select id="getSightGeojsonByExtentAndLevel" parameterType="com.backend.be.model.SightQueryRequest" resultType="string">
+    SELECT jsonb_build_object(
+        'type', 'FeatureCollection',
+        'features', jsonb_agg(
+            jsonb_build_object(
+                'type', 'Feature',
+                'geometry', ST_AsGeoJSON(ST_Transform(geom, 4326))::jsonb,
+                'properties', to_jsonb(sub) - 'geom'
+            )
+        )
+    ) AS geojson
+    FROM (
+        SELECT * 
+        FROM a_sight
+        WHERE ST_Intersects(
+            ST_Transform(geom, 4326),
+            ST_MakeEnvelope(#{minLon}, #{minLat}, #{maxLon}, #{maxLat}, 4326)
+        )
+        <if test="levels != null and levels.size() > 0">
+            AND level IN
+            <foreach collection="levels" item="level" open="(" separator="," close=")">
+                #{level}
+            </foreach>
+        </if>
+    ) AS sub
+</select>
+
+</mapper>

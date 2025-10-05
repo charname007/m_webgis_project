@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_edb3bcd6_final_1759553629",
+  "step": 1,
+  "timestamp": "2025-10-04T12:53:49.579816",
+  "state_summary": {
+    "query": "杭州的高评分景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 2,
+    "status": "success",
+    "has_error": false
+  }
+}

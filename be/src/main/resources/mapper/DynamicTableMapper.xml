@@ -160,4 +160,144 @@
     </choose>
 </select>
 
+<select id="getSpatialTableGeojsonByExtent" parameterType="map" resultType="string">
+    <!-- 动态检测几何字段 -->
+    <choose>
+        <!-- 对于map_elements表，使用element_location字段 -->
+        <when test="tableName == 'map_elements'">
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_Transform(element_location, 4326))::jsonb,
+                        'properties', to_jsonb(sub) - 'element_location'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+                WHERE ST_Intersects(
+                    ST_Transform(element_location, 4326),
+                    ST_MakeEnvelope(#{request.minLon}, #{request.minLat}, #{request.maxLon}, #{request.maxLat}, 4326)
+                )
+            ) AS sub
+        </when>
+        <!-- 对于其他表，默认使用geom字段 -->
+        <otherwise>
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_Transform(geom, 4326))::jsonb,
+                        'properties', to_jsonb(sub) - 'geom'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+                WHERE ST_Intersects(
+                    ST_Transform(geom, 4326),
+                    ST_MakeEnvelope(#{request.minLon}, #{request.minLat}, #{request.maxLon}, #{request.maxLat}, 4326)
+                )
+            ) AS sub
+        </otherwise>
+    </choose>
+</select>
+
+<select id="getSpatialTableGeojsonByFields" parameterType="com.backend.be.model.FieldQueryRequest" resultType="string">
+    <!-- 动态检测几何字段 -->
+    <choose>
+        <!-- 对于map_elements表，使用element_location字段 -->
+        <when test="tableName == 'map_elements'">
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_Transform(element_location, 4326))::jsonb,
+                        'properties', to_jsonb(sub) - 'element_location'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+                WHERE 1=1
+                <foreach collection="fieldConditions.entrySet()" item="value" index="key" separator=" AND ">
+                    <choose>
+                        <!-- 处理几何字段的空间查询 -->
+                        <when test="key == 'geom' or key == 'element_location'">
+                            <choose>
+                                <when test="value == null">
+                                    ${key} IS NULL
+                                </when>
+                                <when test="value.startsWith('POINT') or value.startsWith('POLYGON') or value.startsWith('MULTIPOLYGON') or value.startsWith('LINESTRING') or value.startsWith('MULTILINESTRING')">
+                                    AND ST_Intersects(ST_Transform(${key}, 4326), ST_GeomFromText(#{value}, 4326))
+                                </when>
+                                <otherwise>
+                                    ${key} = #{value}
+                                </otherwise>
+                            </choose>
+                        </when>
+                        <!-- 处理普通字段 -->
+                        <when test="value == null">
+                            ${key} IS NULL
+                        </when>
+                        <otherwise>
+                            ${key} = #{value}
+                        </otherwise>
+                    </choose>
+                </foreach>
+            ) AS sub
+        </when>
+        <!-- 对于其他表，默认使用geom字段 -->
+        <otherwise>
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_Transform(geom, 4326))::jsonb,
+                        'properties', to_jsonb(sub) - 'geom'
+                    )
+                )
+            ) AS geojson
+            FROM (
+                SELECT * 
+                FROM ${tableName}
+                WHERE 1=1
+                <foreach collection="fieldConditions.entrySet()" item="value" index="key" separator=" AND ">
+                    <choose>
+                        <!-- 处理几何字段的空间查询 -->
+                        <when test="key == 'geom' or key == 'element_location'">
+                            <choose>
+                                <when test="value == null">
+                                    ${key} IS NULL
+                                </when>
+                                <when test="value.startsWith('POINT') or value.startsWith('POLYGON') or value.startsWith('MULTIPOLYGON') or value.startsWith('LINESTRING') or value.startsWith('MULTILINESTRING')">
+                                    AND ST_Intersects(ST_Transform(${key}, 4326), ST_GeomFromText(#{value}, 4326))
+                                </when>
+                                <otherwise>
+                                    ${key} = #{value}
+                                </otherwise>
+                            </choose>
+                        </when>
+                        <!-- 处理普通字段 -->
+                        <when test="value == null">
+                            ${key} IS NULL
+                        </when>
+                        <otherwise>
+                            ${key} = #{value}
+                        </otherwise>
+                    </choose>
+                </foreach>
+            ) AS sub
+        </otherwise>
+    </choose>
+</select>
+
 </mapper>

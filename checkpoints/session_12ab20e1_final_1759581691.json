@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_12ab20e1_final_1759581691",
+  "step": 1,
+  "timestamp": "2025-10-04T20:41:31.686892",
+  "state_summary": {
+    "query": "武汉景点的空间分布",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

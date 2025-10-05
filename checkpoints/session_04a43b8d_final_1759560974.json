@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_04a43b8d_final_1759560974",
+  "step": 1,
+  "timestamp": "2025-10-04T14:56:14.842966",
+  "state_summary": {
+    "query": "查询武汉的景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 2,
+    "status": "success",
+    "has_error": false
+  }
+}

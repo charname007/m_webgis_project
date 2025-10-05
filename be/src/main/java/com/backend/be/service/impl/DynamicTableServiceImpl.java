@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.backend.be.mapper.DynamicTableMapper;
+import com.backend.be.model.FieldQueryRequest;
+import com.backend.be.model.SpatialExtentRequest;
 import com.backend.be.model.SpatialTableRequest;
 import com.backend.be.service.DynamicTableService;
 
@@ -41,16 +43,13 @@ public class DynamicTableServiceImpl implements DynamicTableService {
             throw new IllegalArgumentException("表不存在: " + tableName);
         }
     }
+    
     @Override
     public List<String> getSpatialTables() {
-        // TODO Auto-generated method stub
-        // throw new UnsupportedOperationException("Unimplemented method 'getSpatialTables'");
         return tableMapper.getSpatialTables();
     }
 
     public String getSpatialTableGeojson(String tableName) {
-        // TODO Auto-generated method stub
-        // throw new UnsupportedOperationException("Unimplemented method 'getSpatialTableGeojson'");
         return tableMapper.getSpatialTableGeojson(tableName);
     }
 
@@ -154,6 +153,58 @@ public class DynamicTableServiceImpl implements DynamicTableService {
         } catch (Exception e) {
             System.out.println("提取features时出错: " + e.getMessage());
             return "";
+        }
+    }
+
+    @Override
+    public String getSpatialTableGeojsonByExtent(String tableName, SpatialExtentRequest request) {
+        // 验证表名
+        validateTableName(tableName);
+        
+        // 验证坐标范围
+        if (!request.isValidExtent()) {
+            throw new IllegalArgumentException("无效的坐标范围: " + request.getExtentDescription());
+        }
+        
+        // 验证坐标范围合理性
+        if (request.getMaxLon() - request.getMinLon() > 10 || request.getMaxLat() - request.getMinLat() > 10) {
+            throw new IllegalArgumentException("坐标范围过大，请缩小查询范围: " + request.getExtentDescription());
+        }
+        
+        // 调用 Mapper 进行空间查询
+        try {
+            String result = tableMapper.getSpatialTableGeojsonByExtent(tableName, request);
+            System.out.println("坐标范围查询成功 - 表名: " + tableName + ", 范围: " + request.getExtentDescription());
+            return result;
+        } catch (Exception e) {
+            System.err.println("坐标范围查询失败 - 表名: " + tableName + ", 范围: " + request.getExtentDescription() + ", 错误: " + e.getMessage());
+            throw new RuntimeException("坐标范围查询失败: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String getSpatialTableGeojsonByFields(FieldQueryRequest request) {
+        // 验证请求参数
+        if (!request.isValid()) {
+            throw new IllegalArgumentException("无效的查询请求: " + request.getQueryDescription());
+        }
+        
+        // 验证表名
+        validateTableName(request.getTableName());
+        
+        // 验证字段条件
+        if (request.getFieldConditions() == null || request.getFieldConditions().isEmpty()) {
+            throw new IllegalArgumentException("字段查询条件不能为空");
+        }
+        
+        // 调用 Mapper 进行字段查询
+        try {
+            String result = tableMapper.getSpatialTableGeojsonByFields(request);
+            System.out.println("字段查询成功 - " + request.getQueryDescription());
+            return result;
+        } catch (Exception e) {
+            System.err.println("字段查询失败 - " + request.getQueryDescription() + ", 错误: " + e.getMessage());
+            throw new RuntimeException("字段查询失败: " + e.getMessage(), e);
         }
     }
 }

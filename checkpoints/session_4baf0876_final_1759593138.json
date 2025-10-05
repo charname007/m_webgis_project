@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_4baf0876_final_1759593138",
+  "step": 1,
+  "timestamp": "2025-10-04T23:52:18.619349",
+  "state_summary": {
+    "query": "查询北京的5A景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

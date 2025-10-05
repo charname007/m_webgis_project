@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_c410240d_final_1759559024",
+  "step": 1,
+  "timestamp": "2025-10-04T14:23:44.085614",
+  "state_summary": {
+    "query": "武汉的景区有什么分布特征",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_c024464e_final_1759646959",
+  "step": 1,
+  "timestamp": "2025-10-05T14:49:19.679005",
+  "state_summary": {
+    "query": "你好",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

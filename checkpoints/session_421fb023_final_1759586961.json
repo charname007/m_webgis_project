@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_421fb023_final_1759586961",
+  "step": 1,
+  "timestamp": "2025-10-04T22:09:21.405776",
+  "state_summary": {
+    "query": "分析武汉市景区的空间分布格局",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

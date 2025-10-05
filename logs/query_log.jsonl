@@ -1,0 +1,58 @@
+{"timestamp": "2025-10-04T20:40:39.606855", "query_id": "session_12ab20e1_1759581639", "event": "query_start", "query": "武汉景点的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T20:41:31.695743", "query_id": "session_12ab20e1_1759581639", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 52089.89238739014, "error": null}
+{"timestamp": "2025-10-04T20:44:30.268824", "query_id": "session_3bf144fd_1759581870", "event": "query_start", "query": "查询武汉的景点", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T20:46:54.404403", "query_id": "session_3bf144fd_1759581870", "event": "query_end", "status": "success", "result_count": 157, "execution_time_ms": 144135.5791091919, "error": null}
+{"timestamp": "2025-10-04T20:47:10.279867", "query_id": "session_6edabcf1_1759582030", "event": "query_start", "query": "武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T20:48:29.960138", "query_id": "session_6edabcf1_1759582030", "event": "query_end", "status": "success", "result_count": 1, "execution_time_ms": 79681.31232261658, "error": null}
+{"timestamp": "2025-10-04T20:54:03.340407", "query_id": "session_9036e25e_1759582443", "event": "query_start", "query": "武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T20:54:12.566477", "query_id": "session_9036e25e_1759582443", "event": "query_end", "status": "success", "result_count": 1, "execution_time_ms": 9227.0667552948, "error": null}
+{"timestamp": "2025-10-04T20:56:48.125173", "query_id": "session_ea0f3137_1759582608", "event": "query_start", "query": "分析武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T20:57:40.391747", "query_id": "session_ea0f3137_1759582608", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 52266.573905944824, "error": null}
+{"timestamp": "2025-10-04T21:07:15.845834", "query_id": "session_d72af6bc_1759583235", "event": "query_start", "query": "分析武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:08:03.207580", "query_id": "session_eaa99bac_1759583283", "event": "query_start", "query": "分析武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:09:17.148417", "query_id": "session_4d8acd54_1759583357", "event": "query_start", "query": "武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:09:24.326064", "query_id": "session_4d8acd54_1759583357", "event": "query_end", "status": "success", "result_count": 1, "execution_time_ms": 7177.64687538147, "error": null}
+{"timestamp": "2025-10-04T21:10:08.905571", "query_id": "session_9f1bd385_1759583408", "event": "query_start", "query": "武汉市景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:10:16.843656", "query_id": "session_9f1bd385_1759583408", "event": "query_end", "status": "success", "result_count": 1, "execution_time_ms": 7938.085556030273, "error": null}
+{"timestamp": "2025-10-04T21:10:30.373787", "query_id": "session_b6cf6769_1759583430", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:14:21.883975", "query_id": "session_75b44c39_1759583661", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:14:38.073576", "query_id": "session_75b44c39_1759583661", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 16189.600706100464, "error": null}
+{"timestamp": "2025-10-04T21:15:31.737222", "query_id": "session_5c0510a9_1759583731", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:15:46.955969", "query_id": "session_5c0510a9_1759583731", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 15219.748973846436, "error": null}
+{"timestamp": "2025-10-04T21:35:14.613060", "query_id": "session_b23a5788_1759584914", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:40:23.136013", "query_id": "session_f8879fb6_1759585223", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T21:42:10.266718", "query_id": "session_f8879fb6_1759585223", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 107131.71744346619, "error": null}
+{"timestamp": "2025-10-04T22:07:35.480963", "query_id": "session_421fb023_1759586855", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T22:09:21.592399", "query_id": "session_421fb023_1759586855", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 106112.4472618103, "error": null}
+{"timestamp": "2025-10-04T22:16:01.440648", "query_id": "session_97b93e46_1759587361", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T22:17:16.700296", "query_id": "session_97b93e46_1759587361", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 75259.6480846405, "error": null}
+{"timestamp": "2025-10-04T22:17:21.346522", "query_id": "session_bd8d85a5_1759587441", "event": "query_start", "query": "分析武汉市景区的空间分布格局", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T22:18:35.215074", "query_id": "session_bd8d85a5_1759587441", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 73868.55220794678, "error": null}
+{"timestamp": "2025-10-04T23:43:59.509155", "query_id": "session_f51be74e_1759592639", "event": "query_start", "query": "查询杭州的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T23:44:19.912594", "query_id": "session_f51be74e_1759592639", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 20403.438329696655, "error": null}
+{"timestamp": "2025-10-04T23:45:45.083843", "query_id": "session_b5ea15ae_1759592745", "event": "query_start", "query": "查询武汉的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T23:46:58.102887", "query_id": "session_b5ea15ae_1759592745", "event": "query_end", "status": "success", "result_count": 7, "execution_time_ms": 73020.06411552429, "error": null}
+{"timestamp": "2025-10-04T23:48:24.721469", "query_id": "session_28d767c9_1759592904", "event": "query_start", "query": "查询杭州的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T23:48:31.316172", "query_id": "session_28d767c9_1759592904", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 6594.702482223511, "error": null}
+{"timestamp": "2025-10-04T23:50:50.620610", "query_id": "session_4baf0876_1759593050", "event": "query_start", "query": "查询北京的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-04T23:52:18.635572", "query_id": "session_4baf0876_1759593050", "event": "query_end", "status": "success", "result_count": 9, "execution_time_ms": 88015.95854759216, "error": null}
+{"timestamp": "2025-10-05T00:17:54.316981", "query_id": "session_4344652d_1759594674", "event": "query_start", "query": "查询北京的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T00:19:35.444607", "query_id": "session_4344652d_1759594674", "event": "query_end", "status": "success", "result_count": 9, "execution_time_ms": 101128.62753868103, "error": null}
+{"timestamp": "2025-10-05T00:27:37.155341", "query_id": "session_01d48911_1759595257", "event": "query_start", "query": "查询北京的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T00:29:05.348647", "query_id": "session_01d48911_1759595257", "event": "query_end", "status": "success", "result_count": 9, "execution_time_ms": 88193.30644607544, "error": null}
+{"timestamp": "2025-10-05T00:29:40.515538", "query_id": "session_a6d05701_1759595380", "event": "query_start", "query": "查询北京的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T00:31:16.609437", "query_id": "session_a6d05701_1759595380", "event": "query_end", "status": "success", "result_count": 9, "execution_time_ms": 96093.89901161194, "error": null}
+{"timestamp": "2025-10-05T00:54:55.981223", "query_id": "session_ffa4744d_1759596895", "event": "query_start", "query": "查询杭州的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T00:55:37.539358", "query_id": "session_ffa4744d_1759596895", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 41558.13479423523, "error": null}
+{"timestamp": "2025-10-05T00:55:59.748816", "query_id": "session_a3a02df7_1759596959", "event": "query_start", "query": "查询北京的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T00:57:12.787081", "query_id": "session_a3a02df7_1759596959", "event": "query_end", "status": "success", "result_count": 9, "execution_time_ms": 73039.26372528076, "error": null}
+{"timestamp": "2025-10-05T01:02:11.099176", "query_id": "session_454f761f_1759597331", "event": "query_start", "query": "查询武汉的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T01:03:52.104850", "query_id": "session_454f761f_1759597331", "event": "query_end", "status": "success", "result_count": 7, "execution_time_ms": 101005.67412376404, "error": null}
+{"timestamp": "2025-10-05T01:14:28.996933", "query_id": "session_0579f17f_1759598068", "event": "query_start", "query": "查询浙江省的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T01:14:51.757736", "query_id": "session_0579f17f_1759598068", "event": "query_end", "status": "success", "result_count": 0, "execution_time_ms": 22815.173387527466, "error": null}
+{"timestamp": "2025-10-05T01:34:10.815854", "query_id": "session_21125e4f_1759599250", "event": "query_start", "query": "武汉市的景区的空间分布", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T01:35:45.028170", "query_id": "session_21125e4f_1759599250", "event": "query_end", "status": "success", "result_count": 11, "execution_time_ms": 94212.31532096863, "error": null}
+{"timestamp": "2025-10-05T14:48:04.807946", "query_id": "session_c024464e_1759646884", "event": "query_start", "query": "你好", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T14:49:20.465972", "query_id": "session_c024464e_1759646884", "event": "query_end", "status": "success", "result_count": 14847, "execution_time_ms": 75659.02328491211, "error": null}
+{"timestamp": "2025-10-05T14:50:40.032519", "query_id": "session_595d4706_1759647040", "event": "query_start", "query": "查询武汉的5A景区", "user_context": {}, "status": "started"}
+{"timestamp": "2025-10-05T14:52:01.260273", "query_id": "session_595d4706_1759647040", "event": "query_end", "status": "success", "result_count": 7, "execution_time_ms": 81228.72233390808, "error": null}

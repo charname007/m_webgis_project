@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_9036e25e_final_1759582452",
+  "step": 1,
+  "timestamp": "2025-10-04T20:54:12.558957",
+  "state_summary": {
+    "query": "武汉市景区的空间分布",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 0,
+    "status": "success",
+    "has_error": false
+  }
+}

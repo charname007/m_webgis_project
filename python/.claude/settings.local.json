@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(timeout:*)",
+      "Read(//e/study/class/m_webgis_project/m_WGP_vue3/src/components/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

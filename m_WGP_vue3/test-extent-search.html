@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>测试范围选择功能</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
+  <style>
+    #map {
+      width: 100%;
+      height: 400px;
+    }
+    .controls {
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    button.active {
+      background: orange;
+      color: white;
+    }
+    #result {
+      margin: 10px 0;
+      padding: 10px;
+      background: #f0f0f0;
+      min-height: 50px;
+    }
+  </style>
+</head>
+<body>
+  <h1>测试范围选择功能</h1>
+
+  <div class="controls">
+    <button id="toggleBtn">📦 激活框选</button>
+    <button id="clearBtn">清除</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="result">
+    <strong>选择的范围：</strong><br>
+    <span id="extentText">未选择</span>
+  </div>
+
+  <script type="module">
+    import Map from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/Map.js';
+    import View from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/View.js';
+    import TileLayer from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/layer/Tile.js';
+    import OSM from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/source/OSM.js';
+    import VectorLayer from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/layer/Vector.js';
+    import VectorSource from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/source/Vector.js';
+    import Draw, { createBox } from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/interaction/Draw.js';
+    import { Style, Fill, Stroke } from 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/style.js';
+
+    // 创建地图
+    const map = new Map({
+      target: 'map',
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        })
+      ],
+      view: new View({
+        center: [0, 0],
+        zoom: 2
+      })
+    });
+
+    // 创建矢量图层用于绘制
+    const vectorSource = new VectorSource();
+    const vectorLayer = new VectorLayer({
+      source: vectorSource,
+      style: new Style({
+        fill: new Fill({
+          color: 'rgba(33, 150, 243, 0.2)'
+        }),
+        stroke: new Stroke({
+          color: '#2196F3',
+          width: 2,
+          lineDash: [5, 5]
+        })
+      })
+    });
+    map.addLayer(vectorLayer);
+
+    let drawInteraction = null;
+    let isActive = false;
+
+    // 激活框选
+    function activateExtentDraw() {
+      if (isActive) {
+        deactivateExtentDraw();
+        return;
+      }
+
+      vectorSource.clear();
+
+      drawInteraction = new Draw({
+        source: vectorSource,
+        type: 'Circle',
+        geometryFunction: createBox()
+      });
+
+      drawInteraction.on('drawend', (event) => {
+        const feature = event.feature;
+        const geometry = feature.getGeometry();
+        const extent = geometry.getExtent();
+
+        console.log('范围选择完成:', extent);
+        document.getElementById('extentText').textContent =
+          `[${extent.map(v => v.toFixed(2)).join(', ')}]`;
+
+        setTimeout(() => {
+          deactivateExtentDraw();
+        }, 1000);
+      });
+
+      map.addInteraction(drawInteraction);
+      isActive = true;
+      document.getElementById('toggleBtn').classList.add('active');
+      document.getElementById('toggleBtn').textContent = '⏹️ 取消框选';
+      console.log('框选已激活');
+    }
+
+    // 停用框选
+    function deactivateExtentDraw() {
+      if (drawInteraction) {
+        map.removeInteraction(drawInteraction);
+        drawInteraction = null;
+      }
+      vectorSource.clear();
+      isActive = false;
+      document.getElementById('toggleBtn').classList.remove('active');
+      document.getElementById('toggleBtn').textContent = '📦 激活框选';
+      console.log('框选已停用');
+    }
+
+    // 绑定按钮事件
+    document.getElementById('toggleBtn').addEventListener('click', activateExtentDraw);
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      vectorSource.clear();
+      document.getElementById('extentText').textContent = '未选择';
+    });
+
+    console.log('测试页面已加载');
+  </script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==================== 环境变量和配置 ====================
+.env
+.env.local
+.env.*.local
+*.local
+
+# ==================== IDE ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+
+# ==================== 测试 ====================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# ==================== 日志 ====================
+*.log
+logs/
+log/
+
+# ==================== 数据库 ====================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==================== Docker ====================
+.dockerignore
+
+# ==================== 临时文件 ====================
+*.tmp
+*.temp
+.cache/
+*.bak
+*.swp
+
+# ==================== Jupyter ====================
+.ipynb_checkpoints/
+*.ipynb
+
+# ==================== 文档 ====================
+docs/_build/
+site/
+
+# ==================== 操作系统 ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ==================== Claude Code ====================
+.claude/
+
+# ==================== 项目特定 ====================
+# 不提交测试数据
+test_data/
+*.test.json
+
+# 不提交本地配置
+config.local.py
+settings.local.py

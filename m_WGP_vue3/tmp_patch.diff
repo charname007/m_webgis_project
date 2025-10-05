@@ -1,0 +1,70 @@
+*** Begin Patch
+*** Update File: src/components/TouristSpotSearch.vue
+@@
+-    const handleSpotClickFromMap = async (spotInfo) => {
+-      console.log('收到地图点击的景区信息:', spotInfo)
+-      mapClickedSpotInfo.value = spotInfo
+-      
+-      // 根据地图点击的景区名称搜索详细信息
+-      if (spotInfo && spotInfo.name) {
+-        searchKeyword.value = spotInfo.name
+-        await searchTouristSpots()
+-        
+-        // 如果搜索结果中找到了匹配的景区则自动展示第一条详情
+-        if (searchResults.value.length > 0) {
+-          console.log('找到了匹配的景区，自动展示详细信息')
+-          // TODO: 在这里添加逻辑，将搜索结果自动滚动或高亮显示
+-        } else {
+-          console.log('未找到匹配的景区详细信息')
+-        }
+-      }
+-    }
++    const handleSpotClickFromMap = async (spotInfo) => {
++      console.log('收到地图点击的景区信息:', spotInfo)
++      mapClickedSpotInfo.value = spotInfo
++
++      if (!spotInfo || !spotInfo.name) {
++        console.warn('地图点击的景区缺少名称，无法触发搜索')
++        return
++      }
++
++      // 首选提取纯中文名称以提升匹配成功率，失败时回退到原始名称
++      const originalName = spotInfo.name.trim()
++      const cleanedName = extractChineseName(originalName)
++      const candidateNames = [cleanedName, originalName]
++        .map(name => name && name.trim())
++        .filter((name, index, self) => name && self.indexOf(name) === index)
++
++      let matched = false
++
++      for (const name of candidateNames) {
++        searchKeyword.value = name
++        await searchTouristSpots()
++
++        if (searchResults.value.length > 0) {
++          matched = true
++
++          // 将完全匹配的景区排在结果首位，方便用户查看详情
++          const exactMatchIndex = searchResults.value.findIndex(result => result.name === name)
++          if (exactMatchIndex > 0) {
++            const [exactMatch] = searchResults.value.splice(exactMatchIndex, 1)
++            searchResults.value.unshift(exactMatch)
++
++            // 同步更新完整结果集，保持分页一致
++            const fullMatchIndex = allSearchResults.value.findIndex(result => result.name === name)
++            if (fullMatchIndex > 0) {
++              const [fullMatch] = allSearchResults.value.splice(fullMatchIndex, 1)
++              allSearchResults.value.unshift(fullMatch)
++            }
++          }
++
++          console.log(`找到匹配景区，使用关键词: ${name}`)
++          break
++        }
++      }
++
++      if (!matched) {
++        console.log(`未找到匹配的景区详细信息，尝试的关键词: ${candidateNames.join(', ')}`)
++      }
++    }
+*** End Patch

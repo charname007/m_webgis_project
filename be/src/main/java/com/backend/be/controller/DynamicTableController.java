@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.backend.be.model.SpatialTableRequest;
@@ -17,7 +16,7 @@ import com.backend.be.service.impl.DynamicTableServiceImpl;
 
 
 @RestController
-@RequestMapping("/postgis/WGP_db")
+@RequestMapping("/postgis/WGP_db/dynamic-tables")
 public class DynamicTableController {
 
     @Autowired
@@ -64,5 +63,28 @@ public class DynamicTableController {
         return tableService.getSpatialTablesGeojson(request);
     }
 
+    /**
+     * 根据坐标范围查询空间表要素并返回 GeoJSON
+     * @param tableName 空间表名
+     * @param request 坐标范围请求参数
+     * @return GeoJSON 格式的要素集合
+     */
+    @PostMapping("/tables/SpatialTables/{tableName}/geojson/extent")
+    public String getSpatialTableGeojsonByExtent(
+        @PathVariable String tableName,
+        @RequestBody com.backend.be.model.SpatialExtentRequest request) {
+        return tableService.getSpatialTableGeojsonByExtent(tableName, request);
+    }
+
+    /**
+     * 根据字段条件查询空间表要素并返回 GeoJSON
+     * @param request 字段查询请求参数
+     * @return GeoJSON 格式的要素集合
+     */
+    @PostMapping("/tables/SpatialTables/geojson/fields")
+    public String getSpatialTableGeojsonByFields(
+        @RequestBody com.backend.be.model.FieldQueryRequest request) {
+        return tableService.getSpatialTableGeojsonByFields(request);
+    }
 
 }

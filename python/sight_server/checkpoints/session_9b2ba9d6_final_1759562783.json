@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_9b2ba9d6_final_1759562783",
+  "step": 1,
+  "timestamp": "2025-10-04T15:26:23.457283",
+  "state_summary": {
+    "query": "浙江省有多少个5A景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

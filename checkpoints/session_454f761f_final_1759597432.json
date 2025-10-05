@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_454f761f_final_1759597432",
+  "step": 1,
+  "timestamp": "2025-10-05T01:03:52.025740",
+  "state_summary": {
+    "query": "查询武汉的5A景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

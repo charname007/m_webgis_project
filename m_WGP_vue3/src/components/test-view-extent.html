@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试视图范围获取功能</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .map-container {
+            width: 100%;
+            height: 500px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .controls button {
+            margin-right: 10px;
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #0056b3;
+        }
+        .results {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .info {
+            margin-top: 10px;
+            color: #6c757d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>测试视图范围获取功能</h1>
+        
+        <div class="controls">
+            <button onclick="getViewExtent()">获取当前视图范围</button>
+            <button onclick="getFormattedExtent()">获取格式化视图范围</button>
+            <button onclick="zoomIn()">放大</button>
+            <button onclick="zoomOut()">缩小</button>
+            <button onclick="resetView()">重置视图</button>
+        </div>
+
+        <div class="map-container" id="map"></div>
+
+        <div class="info">
+            <p>当前缩放级别: <span id="zoom-level">-</span></p>
+            <p>地图中心: <span id="center-coords">-</span></p>
+        </div>
+
+        <div class="results" id="results">
+            点击上方按钮获取视图范围信息...
+        </div>
+    </div>
+
+    <script type="module">
+        import MapUtils from './mapUtils.js';
+
+        let mapUtils;
+
+        // 初始化地图
+        function initMap() {
+            const mapContainer = document.getElementById('map');
+            mapUtils = new MapUtils(mapContainer);
+            
+            // 添加底图
+            mapUtils.addBaseLayer();
+            
+            // 监听视图变化
+            mapUtils.map.getView().on('change:center', updateViewInfo);
+            mapUtils.map.getView().on('change:zoom', updateViewInfo);
+            
+            updateViewInfo();
+        }
+
+        // 更新视图信息
+        function updateViewInfo() {
+            const view = mapUtils.map.getView();
+            const center = view.getCenter();
+            const zoom = view.getZoom();
+            
+            document.getElementById('zoom-level').textContent = zoom.toFixed(2);
+            document.getElementById('center-coords').textContent = 
+                center ? `${center[0].toFixed(6)}, ${center[1].toFixed(6)}` : '-';
+        }
+
+        // 获取视图范围
+        window.getViewExtent = function() {
+            const extent = mapUtils.getViewExtent();
+            const results = document.getElementById('results');
+            results.innerHTML = `原始范围数组:\n[${extent.join(', ')}]`;
+        }
+
+        // 获取格式化视图范围
+        window.getFormattedExtent = function() {
+            const extent = mapUtils.getViewExtent({ formatted: true, precision: 6 });
+            const results = document.getElementById('results');
+            results.innerHTML = `格式化视图范围:\n${JSON.stringify(extent, null, 2)}`;
+        }
+
+        // 地图操作函数
+        window.zoomIn = function() {
+            const view = mapUtils.map.getView();
+            view.animate({
+                zoom: view.getZoom() + 1,
+                duration: 500
+            });
+        }
+
+        window.zoomOut = function() {
+            const view = mapUtils.map.getView();
+            view.animate({
+                zoom: view.getZoom() - 1,
+                duration: 500
+            });
+        }
+
+        window.resetView = function() {
+            const view = mapUtils.map.getView();
+            view.animate({
+                center: [114.305, 30.5928],
+                zoom: 12,
+                duration: 800
+            });
+        }
+
+        // 页面加载完成后初始化地图
+        document.addEventListener('DOMContentLoaded', initMap);
+    </script>
+</body>
+</html>

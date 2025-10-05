@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_0579f17f_final_1759598091",
+  "step": 1,
+  "timestamp": "2025-10-05T01:14:51.617155",
+  "state_summary": {
+    "query": "查询浙江省的5A景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

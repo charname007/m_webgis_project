@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>要素属性显示测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-steps {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .test-steps h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .test-steps ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .test-steps li {
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        .map-container {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #3498db;
+            border-radius: 5px;
+        }
+        .debug-info {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug-info h4 {
+            margin-top: 0;
+            color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>要素属性显示功能测试</h1>
+        
+        <div class="test-info">
+            <h2>测试说明</h2>
+            <p>此页面用于测试修复后的要素属性显示功能。点击地图上的景区要素应该显示详细的属性信息弹窗。</p>
+        </div>
+
+        <div class="test-steps">
+            <h3>测试步骤：</h3>
+            <ol>
+                <li>等待地图加载完成（可能需要几秒钟）</li>
+                <li>地图上会显示不同等级的景区点（5A、4A、3A等）</li>
+                <li>点击任意一个景区点</li>
+                <li>应该看到属性弹窗显示该景区的详细信息</li>
+                <li>弹窗应该包含景区名称、等级等属性</li>
+                <li>点击关闭按钮或地图空白处可以关闭弹窗</li>
+            </ol>
+        </div>
+
+        <div id="app">
+            <!-- Vue 应用将在这里渲染 -->
+        </div>
+
+        <div class="debug-info">
+            <h4>调试信息：</h4>
+            <div id="debug-output"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { createApp } from 'vue'
+        import OlMap from './src/components/OlMap.vue'
+        
+        // 创建调试输出函数
+        function debugLog(message) {
+            const debugOutput = document.getElementById('debug-output');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: #3498db">[${timestamp}]</span> ${message}`;
+            debugOutput.appendChild(logEntry);
+            debugOutput.scrollTop = debugOutput.scrollHeight;
+        }
+
+        // 创建 Vue 应用
+        const app = createApp(OlMap);
+        
+        // 挂载应用
+        app.mount('#app');
+        
+        debugLog('Vue 应用已初始化，等待地图加载...');
+        
+        // 监听控制台输出
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            debugLog('LOG: ' + args.join(' '));
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            debugLog('WARN: ' + args.join(' '));
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            debugLog('ERROR: ' + args.join(' '));
+        };
+        
+        // 页面加载完成
+        window.addEventListener('load', () => {
+            debugLog('页面加载完成，地图应该开始初始化...');
+        });
+    </script>
+</body>
+</html>

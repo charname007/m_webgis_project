@@ -1,0 +1,27 @@
+{
+  "status": "success",
+  "answer": "根据您的查询「查询杭州的5A景区」，未找到匹配的数据。建议您调整查询条件或检查数据源。",
+  "data": null,
+  "count": 0,
+  "message": "查询完成，但未找到匹配数据",
+  "sql": "SELECT json_agg(json_build_object(\n    'name', COALESCE(t.name, a.name),\n    'level', a.level,\n    'city', a.所属城市,\n    'province', a.所属省份,\n    'address', COALESCE(t.地址, a.address),\n    'coordinates', CASE \n        WHEN a.lng_wgs84 IS NOT NULL AND a.lat_wgs84 IS NOT NULL \n        THEN json_build_array(a.lng_wgs84, a.lat_wgs84)\n        ELSE NULL\n    END,\n    'rating', CASE \n        WHEN t.评分 ~ '^[0-9.]+$' THEN t.评分::numeric \n        ELSE NULL \n    END,\n    'ticket_price', t.门票,\n    'introduction', t.介绍,\n    'open_time', t.开放时间,\n    'suggested_duration', t.建议游玩时间,\n    'suggested_season', t.建议季节,\n    'tips', t.小贴士,\n    'image_url', t.图片链接,\n    'source_link', t.链接\n)) as result\nFROM a_sight a\nLEFT JOIN tourist_spot t ON (\n    t.name LIKE a.name || '%' OR \n    TRIM(SPLIT_PART(t.name, ' ', 1)) = a.name\n)\nWHERE a.level = '5A' AND a.所属城市 = '杭州'\n  AND a.name IS NOT NULL;",
+  "intent_info": {
+    "intent_type": "query",
+    "is_spatial": false,
+    "confidence": 0.9,
+    "reasoning": "用户查询'查询杭州的5A景区'，核心意图是获取杭州地区5A级景区的具体列表信息。查询中使用了'查询'这一明确的关键词，表明用户需要的是具体的数据记录而非统计数字。虽然查询中隐含了地理范围'杭州'，但并未涉及距离、附近、周边等空间概念关键词，因此不属于空间查询。该意图非常明确，置信度较高。",
+    "keywords_matched": [
+      "查询"
+    ],
+    "prompt_type": "scenic_query",
+    "description": "用户查询'查询杭州的5A景区'，核心意图是获取杭州地区5A级景区的具体列表信息。查询中使用了'查询'这一明确的关键词，表明用户需要的是具体的数据记录而非统计数字。虽然查询中隐含了地理范围'杭州'，但并未涉及距离、附近、周边等空间概念关键词，因此不属于空间查询。该意图非常明确，置信度较高。",
+    "analysis_details": {
+      "method": "llm_with_pydantic",
+      "model": "deepseek-chat",
+      "summary_score": 0.0,
+      "spatial_score": 0.0,
+      "scenic_score": 0.5
+    },
+    "semantic_enhanced": true
+  }
+}

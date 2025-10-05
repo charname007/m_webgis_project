@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "session_65235154_final_1759539861",
+  "step": 1,
+  "timestamp": "2025-10-04T09:04:21.406346",
+  "state_summary": {
+    "query": "查询杭州的5A景区",
+    "current_step": 1,
+    "max_iterations": 3,
+    "sql_count": 1,
+    "status": "success",
+    "has_error": false
+  }
+}

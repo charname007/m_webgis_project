@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基于缩放级别的矢量图层测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+        }
+        .controls {
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+        .info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e8f4fd;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>基于缩放级别的矢量图层测试</h1>
+    
+    <div class="controls">
+        <button onclick="testDiscreteMode()">测试离散值模式</button>
+        <button onclick="testContinuousMode()">测试连续范围模式</button>
+        <button onclick="clearLayers()">清除所有图层</button>
+        <span id="zoomInfo">当前缩放级别: -</span>
+    </div>
+    
+    <div id="map"></div>
+    
+    <div class="info" id="info">
+        <h3>测试说明：</h3>
+        <p><strong>离散值模式</strong>：创建城市分级图层，不同等级的城市在不同缩放级别显示</p>
+        <p><strong>连续范围模式</strong>：创建人口分级图层，不同人口规模的城市在不同缩放级别显示</p>
+        <p><strong>降序优先级</strong>：高级别要素始终显示，低级别要素只在较大缩放级别显示</p>
+    </div>
+
+    <script type="module">
+        import MapUtils from './mapUtils.js';
+
+        let mapUtils;
+        let currentLayers = [];
+
+        // 初始化地图
+        function initMap() {
+            mapUtils = new MapUtils('map');
+            mapUtils.addBaseLayer();
+            
+            // 监听缩放级别变化
+            mapUtils.map.getView().on('change:resolution', () => {
+                const zoom = mapUtils.map.getView().getZoom();
+                document.getElementById('zoomInfo').textContent = `当前缩放级别: ${zoom.toFixed(2)}`;
+            });
+            
+            console.log('地图初始化完成');
+        }
+
+        // 测试离散值模式
+        function testDiscreteMode() {
+            clearLayers();
+            
+            const layer = mapUtils.createZoomBasedVectorLayer(
+                'city_level',
+                {
+                    type: 'discrete',
+                    values: [
+                        { value: 'capital', minZoom: 3 },     // 首都：始终显示
+                        { value: 'provincial', minZoom: 6 },  // 省会：从6级显示
+                        { value: 'prefecture', minZoom: 10 }, // 地级市：从10级显示
+                        { value: 'county', minZoom: 14 }      // 县级市：从14级显示
+                    ]
+                },
+                '城市分级图层'
+            );
+
+            currentLayers.push(layer);
+
+            // 添加测试要素
+            const features = [
+                createTestFeature([114.305, 30.5928], 'capital', '武汉市'),      // 武汉
+                createTestFeature([116.397, 39.909], 'provincial', '北京市'),    // 北京
+                createTestFeature([121.473, 31.230], 'provincial', '上海市'),    // 上海
+                createTestFeature([113.264, 23.129], 'prefecture', '广州市'),    // 广州
+                createTestFeature([120.155, 30.274], 'prefecture', '杭州市'),    // 杭州
+                createTestFeature([108.948, 34.263], 'county', '西安市'),        // 西安
+                createTestFeature([104.066, 30.658], 'county', '成都市')         // 成都
+            ];
+
+            mapUtils.addFeaturesToZoomLayer(layer, features);
+            
+            document.getElementById('info').innerHTML = `
+                <h3>离散值模式测试</h3>
+                <p><strong>城市等级配置：</strong></p>
+                <ul>
+                    <li>首都 (capital): 缩放级别 ≥ 3 显示</li>
+                    <li>省会 (provincial): 缩放级别 ≥ 6 显示</li>
+                    <li>地级市 (prefecture): 缩放级别 ≥ 10 显示</li>
+                    <li>县级市 (county): 缩放级别 ≥ 14 显示</li>
+                </ul>
+                <p>请尝试缩放地图观察不同等级城市的显示效果</p>
+            `;
+        }
+
+        // 测试连续范围模式
+        function testContinuousMode() {
+            clearLayers();
+            
+            const layer = mapUtils.createZoomBasedVectorLayer(
+                'population',
+                {
+                    type: 'continuous',
+                    ranges: [
+                        { min: 10000000, max: Infinity, minZoom: 3 },   // 超大城市：始终显示
+                        { min: 5000000, max: 10000000, minZoom: 6 },    // 特大城市：从6级显示
+                        { min: 1000000, max: 5000000, minZoom: 10 },    // 大城市：从10级显示
+                        { min: 0, max: 1000000, minZoom: 14 }           // 中小城市：从14级显示
+                    ]
+                },
+                '人口分级图层'
+            );
+
+            currentLayers.push(layer);
+
+            // 添加测试要素
+            const features = [
+                createTestFeature([114.305, 30.5928], 12000000, '武汉市'),   // 武汉 1200万
+                createTestFeature([116.397, 39.909], 21500000, '北京市'),     // 北京 2150万
+                createTestFeature([121.473, 31.230], 24200000, '上海市'),     // 上海 2420万
+                createTestFeature([113.264, 23.129], 15000000, '广州市'),     // 广州 1500万
+                createTestFeature([120.155, 30.274], 9800000, '杭州市'),      // 杭州 980万
+                createTestFeature([108.948, 34.263], 4200000, '西安市'),      // 西安 420万
+                createTestFeature([104.066, 30.658], 3800000, '成都市')       // 成都 380万
+            ];
+
+            mapUtils.addFeaturesToZoomLayer(layer, features);
+            
+            document.getElementById('info').innerHTML = `
+                <h3>连续范围模式测试</h3>
+                <p><strong>人口规模配置：</strong></p>
+                <ul>
+                    <li>超大城市 (≥1000万): 缩放级别 ≥ 3 显示</li>
+                    <li>特大城市 (500万-1000万): 缩放级别 ≥ 6 显示</li>
+                    <li>大城市 (100万-500万): 缩放级别 ≥ 10 显示</li>
+                    <li>中小城市 (<100万): 缩放级别 ≥ 14 显示</li>
+                </ul>
+                <p>请尝试缩放地图观察不同人口规模城市的显示效果</p>
+            `;
+        }
+
+        // 创建测试要素
+        function createTestFeature(coordinate, fieldValue, name) {
+            const feature = new ol.Feature({
+                geometry: new ol.geom.Point(coordinate),
+                name: name,
+                population: fieldValue
+            });
+            
+            // 根据字段名设置对应的属性值
+            if (typeof fieldValue === 'string') {
+                feature.set('city_level', fieldValue);
+            } else {
+                feature.set('population', fieldValue);
+            }
+            
+            return feature;
+        }
+
+        // 清除所有图层
+        function clearLayers() {
+            currentLayers.forEach(layer => {
+                mapUtils.removeZoomBasedLayer(layer);
+            });
+            currentLayers = [];
+            document.getElementById('info').innerHTML = `
+                <h3>测试说明：</h3>
+                <p><strong>离散值模式</strong>：创建城市分级图层，不同等级的城市在不同缩放级别显示</p>
+                <p><strong>连续范围模式</strong>：创建人口分级图层，不同人口规模的城市在不同缩放级别显示</p>
+                <p><strong>降序优先级</strong>：高级别要素始终显示，低级别要素只在较大缩放级别显示</p>
+            `;
+        }
+
+        // 页面加载完成后初始化地图
+        document.addEventListener('DOMContentLoaded', initMap);
+    </script>
+</body>
+</html>

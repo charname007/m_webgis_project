@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中国范围限制测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .map-container {
+            width: 100%;
+            height: 500px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .info-panel {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .info-panel h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .coordinate-test {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        .coordinate-test input {
+            padding: 5px;
+            margin: 0 5px;
+            border: 1px solid #ced4da;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>中国范围限制功能测试</h1>
+        
+        <div class="info-panel">
+            <h3>功能说明</h3>
+            <p>地图已默认限制在中国范围内：经度 73°E - 135°E，纬度 18°N - 54°N</p>
+            <p>尝试拖拽地图到边界，观察范围限制效果</p>
+        </div>
+
+        <div class="controls">
+            <button id="resetToChina">重置到中国范围</button>
+            <button id="removeConstraint">移除范围限制</button>
+            <button id="setConstraint">重新设置范围限制</button>
+            <button id="testCoordinate">测试坐标是否在中国范围内</button>
+        </div>
+
+        <div class="coordinate-test">
+            <h4>坐标测试</h4>
+            <label>经度: <input type="number" id="lonInput" value="116.397" step="0.001"></label>
+            <label>纬度: <input type="number" id="latInput" value="39.909" step="0.001"></label>
+            <button id="checkCoordinate">检查坐标</button>
+            <div id="coordinateResult" class="status"></div>
+        </div>
+
+        <div id="map" class="map-container"></div>
+
+        <div id="status" class="status"></div>
+    </div>
+
+    <script type="module">
+        import MapUtils from './mapUtils.js';
+
+        let mapUtils;
+        let isConstraintEnabled = true;
+
+        // 初始化地图
+        function initMap() {
+            const mapContainer = document.getElementById('map');
+            mapUtils = new MapUtils(mapContainer);
+            
+            // 添加底图
+            mapUtils.addBaseLayer();
+            
+            updateStatus('地图初始化完成，中国范围限制已启用', 'success');
+            
+            // 显示中国范围信息
+            const chinaInfo = mapUtils.getChinaExtentInfo();
+            console.log('中国范围信息:', chinaInfo);
+        }
+
+        // 更新状态显示
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // 绑定按钮事件
+        document.getElementById('resetToChina').addEventListener('click', () => {
+            mapUtils.resetToChinaExtent();
+            updateStatus('视图已重置到中国范围', 'success');
+        });
+
+        document.getElementById('removeConstraint').addEventListener('click', () => {
+            mapUtils.removeExtentConstraint();
+            isConstraintEnabled = false;
+            updateStatus('范围限制已移除，现在可以自由拖拽地图', 'warning');
+        });
+
+        document.getElementById('setConstraint').addEventListener('click', () => {
+            mapUtils.setChinaExtent();
+            isConstraintEnabled = true;
+            updateStatus('中国范围限制已重新设置', 'success');
+        });
+
+        document.getElementById('checkCoordinate').addEventListener('click', () => {
+            const lon = parseFloat(document.getElementById('lonInput').value);
+            const lat = parseFloat(document.getElementById('latInput').value);
+            
+            if (isNaN(lon) || isNaN(lat)) {
+                updateStatus('请输入有效的经纬度坐标', 'error');
+                return;
+            }
+            
+            const isInChina = mapUtils.isCoordinateInChina([lon, lat]);
+            const resultDiv = document.getElementById('coordinateResult');
+            
+            if (isInChina) {
+                resultDiv.textContent = `坐标 [${lon}, ${lat}] 在中国范围内`;
+                resultDiv.className = 'status success';
+            } else {
+                resultDiv.textContent = `坐标 [${lon}, ${lat}] 不在中国范围内`;
+                resultDiv.className = 'status error';
+            }
+        });
+
+        // 初始化
+        initMap();
+    </script>
+</body>
+</html>
