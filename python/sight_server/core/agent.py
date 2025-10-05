@@ -5,9 +5,10 @@ SQL查询Agent模块 - Sight Server
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import json
 from datetime import datetime
+import time
 import uuid
 
 from .llm import BaseLLM
@@ -15,7 +16,7 @@ from .database import DatabaseConnector
 from .prompts import PromptManager, PromptType
 from .schemas import QueryResult, AgentState
 from .processors import SQLGenerator, SQLExecutor, ResultParser, AnswerGenerator,OptimizedSQLExecutor
-from .graph import AgentNodes, GraphBuilder
+from .graph import build_legacy_nodes, build_node_mapping, GraphBuilder
 from .memory import MemoryManager
 from .optimized_memory_manager import OptimizedMemoryManager
 from .checkpoint import CheckpointManager
@@ -142,13 +143,18 @@ class SQLQueryAgent:
         else:
             self.error_handler = None
 
-        # ✅ 缓存已迁移到 API 层（main.py），Agent 内部不再管理缓存（2025-10-04）
-        # if self.enable_cache:
-        #     self.cache_manager = QueryCacheManager(...)
-        #     self.logger.info("✓ QueryCacheManager initialized")
-        # else:
-        #     self.cache_manager = None
-        self.cache_manager = None  # 保留字段兼容性
+        if self.enable_cache:
+            try:
+                self.cache_manager = QueryCacheManager(ttl=cache_ttl)
+                self.logger.info("✓ QueryCacheManager initialized")
+            except Exception as cache_error:
+                self.logger.warning(f"QueryCacheManager unavailable, disabling cache: {cache_error}")
+                self.cache_manager = None
+        else:
+            self.cache_manager = None
+
+        self.result_validator = None
+        self.data_analyzer = None
 
         # ==================== 构建LangGraph工作流 ====================
 
@@ -157,21 +163,25 @@ class SQLQueryAgent:
         self.logger.info("✓ StructuredLogger initialized")
 
         # 创建节点函数
-        self.agent_nodes = AgentNodes(
+        self.legacy_nodes = build_legacy_nodes(
             sql_generator=self.sql_generator,
             sql_executor=self.sql_executor,
             result_parser=self.result_parser,
             answer_generator=self.answer_generator,
             schema_fetcher=self.schema_fetcher,
-            llm=self.llm,  # ✅ 传递 LLM 实例（用于意图分析）
-            error_handler=self.error_handler,  # ✅ 传递错误处理器
-            cache_manager=self.cache_manager,  # ✅ 传递缓存管理器
-            structured_logger=self.structured_logger,  # ✅ 传递结构化日志器
+            llm=self.llm,
+            error_handler=self.error_handler,
+            cache_manager=self.cache_manager,
+            structured_logger=self.structured_logger,
+            result_validator=self.result_validator,
+            data_analyzer=self.data_analyzer,
         )
-        self.logger.info("✓ AgentNodes created")
+        self.node_handlers = build_node_mapping(self.legacy_nodes)
+        self.agent_nodes = self.legacy_nodes  # Legacy alias for compatibility
+        self.logger.info("✓ LegacyAgentNodes created")
 
         # 构建图
-        self.graph = GraphBuilder.build(self.agent_nodes)
+        self.graph = GraphBuilder.build(self.node_handlers)
         self.logger.info("✓ LangGraph workflow compiled")
 
         # ==================== 初始化Memory和Checkpoint ====================
@@ -198,184 +208,230 @@ class SQLQueryAgent:
         conversation_id: Optional[str] = None,
         resume_from_checkpoint: Optional[str] = None
     ) -> str:
-        """
-        执行自然语言SQL查询，返回结构化 JSON 字符串
-
-        使用LangGraph多步查询流程:
-        1. 分析查询意图
-        2. 增强查询文本
-        3. 生成SQL → 执行SQL → 检查结果 (可能循环最多10次)
-        4. 生成最终答案
-
-        支持Memory和Checkpoint机制
-
-        Args:
-            query: 自然语言查询文本
-            conversation_id: 会话ID（用于Memory）
-            resume_from_checkpoint: 从Checkpoint恢复（Checkpoint ID）
-
-        Returns:
-            结构化 JSON 字符串（符合 QueryResult schema）
-        """
-        import time
+        """执行自然语言 SQL 查询，返回结构化 JSON 字符串。"""
         start_time = time.time()
-        
+        query_id: Optional[str] = None
+        memory_data: Dict[str, Any] = {}
+
         try:
             if not isinstance(query, str):
                 query = str(query)
 
-            self.logger.info(f"Processing query: {query}")
+            (
+                initial_state,
+                memory_data,
+                conversation_id,
+                query_id,
+            ) = self._prepare_run_context(query, conversation_id, resume_from_checkpoint)
 
-            # 生成会话ID
-            if conversation_id is None:
-                conversation_id = f"session_{uuid.uuid4().hex[:8]}"
-
-            # ✅ 记录查询开始
-            query_id = f"{conversation_id}_{int(time.time())}"
-            self.structured_logger.log_query_start(query_id, query)
-
-            # 初始化Memory
-            memory_data = {}
-            if self.enable_memory and self.memory_manager:
-                memory_data = self.memory_manager.start_session(conversation_id)
-
-            # 检查是否从Checkpoint恢复
-            if resume_from_checkpoint and self.checkpoint_manager:
-                self.logger.info(f"Resuming from checkpoint: {resume_from_checkpoint}")
-                resumed_state = self.checkpoint_manager.resume_from_checkpoint(resume_from_checkpoint)
-                if resumed_state is not None:
-                    # 从Checkpoint恢复状态（类型为 Dict[str, Any]）
-                    initial_state = resumed_state  # type: ignore
-                    self.logger.info("Successfully resumed from checkpoint")
-                else:
-                    self.logger.warning("Checkpoint not found, creating new state")
-                    # 创建新状态
-                    initial_state = self._create_initial_state(query, conversation_id, memory_data)
-            else:
-                # 创建新状态
-                initial_state = self._create_initial_state(query, conversation_id, memory_data)
-
-            # ✅ 添加query_id到状态中
-            initial_state["query_id"] = query_id
-
-            # 执行LangGraph工作流（带Checkpoint自动保存）
             result_state = self._run_with_checkpoints(initial_state)  # type: ignore
 
-            # 学习查询模式（Memory）
-            if self.enable_memory and self.memory_manager:
-                # 安全获取final_data的长度
-                final_data = result_state.get("final_data")
-                data_count = len(final_data) if final_data is not None else 0
+            self._update_memory_post_run(query, result_state, memory_data)
 
-                self.memory_manager.learn_from_query(
-                    query=query,
-                    sql="; ".join(result_state.get("sql_history", [])),
-                    result={"count": data_count},
-                    success=(result_state.get("status") == "success")
-                )
+            query_result, sql_history, final_data_snapshot, data_count = self._build_query_result(result_state)
+            self._log_result_details(result_state, final_data_snapshot, sql_history, query_result)
 
-                # 添加到会话历史
-                self.memory_manager.add_query_to_session(
-                    query=query,
-                    result={"count": data_count},
-                    sql="; ".join(result_state.get("sql_history", [])),
-                    success=(result_state.get("status") == "success")
-                )
+            json_output = self._serialize_query_result(query_result)
 
-            # 构建QueryResult
-            # 安全获取final_data和count
-            final_data = result_state.get("final_data")
-            data_count = len(final_data) if final_data is not None else 0
-
-            # ✅ 调试：检查final_data内容
-            self.logger.info(f"final_data type: {type(final_data)}")
-            self.logger.info(f"final_data length: {data_count}")
-            if final_data and len(final_data) > 0:
-                self.logger.info(f"final_data[0] type: {type(final_data[0])}")
-                self.logger.info(f"final_data[0] value: {final_data[0]}")
-
-            # ✅ 根据查询意图决定是否返回 data
-            should_return_data = result_state.get("should_return_data", True)
-            query_intent = result_state.get("query_intent", "query")
-
-            if not should_return_data:
-                self.logger.info(f"Query intent is '{query_intent}', clearing data field (only return count and answer)")
-                final_data = None  # summary 类型不返回完整数据
-            else:
-                self.logger.info(f"Query intent is '{query_intent}', returning full data")
-
-            # ✅ 调试：检查sql_history
-            sql_history = result_state.get("sql_history", [])
-            self.logger.debug(f"Result state keys: {list(result_state.keys())}")
-            self.logger.info(f"SQL history length: {len(sql_history)}")
-            if sql_history:
-                self.logger.info(f"SQL history content: {sql_history}")
-                self.logger.info(f"First SQL length: {len(sql_history[0])}")
-                self.logger.info(f"First SQL preview: {sql_history[0][:100] if sql_history[0] else 'EMPTY'}")
-            else:
-                self.logger.warning("SQL history is empty!")
-
-            # 拼接SQL
-            sql_string = "; ".join(sql_history) if sql_history else None
-            self.logger.info(f"Final SQL string: {sql_string[:100] if sql_string else 'None'}...")
-
-            query_result = QueryResult(
-                status=result_state.get("status", "success"),
-                answer=result_state.get("answer", ""),
-                data=final_data,  # ✅ 根据意图可能为 None
-                count=data_count,
-                message=result_state.get("message", "查询成功"),
-                sql=sql_string,
-                intent_info=result_state.get("intent_info")  # ✅ 添加查询意图信息
-            )
-
-            # ✅ 调试：检查QueryResult对象
-            self.logger.info(f"QueryResult.sql field: {query_result.sql[:100] if query_result.sql else 'None'}...")
-            self.logger.info(f"QueryResult.sql type: {type(query_result.sql)}")
-            self.logger.info(f"QueryResult.sql is None: {query_result.sql is None}")
-
-            # ✅ 调试：检查序列化结果
-            json_output = query_result.model_dump_json(indent=2, exclude_none=True)
-            self.logger.info(f"JSON output length: {len(json_output)}")
-            self.logger.info(f"'sql' in JSON output: {'\"sql\"' in json_output}")
-
-            # 检查JSON中的sql字段
-            import json
-            parsed_json = json.loads(json_output)
-            self.logger.info(f"Parsed JSON keys: {list(parsed_json.keys())}")
-            self.logger.info(f"Parsed JSON sql field: {str(parsed_json.get('sql', 'MISSING'))[:100]}")
-
-            # ✅ 记录查询结束
             execution_time_ms = (time.time() - start_time) * 1000
-            self.structured_logger.log_query_end(
-                query_id=query_id,
-                status=query_result.status,
-                result_count=data_count,
-                execution_time_ms=execution_time_ms
-            )
-
-            self.logger.info(
-                f"✓ Query completed: status={query_result.status}, "
-                f"count={query_result.count}, "
-                f"steps={result_state.get('current_step', 0)}, "
-                f"time={execution_time_ms:.0f}ms"
-            )
+            self._log_query_completion(query_id, query_result.status, data_count, execution_time_ms)
 
             return json_output
 
-        except Exception as e:
-            self.logger.error(f"Query execution failed: {e}", exc_info=True)
+        except Exception as exc:
+            self.logger.error(f"Query execution failed: {exc}", exc_info=True)
 
-            # 返回错误格式的 JSON
             error_result = QueryResult(
                 status="error",
                 answer="",
                 data=None,
                 count=0,
-                message=f"查询执行失败：{str(e)}",
-                sql=None
+                message=f"查询执行失败: {str(exc)}",
+                sql=None,
             )
-            return error_result.model_dump_json(indent=2)
+            json_output = error_result.model_dump_json(indent=2)
+
+            if query_id:
+                execution_time_ms = (time.time() - start_time) * 1000
+                self._log_query_completion(query_id, "error", 0, execution_time_ms)
+
+            return json_output
+
+    def _prepare_run_context(
+        self,
+        query: str,
+        conversation_id: Optional[str],
+        resume_from_checkpoint: Optional[str],
+    ) -> Tuple[AgentState, Dict[str, Any], str, str]:
+        """构建初始状态并处理会话、Checkpoint 准备。"""
+        self.logger.info(f"Processing query: {query}")
+
+        if conversation_id is None:
+            conversation_id = f"session_{uuid.uuid4().hex[:8]}"
+
+        query_id = f"{conversation_id}_{int(time.time())}"
+        self.structured_logger.log_query_start(query_id, query)
+
+        memory_data: Dict[str, Any] = {}
+        if self.enable_memory and self.memory_manager:
+            memory_data = self.memory_manager.start_session(conversation_id)
+            if memory_data:
+                self.logger.debug(f"Memory session initialized with keys: {list(memory_data.keys())}")
+
+        if resume_from_checkpoint and self.checkpoint_manager:
+            self.logger.info(f"Resuming from checkpoint: {resume_from_checkpoint}")
+            resumed_state = self.checkpoint_manager.resume_from_checkpoint(resume_from_checkpoint)
+            if resumed_state is not None:
+                initial_state = resumed_state  # type: ignore[assignment]
+                self.logger.info("Successfully resumed from checkpoint")
+            else:
+                self.logger.warning("Checkpoint not found, creating new state")
+                initial_state = self._create_initial_state(query, conversation_id, memory_data)
+        else:
+            initial_state = self._create_initial_state(query, conversation_id, memory_data)
+
+        initial_state["query_id"] = query_id
+        return initial_state, memory_data, conversation_id, query_id
+
+    def _update_memory_post_run(
+        self,
+        query: str,
+        result_state: AgentState,
+        memory_data: Dict[str, Any],
+    ) -> None:
+        """根据查询结果更新 Memory。"""
+        if not (self.enable_memory and self.memory_manager):
+            return
+
+        final_data = result_state.get("final_data")
+        data_count = len(final_data) if final_data else 0
+        sql_history = result_state.get("sql_history", [])
+        if memory_data:
+            self.logger.debug(f"Memory session bootstrap keys: {list(memory_data.keys())}")
+        joined_sql = "; ".join(sql_history)
+        success = result_state.get("status") == "success"
+
+        self.memory_manager.learn_from_query(
+            query=query,
+            sql=joined_sql,
+            result={"count": data_count},
+            success=success,
+        )
+
+        self.memory_manager.add_query_to_session(
+            query=query,
+            result={"count": data_count},
+            sql=joined_sql,
+            success=success,
+        )
+
+    def _build_query_result(
+        self,
+        result_state: AgentState,
+    ) -> Tuple[QueryResult, List[str], Optional[List[Dict[str, Any]]], int]:
+        """根据工作流结果生成 QueryResult 对象。"""
+        final_data = result_state.get("final_data")
+        data_count = len(final_data) if final_data else 0
+        should_return_data = result_state.get("should_return_data", True)
+        data_for_response = final_data if should_return_data else None
+
+        sql_history = result_state.get("sql_history", [])
+        sql_string = "; ".join(sql_history) if sql_history else None
+
+        query_result = QueryResult(
+            status=result_state.get("status", "success"),
+            answer=result_state.get("answer", ""),
+            data=data_for_response,
+            count=data_count,
+            message=result_state.get("message", "查询成功"),
+            sql=sql_string,
+            intent_info=result_state.get("intent_info"),
+        )
+
+        return query_result, sql_history, final_data, data_count
+
+    def _log_result_details(
+        self,
+        result_state: AgentState,
+        final_data: Optional[List[Dict[str, Any]]],
+        sql_history: List[str],
+        query_result: QueryResult,
+    ) -> None:
+        """输出调试信息，便于排查。"""
+        data_count = len(final_data) if final_data else 0
+        self.logger.info(f"final_data type: {type(final_data)}")
+        self.logger.info(f"final_data length: {data_count}")
+        if final_data:
+            self.logger.info(f"final_data[0] type: {type(final_data[0])}")
+            self.logger.info(f"final_data[0] value: {final_data[0]}")
+
+        should_return_data = result_state.get("should_return_data", True)
+        query_intent = result_state.get("query_intent", "query")
+        if not should_return_data:
+            self.logger.info(
+                "Query intent is '%s', clearing data field (only return count and answer)",
+                query_intent,
+            )
+        else:
+            self.logger.info("Query intent is '%s', returning full data", query_intent)
+
+        self.logger.debug(f"Result state keys: {list(result_state.keys())}")
+        self.logger.info(f"SQL history length: {len(sql_history)}")
+        if sql_history:
+            self.logger.info(f"SQL history content: {sql_history}")
+            self.logger.info(f"First SQL length: {len(sql_history[0])}")
+            self.logger.info(
+                f"First SQL preview: {sql_history[0][:100] if sql_history[0] else 'EMPTY'}"
+            )
+        else:
+            self.logger.warning("SQL history is empty!")
+
+        self.logger.info(
+            f"Final SQL string: {query_result.sql[:100] if query_result.sql else 'None'}..."
+        )
+
+    def _serialize_query_result(self, query_result: QueryResult) -> str:
+        """序列化 QueryResult 并输出调试日志。"""
+        json_output = query_result.model_dump_json(indent=2, exclude_none=True)
+        self.logger.info(f"JSON output length: {len(json_output)}")
+        self.logger.info(f"'sql' in JSON output: {'"sql"' in json_output}")
+
+        parsed_json = json.loads(json_output)
+        self.logger.info(f"Parsed JSON keys: {list(parsed_json.keys())}")
+        self.logger.info(
+            f"Parsed JSON sql field: {str(parsed_json.get('sql', 'MISSING'))[:100]}"
+        )
+
+        self.logger.info(
+            f"QueryResult.sql field: {query_result.sql[:100] if query_result.sql else 'None'}..."
+        )
+        self.logger.info(f"QueryResult.sql type: {type(query_result.sql)}")
+        self.logger.info(f"QueryResult.sql is None: {query_result.sql is None}")
+
+        return json_output
+
+    def _log_query_completion(
+        self,
+        query_id: Optional[str],
+        status: str,
+        result_count: int,
+        execution_time_ms: float,
+    ) -> None:
+        """记录查询完成信息。"""
+        if query_id:
+            self.structured_logger.log_query_end(
+                query_id=query_id,
+                status=status,
+                result_count=result_count,
+                execution_time_ms=execution_time_ms,
+            )
+
+        self.logger.info(
+            "✓ Query completed: status=%s, count=%s, time=%.0fms",
+            status,
+            result_count,
+            execution_time_ms,
+        )
 
     def _run_with_checkpoints(self, state: AgentState) -> Dict[str, Any]:
         """

@@ -32,6 +32,7 @@ class SQLGenerator:
         self.llm = llm
         self.base_prompt = base_prompt
         self.logger = logger
+        self._cached_schema: Optional[str] = None
 
         # ✅ 启发式 SQL 生成 Prompt（调动 LLM 的 SQL 专业知识和推理能力）
         self.sql_generation_prompt = PromptTemplate(
@@ -336,6 +337,34 @@ SQL:""",
             ]
         )
 
+    def set_database_schema(self, formatted_schema: Optional[str]):
+        """缓存数据库schema，避免每次调用时重复传入"""
+        if formatted_schema and formatted_schema.strip():
+            cleaned_schema = formatted_schema.strip()
+            if cleaned_schema != self._cached_schema:
+                self._cached_schema = cleaned_schema
+                self.logger.info("✅ SQLGenerator schema context updated (length=%s)", len(cleaned_schema))
+        else:
+            self.logger.debug("set_database_schema called with empty schema; ignoring")
+
+    def _resolve_schema_for_prompt(self, database_schema: Optional[str] = None) -> str:
+        """优先使用传入schema，否则使用缓存或LLM上下文"""
+        candidates = [
+            database_schema,
+            self._cached_schema,
+        ]
+
+        if hasattr(self.llm, 'system_context'):
+            context_schema = getattr(self.llm, 'system_context', {}).get('database_schema')
+        else:
+            context_schema = None
+        candidates.append(context_schema)
+
+        for schema in candidates:
+            if isinstance(schema, str) and schema.strip():
+                return schema
+        return "(Schema信息未加载)"
+
     def generate_initial_sql(
         self,
         query: str,
@@ -377,7 +406,7 @@ SQL:""",
             spatial_type = "空间" if is_spatial else "非空间"
 
             # ✅ 如果没有提供schema，使用空字符串
-            schema_str = database_schema if database_schema else "(Schema信息未加载)"
+            schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # 构建提示词（✅ 传递意图信息和Schema）
             prompt_text = self.sql_generation_prompt.format(
@@ -456,7 +485,7 @@ SQL:""",
         """
         try:
             # ✅ 如果没有提供schema，使用空字符串
-            schema_str = database_schema if database_schema else "(Schema信息未加载)"
+            schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # 构建提示词（✅ 传递Schema）
             prompt_text = self.followup_query_prompt.format(
@@ -631,7 +660,7 @@ SQL:""",
         """
         try:
             # ✅ 如果没有提供schema，使用空字符串
-            schema_str = database_schema if database_schema else "(Schema信息未加载)"
+            schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # ✅ 启发式修复提示词（调动 LLM 的 SQL 专业知识）
             fix_prompt = f"""你是一个精通 PostgreSQL 和 PostGIS 的 SQL 专家。
@@ -739,7 +768,7 @@ SQL:""",
         """
         try:
             # 如果没有提供schema，使用空字符串
-            schema_str = database_schema if database_schema else "(Schema信息未加载)"
+            schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # 获取意图信息
             intent_type = intent_info.get("intent_type", "query") if intent_info else "query"
@@ -1329,7 +1358,7 @@ SQL:""",
         """
         try:
             # ✅ 如果没有提供schema，使用空字符串
-            schema_str = database_schema if database_schema else "(Schema信息未加载)"
+            schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # ✅ 提取错误上下文信息
             error_message = error_context.get("error_message", "")

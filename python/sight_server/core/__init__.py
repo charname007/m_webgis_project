@@ -1,10 +1,10 @@
 """
 核心模块 - Sight Server
-提供Agent、LLM、数据库连接、提示词管理等核心功能
-支持Memory和Checkpoint机制
+提供Agent、LLM、数据库连接、提示词管理等组件
+支持Memory和Checkpoint功能
 """
 
-# 基础组件
+# LLM 相关
 from .llm import BaseLLM
 from .database import DatabaseConnector
 from .prompts import PromptManager, PromptType, QueryIntentType
@@ -15,18 +15,25 @@ from .schemas import QueryResult, AgentState, ThoughtChainStep, SQLQueryRecord
 # 处理器组件
 from .processors import SQLGenerator, SQLExecutor, ResultParser, AnswerGenerator
 
-# LangGraph组件
-from .graph import AgentNodes, GraphBuilder, should_continue_querying
+# LangGraph 组件
+from .graph import (
+    AgentNodes,
+    LegacyAgentNodes,
+    GraphBuilder,
+    build_legacy_nodes,
+    build_node_mapping,
+    should_continue_querying,
+)
 
-# Memory和Checkpoint
+# Memory 和 Checkpoint
 from .memory import MemoryManager
 from .checkpoint import CheckpointManager
 
-# 主Agent
+# 主 Agent
 from .agent import SQLQueryAgent
 
 __all__ = [
-    # 基础组件
+    # LLM 相关
     "BaseLLM",
     "DatabaseConnector",
     "PromptManager",
@@ -45,15 +52,18 @@ __all__ = [
     "ResultParser",
     "AnswerGenerator",
 
-    # LangGraph组件
+    # LangGraph 组件
     "AgentNodes",
+    "LegacyAgentNodes",
     "GraphBuilder",
+    "build_legacy_nodes",
+    "build_node_mapping",
     "should_continue_querying",
 
-    # Memory和Checkpoint
+    # Memory 和 Checkpoint
     "MemoryManager",
     "CheckpointManager",
 
-    # 主Agent
+    # 主 Agent
     "SQLQueryAgent",
 ]

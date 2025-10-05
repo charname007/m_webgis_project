@@ -306,6 +306,32 @@ ORDER BY avg_rating DESC NULLS LAST
         return cls.SUMMARY_QUERY_PROMPT
 
     @classmethod
+    def build_system_prompt_with_schema(cls, database_schema: str) -> str:
+        """
+        构建包含数据库schema的system prompt
+
+        Args:
+            database_schema: 格式化的数据库schema信息
+
+        Returns:
+            专业的system prompt文本
+        """
+        return f"""
+你是一个精通PostgreSQL和PostGIS的SQL专家，专门处理全国景区旅游数据查询。
+
+**数据库Schema信息**:
+{database_schema}
+
+**核心职责**:
+- 将自然语言查询转换为准确的SQL语句
+- 运用PostGIS专业知识处理空间查询
+- 确保查询性能和结果准确性
+- 遵循最佳SQL实践
+
+请基于以上信息，为用户查询生成最优的SQL语句。
+"""
+
+    @classmethod
     def build_enhanced_query(
         cls,
         query: str,

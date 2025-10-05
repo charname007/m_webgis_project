@@ -1,14 +1,22 @@
 """
-LangGraph组件模块 - Sight Server
-包含状态定义、节点函数、边条件和图构建器
+LangGraph图模块 - Sight Server
+提供状态模型、节点构建以及图构建器
 """
 
-from .nodes import AgentNodes
+from .nodes import (
+    AgentNodes,
+    LegacyAgentNodes,
+    build_legacy_nodes,
+    build_node_mapping,
+)
 from .edges import should_continue_querying
 from .builder import GraphBuilder
 
 __all__ = [
     "AgentNodes",
+    "LegacyAgentNodes",
+    "build_legacy_nodes",
+    "build_node_mapping",
     "should_continue_querying",
-    "GraphBuilder"
+    "GraphBuilder",
 ]

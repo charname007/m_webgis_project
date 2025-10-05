@@ -4,15 +4,16 @@ LangGraph节点函数模块 - Sight Server
 """
 
 import logging
+import re
 from typing import Dict, Any, Optional, List
 
-from ..schemas import AgentState
-from ..prompts import PromptManager, PromptType
+from ...schemas import AgentState
+from ...prompts import PromptManager, PromptType
 
 logger = logging.getLogger(__name__)
 
 
-class AgentNodes:
+class LegacyAgentNodes:
     """
     Agent节点函数集合
 
@@ -79,6 +80,7 @@ class AgentNodes:
         - 获取数据库所有表的schema信息
         - 格式化为易于LLM理解的结构
         - 缓存到state中供后续使用
+        - ✅ 增强：添加重试机制和详细错误处理
 
         Args:
             state: Agent状态
@@ -89,54 +91,174 @@ class AgentNodes:
         try:
             # 检查是否已获取schema
             if state.get("schema_fetched"):
-                self.logger.info("[Node: fetch_schema] Schema already fetched, skipping")
+                self.logger.info(
+                    "[Node: fetch_schema] Schema already fetched, skipping")
                 return {}
 
-            self.logger.info("[Node: fetch_schema] Fetching database schema...")
+            self.logger.info(
+                "[Node: fetch_schema] Fetching database schema...")
 
-            # 获取schema
-            schema = self.schema_fetcher.fetch_schema(use_cache=True)
+            # ✅ 增强：添加重试机制
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    # 获取schema
+                    schema = self.schema_fetcher.fetch_schema(use_cache=True)
 
-            # 检查是否成功
-            if "error" in schema:
-                self.logger.error(f"[Node: fetch_schema] Failed: {schema['error']}")
-                return {
-                    "database_schema": None,
-                    "schema_fetched": False,
-                    "thought_chain": [{
+                    # 检查是否成功
+                    if "error" in schema:
+                        self.logger.warning(
+                            f"[Node: fetch_schema] Attempt {retry_count + 1}/{max_retries} failed: {schema['error']}")
+                        
+                        if retry_count < max_retries - 1:
+                            retry_count += 1
+                            import time
+                            time.sleep(1)  # 等待1秒后重试
+                            continue
+                        else:
+                            # 最后一次尝试也失败
+                            self.logger.error(
+                                f"[Node: fetch_schema] All {max_retries} attempts failed")
+                            return {
+                                "database_schema": None,
+                                "schema_fetched": False,
+                                "thought_chain": [{
+                                    "step": 0,
+                                    "type": "schema_fetch",
+                                    "action": "fetch_database_schema",
+                                    "error": schema["error"],
+                                    "retry_count": retry_count + 1,
+                                    "status": "failed"
+                                }]
+                            }
+
+                    # ✅ 增强：验证schema内容
+                    tables = schema.get("tables", {})
+                    if not tables:
+                        self.logger.warning(
+                            f"[Node: fetch_schema] No tables found in schema, attempt {retry_count + 1}/{max_retries}")
+                        
+                        if retry_count < max_retries - 1:
+                            retry_count += 1
+                            import time
+                            time.sleep(1)
+                            continue
+                        else:
+                            self.logger.error(
+                                f"[Node: fetch_schema] No tables found after {max_retries} attempts")
+                            return {
+                                "database_schema": None,
+                                "schema_fetched": False,
+                                "thought_chain": [{
+                                    "step": 0,
+                                    "type": "schema_fetch",
+                                    "action": "fetch_database_schema",
+                                    "error": "未找到任何表信息",
+                                    "retry_count": retry_count + 1,
+                                    "status": "failed"
+                                }]
+                            }
+
+                    # ✅ 增强：格式化schema供LLM使用
+                    formatted_schema = self.schema_fetcher.format_schema_for_llm(schema)
+                    
+                    # ✅ 优化：设置system context到所有相关的LLM实例
+                    system_prompt = PromptManager.build_system_prompt_with_schema(formatted_schema)
+                    llm_instances = []
+                    llm_registry = []
+
+                    # ✅ 为SQL生成器缓存schema，避免重复传递
+                    if hasattr(self.sql_generator, 'set_database_schema'):
+                        self.sql_generator.set_database_schema(formatted_schema)
+
+                    # ✅ 汇总需要更新的LLM实例，避免重复刷新
+                    if hasattr(self.sql_generator, 'llm'):
+                        llm_registry.append(("SQLGenerator", self.sql_generator.llm))
+                    if hasattr(self, 'llm'):
+                        llm_registry.append(("AgentNodes", self.llm))
+                    if hasattr(self.answer_generator, 'llm'):
+                        llm_registry.append(("AnswerGenerator", self.answer_generator.llm))
+
+                    seen_llms = set()
+                    for name, llm_instance in llm_registry:
+                        if not llm_instance:
+                            continue
+                        instance_id = id(llm_instance)
+                        if instance_id in seen_llms:
+                            continue
+                        seen_llms.add(instance_id)
+
+                        if hasattr(llm_instance, 'update_system_context'):
+                            llm_instance.update_system_context({
+                                "database_schema": formatted_schema
+                            })
+                        if hasattr(llm_instance, 'set_system_prompt'):
+                            llm_instance.set_system_prompt(system_prompt)
+
+                        llm_instances.append(name)
+
+                    self.logger.info(
+                        f"✓ Database schema injected into LLM context/prompt: {', '.join(llm_instances) if llm_instances else 'none'}"
+                    )
+                    
+                    # 记录思维链
+                    thought_step = {
                         "step": 0,
                         "type": "schema_fetch",
                         "action": "fetch_database_schema",
-                        "error": schema["error"],
-                        "status": "failed"
-                    }]
-                }
+                        "output": {
+                            "table_count": len(tables),
+                            "spatial_table_count": len(schema.get("spatial_tables", {})),
+                            "retry_count": retry_count + 1,
+                            "schema_length": len(formatted_schema),
+                            "system_context_updated": True,
+                            "system_prompt_updated": True
+                        },
+                        "status": "completed"
+                    }
 
-            # 记录思维链
-            thought_step = {
-                "step": 0,
-                "type": "schema_fetch",
-                "action": "fetch_database_schema",
-                "output": {
-                    "table_count": len(schema.get("tables", {})),
-                    "spatial_table_count": len(schema.get("spatial_tables", {}))
-                },
-                "status": "completed"
-            }
+                    self.logger.info(
+                        f"[Node: fetch_schema] ✓ Fetched {len(tables)} tables, "
+                        f"{len(schema.get('spatial_tables', {}))} spatial tables "
+                        f"(after {retry_count + 1} attempts), system context updated"
+                    )
 
-            self.logger.info(
-                f"[Node: fetch_schema] ✓ Fetched {len(schema.get('tables', {}))} tables, "
-                f"{len(schema.get('spatial_tables', {}))} spatial"
-            )
+                    return {
+                        "database_schema": schema,
+                        "formatted_schema": formatted_schema,  # ✅ 新增：预格式化的schema
+                        "schema_fetched": True,
+                        "thought_chain": [thought_step]
+                    }
 
-            return {
-                "database_schema": schema,
-                "schema_fetched": True,
-                "thought_chain": [thought_step]
-            }
+                except Exception as e:
+                    self.logger.warning(
+                        f"[Node: fetch_schema] Attempt {retry_count + 1}/{max_retries} failed with exception: {e}")
+                    
+                    if retry_count < max_retries - 1:
+                        retry_count += 1
+                        import time
+                        time.sleep(1)
+                        continue
+                    else:
+                        # 最后一次尝试也失败
+                        self.logger.error(
+                            f"[Node: fetch_schema] All {max_retries} attempts failed with exception")
+                        return {
+                            "database_schema": None,
+                            "schema_fetched": False,
+                            "thought_chain": [{
+                                "step": 0,
+                                "type": "schema_fetch",
+                                "error": str(e),
+                                "retry_count": retry_count + 1,
+                                "status": "failed"
+                            }]
+                        }
 
         except Exception as e:
-            self.logger.error(f"[Node: fetch_schema] Error: {e}")
+            self.logger.error(f"[Node: fetch_schema] Outer error: {e}")
             return {
                 "database_schema": None,
                 "schema_fetched": False,
@@ -165,7 +287,8 @@ class AgentNodes:
         """
         try:
             query = state["query"]
-            self.logger.info(f"[Node: analyze_intent] Analyzing query: {query}")
+            self.logger.info(
+                f"[Node: analyze_intent] Analyzing query: {query}")
 
             # ✅ 使用 LLM 进行意图分析（如果 LLM 可用）
             intent_info = PromptManager.analyze_query_intent(
@@ -203,7 +326,13 @@ class AgentNodes:
             self.logger.error(f"[Node: analyze_intent] Error: {e}")
             return {
                 "error": f"意图分析失败：{str(e)}",
-                "should_continue": False
+                "should_continue": False,
+                "query_intent": "query",  # 默认查询类型
+                "requires_spatial": False,
+                "intent_info": None,
+                "max_iterations": 3,
+                "current_step": 0,
+                "thought_chain": []
             }
 
     def enhance_query(self, state: AgentState) -> Dict[str, Any]:
@@ -224,7 +353,8 @@ class AgentNodes:
             query = state["query"]
             requires_spatial = state.get("requires_spatial", False)
 
-            self.logger.info(f"[Node: enhance_query] Enhancing query, spatial={requires_spatial}")
+            self.logger.info(
+                f"[Node: enhance_query] Enhancing query, spatial={requires_spatial}")
 
             # 构建增强查询
             if requires_spatial:
@@ -283,7 +413,8 @@ class AgentNodes:
             enhanced_query = state.get("enhanced_query", state["query"])
             fallback_strategy = state.get("fallback_strategy")
             last_error = state.get("last_error")
-            validation_feedback = state.get("validation_feedback")  # ✅ 新增：获取验证反馈
+            validation_feedback = state.get(
+                "validation_feedback")  # ✅ 新增：获取验证反馈
 
             # ✅ 缓存已迁移到 API 层（main.py），此处不再处理
             # 旧的节点内缓存逻辑已移除（2025-10-04）
@@ -292,27 +423,28 @@ class AgentNodes:
             #     cached_result = self.cache_manager.get(cache_key)
             #     if cached_result: return {...}
 
-            self.logger.info(f"[Node: generate_sql] Generating SQL for step {current_step}")
+            self.logger.info(
+                f"[Node: generate_sql] Generating SQL for step {current_step}")
             if fallback_strategy:
                 self.logger.info(f"Fallback strategy: {fallback_strategy}")
             if validation_feedback:
-                self.logger.info(f"[Node: generate_sql] ✅ Regenerating based on validation feedback")
+                self.logger.info(
+                    f"[Node: generate_sql] ✅ Regenerating based on validation feedback")
 
-            # ✅ 获取并格式化数据库Schema
-            database_schema_dict = state.get("database_schema")
-            database_schema_str = None
-            if database_schema_dict:
-                database_schema_str = self.schema_fetcher.format_schema_for_llm(database_schema_dict)
-                self.logger.debug(f"Formatted schema length: {len(database_schema_str)} chars")
+            # ✅ 优化：不再从state获取schema，直接使用LLM的system context
+            # schema信息已经在fetch_schema节点设置到LLM的system context中
+            self.logger.debug("Using LLM system context for database schema")
 
             # ✅ 新增：优先处理验证反馈
             if validation_feedback:
                 previous_sql = state.get("current_sql") or (
-                    state["sql_history"][-1] if state.get("sql_history") else None
+                    state["sql_history"][-1] if state.get(
+                        "sql_history") else None
                 )
 
                 if previous_sql:
-                    self.logger.info("[Node: generate_sql] Regenerating SQL based on validation feedback")
+                    self.logger.info(
+                        "[Node: generate_sql] Regenerating SQL based on validation feedback")
                     intent_info = state.get("intent_info")
 
                     # 调用 SQL 生成器的反馈重新生成方法
@@ -320,68 +452,68 @@ class AgentNodes:
                         query=enhanced_query,
                         previous_sql=previous_sql,
                         feedback=validation_feedback,
-                        intent_info=intent_info,
-                        database_schema=database_schema_str
+                        intent_info=intent_info
                     )
 
                     # 增加验证重试计数
-                    validation_retry_count = state.get("validation_retry_count", 0) + 1
+                    validation_retry_count = state.get(
+                        "validation_retry_count", 0) + 1
                 else:
                     # 没有之前的SQL，生成新的
                     sql = self.sql_generator.generate_initial_sql(
                         enhanced_query,
-                        database_schema=database_schema_str
+                        intent_info=state.get("intent_info")
                     )
-                    validation_retry_count = state.get("validation_retry_count", 0)
+                    validation_retry_count = state.get(
+                        "validation_retry_count", 0)
 
             # ✅ Fallback: 根据策略生成SQL
             elif fallback_strategy == "retry_sql" and last_error:
                 # 策略1: 重新生成SQL（带错误信息）
                 previous_sql = state.get("current_sql") or (
-                    state["sql_history"][-1] if state.get("sql_history") else None
+                    state["sql_history"][-1] if state.get(
+                        "sql_history") else None
                 )
                 if previous_sql:
                     self.logger.info("Attempting to fix SQL based on error")
-                    
+
                     # ✅ 获取错误上下文
                     error_context = state.get("error_context", {})
-                    
+
                     # ✅ 检查是否有增强的修复方法
                     if hasattr(self.sql_generator, 'fix_sql_with_context'):
                         sql = self.sql_generator.fix_sql_with_context(
                             sql=previous_sql,
                             error_context=error_context,
-                            query=enhanced_query,
-                            database_schema=database_schema_str
+                            query=enhanced_query
                         )
                     else:
                         # 回退到基本修复方法
                         sql = self.sql_generator.fix_sql_with_error(
                             sql=previous_sql,
                             error=last_error,
-                            query=enhanced_query,
-                            database_schema=database_schema_str  # ✅ 传递Schema
+                            query=enhanced_query
                         )
                 else:
                     # 没有之前的SQL，生成新的
                     sql = self.sql_generator.generate_initial_sql(
-                        enhanced_query,
-                        database_schema=database_schema_str  # ✅ 传递Schema
+                        enhanced_query
                     )
 
             elif fallback_strategy == "simplify_query":
                 # 策略2: 简化查询
                 previous_sql = state.get("current_sql") or (
-                    state["sql_history"][-1] if state.get("sql_history") else None
+                    state["sql_history"][-1] if state.get(
+                        "sql_history") else None
                 )
                 if previous_sql:
                     self.logger.info("Simplifying SQL to avoid timeout")
-                    sql = self.sql_generator.simplify_sql(previous_sql, max_limit=50)
+                    sql = self.sql_generator.simplify_sql(
+                        previous_sql, max_limit=50)
                 else:
                     # 没有之前的SQL，生成新的并添加LIMIT
                     sql = self.sql_generator.generate_initial_sql(
-                        enhanced_query,
-                        database_schema=database_schema_str  # ✅ 传递Schema
+                        enhanced_query
                     )
                     sql = self.sql_generator.simplify_sql(sql, max_limit=50)
 
@@ -392,50 +524,37 @@ class AgentNodes:
                 self.logger.info(f"Using intent info: {intent_info}")
                 sql = self.sql_generator.generate_initial_sql(
                     enhanced_query,
-                    intent_info=intent_info,  # ✅ 传递意图信息到生成器
-                    database_schema=database_schema_str  # ✅ 传递Schema
+                    intent_info=intent_info  # ✅ 传递意图信息到生成器
                 )
             else:
-                # 后续查询：分析缺失信息
+                # 后续查询：分析缺失信息（仅用于指导SQL生成，不用于停止决策）
                 previous_data = state.get("final_data")
-                previous_sql = state["sql_history"][-1] if state.get("sql_history") else ""
+                previous_sql = state["sql_history"][-1] if state.get(
+                    "sql_history") else ""
 
-                # 分析缺失信息
+                # 分析缺失信息（用于指导SQL生成，但不作为停止条件）
                 missing_analysis = self.sql_generator.analyze_missing_info(
                     enhanced_query,
                     previous_data
                 )
 
-                self.logger.info(f"Missing analysis: {missing_analysis['suggestion']}")
+                self.logger.info(
+                    f"Missing analysis: {missing_analysis['suggestion']}")
 
-                # 根据分析结果决定是否继续生成SQL
-                if not missing_analysis["has_missing"]:
-                    # 数据已完整或无法补充，不需要再查询
-                    return {
-                        "current_sql": None,
-                        "should_continue": False,
-                        "thought_chain": [{
-                            "step": current_step + 3,
-                            "type": "sql_generation",
-                            "action": "skip_generation",
-                            "output": missing_analysis["suggestion"],
-                            "status": "completed"
-                        }]
-                    }
-
-                # 生成补充查询
+                # ✅ 移除字段聚焦的停止逻辑，让 check_results 节点统一处理迭代控制
+                # 生成补充查询（总是生成，除非有重复SQL或达到最大迭代次数）
                 sql = self.sql_generator.generate_followup_sql(
                     original_query=enhanced_query,
                     previous_sql=previous_sql,
                     record_count=len(previous_data) if previous_data else 0,
-                    missing_fields=missing_analysis["missing_fields"],
-                    database_schema=database_schema_str  # ✅ 传递Schema
+                    missing_fields=missing_analysis["missing_fields"]
                 )
 
                 # 检查生成的SQL是否与之前的重复
                 sql_history = state.get("sql_history", [])
                 if sql in sql_history:
-                    self.logger.warning(f"Generated SQL is duplicate of previous query, stopping")
+                    self.logger.warning(
+                        f"Generated SQL is duplicate of previous query, stopping")
                     return {
                         "current_sql": None,
                         "should_continue": False,
@@ -513,7 +632,8 @@ class AgentNodes:
 
             if not current_sql:
                 # ✅ 没有SQL时直接跳过，不报错（generate_sql已经设置了should_continue=False）
-                self.logger.info(f"[Node: execute_sql] No SQL to execute, skipping")
+                self.logger.info(
+                    f"[Node: execute_sql] No SQL to execute, skipping")
                 return {
                     "thought_chain": [{
                         "step": current_step + 4,
@@ -524,7 +644,8 @@ class AgentNodes:
                     }]
                 }
 
-            self.logger.info(f"[Node: execute_sql] Executing SQL for step {current_step}")
+            self.logger.info(
+                f"[Node: execute_sql] Executing SQL for step {current_step}")
 
             # 执行SQL
             execution_result = self.sql_executor.execute(current_sql)
@@ -681,7 +802,8 @@ class AgentNodes:
 
             # 检查验证是否启用
             if not state.get("is_validation_enabled", True):
-                self.logger.info(f"[Node: validate_results] Validation disabled, skipping")
+                self.logger.info(
+                    f"[Node: validate_results] Validation disabled, skipping")
                 return {
                     "validation_history": [{
                         "step": current_step,
@@ -694,7 +816,8 @@ class AgentNodes:
 
             # 检查验证器是否可用
             if not self.result_validator:
-                self.logger.warning(f"[Node: validate_results] Validator not available, skipping")
+                self.logger.warning(
+                    f"[Node: validate_results] Validator not available, skipping")
                 return {
                     "validation_history": [{
                         "step": current_step,
@@ -705,7 +828,8 @@ class AgentNodes:
                     }]
                 }
 
-            self.logger.info(f"[Node: validate_results] Validating results for step {current_step}")
+            self.logger.info(
+                f"[Node: validate_results] Validating results for step {current_step}")
 
             # 提取验证所需的信息
             query = state.get("query", "")
@@ -763,7 +887,8 @@ class AgentNodes:
                     f"[Node: validate_results] ❌ Validation failed: {validation_result.validation_message}"
                 )
                 self.logger.info(f"Issues: {validation_result.issues}")
-                self.logger.info(f"Suggestions: {validation_result.improvement_suggestions}")
+                self.logger.info(
+                    f"Suggestions: {validation_result.improvement_suggestions}")
             else:
                 # 验证通过，清除之前的反馈
                 result["validation_feedback"] = None
@@ -796,12 +921,13 @@ class AgentNodes:
 
     def check_results(self, state: AgentState) -> Dict[str, Any]:
         """
-        节点6: 检查结果完整性
+        节点6: 检查结果完整性 - 基于用户需求满足度的智能决策
 
         功能:
-        - 评估结果完整性
-        - 决定是否继续查询
-        - 更新迭代步数
+        - 使用LLM智能分析当前结果与用户需求的匹配度
+        - 基于用户查询意图和实际数据质量进行决策
+        - 生成具体的补充建议和指导
+        - 移除字段完整度偏见，专注于用户需求满足度
 
         Args:
             state: Agent状态
@@ -813,8 +939,11 @@ class AgentNodes:
             current_step = state.get("current_step", 0)
             max_iterations = state.get("max_iterations", 3)
             final_data = state.get("final_data")
+            query = state.get("query", "")
+            query_intent = state.get("query_intent", "query")
 
-            self.logger.info(f"[Node: check_results] Checking results for step {current_step}")
+            self.logger.info(
+                f"[Node: check_results] Checking results for step {current_step}")
 
             # ✅ 改进1: 先检查是否有数据
             if not final_data:
@@ -828,7 +957,6 @@ class AgentNodes:
                         "type": "result_check",
                         "action": "check_completeness",
                         "output": {
-                            "completeness": {"complete": False, "completeness_score": 0.0},
                             "should_continue": False,
                             "reason": reason
                         },
@@ -836,82 +964,84 @@ class AgentNodes:
                     }]
                 }
 
-            # 评估完整性
-            completeness = self.result_parser.evaluate_completeness(final_data)
-
-            # ✅ 获取查询意图
-            query_intent = state.get("query_intent")  # "query" 或 "summary"
-
-            # ✅ Summary 查询：一次查询即可，不需要迭代补充
-            if query_intent == "summary":
-                count = len(final_data) if final_data else 0
-                if count > 0:
-                    self.logger.info(f"[Node: check_results] Summary query complete with count={count}, no iteration needed")
-                    thought_step = {
+            # ✅ 改进2: 检查迭代次数限制
+            if current_step >= max_iterations - 1:
+                reason = f"达到最大迭代次数 ({current_step + 1}/{max_iterations})"
+                self.logger.info(reason)
+                return {
+                    "current_step": current_step + 1,
+                    "should_continue": False,
+                    "thought_chain": [{
                         "step": current_step + 5,
                         "type": "result_check",
                         "action": "check_completeness",
                         "output": {
-                            "query_intent": "summary",
-                            "count": count,
-                            "reason": "Summary 查询一次完成，不需要补充数据"
+                            "should_continue": False,
+                            "reason": reason
                         },
                         "status": "completed"
-                    }
-                    return {
-                        "current_step": current_step + 1,
-                        "should_continue": False,  # Summary 查询不继续迭代
-                        "thought_chain": [thought_step]
-                    }
+                    }]
+                }
 
-            # ✅ 改进2: Query 查询的完整性判断逻辑
-            should_continue = False
-            reason = ""
-
-            # 首先检查迭代次数
-            if current_step >= max_iterations - 1:
-                # 达到最大迭代次数
-                reason = f"达到最大迭代次数 ({current_step + 1}/{max_iterations})"
-                self.logger.info(reason)
-            # ✅ 改进3: 检查数据完整性（完整度 >= 90%）
-            elif completeness["complete"] or completeness["completeness_score"] >= 0.9:
-                # 数据足够完整
-                reason = f"数据完整度达标 ({completeness['completeness_score']:.1%})"
-                self.logger.info(reason)
-            # ✅ 改进4: 如果首次查询完整度就很低（< 30%），直接停止
-            elif current_step == 0 and completeness["completeness_score"] < 0.3:
-                # 数据源本身不完整，无需继续查询
-                reason = f"首次查询完整度过低 ({completeness['completeness_score']:.1%})，可能是数据源问题"
-                self.logger.warning(reason)
-            # ✅ 改进5: 检查是否有缺失字段可补充
-            elif completeness["records_with_missing"] == 0:
-                # 所有记录都完整
-                reason = "所有记录字段完整"
-                self.logger.info(reason)
+            # ✅ 改进3: 使用LLM进行智能决策 - 优化决策逻辑
+            if self.llm:
+                llm_decision = self._make_llm_decision(
+                    query, final_data, current_step, query_intent)
+                should_continue = llm_decision.get("should_continue", False)
+                reason = llm_decision.get("reason", "LLM决策建议继续查询")
+                supplement_suggestions = llm_decision.get("supplement_suggestions", [])
+                guidance_for_next_step = llm_decision.get("guidance_for_next_step", "")
+                
+                self.logger.info(f"LLM decision: {reason}")
+                self.logger.info(f"Should continue: {should_continue}")
+                if supplement_suggestions:
+                    self.logger.info(f"Supplement suggestions: {supplement_suggestions}")
             else:
-                # ✅ 改进6: 只有在有明确缺失字段且未达到最大次数时才继续
-                should_continue = True
-                reason = f"数据不完整（完整度: {completeness['completeness_score']:.1%}，缺失字段: {completeness['missing_fields']}）"
-                self.logger.info(f"{reason}, continuing to next iteration")
+                # ✅ 修复：没有LLM时使用更智能的默认逻辑
+                # 基于数据量和查询意图决定是否继续
+                data_count = len(final_data) if final_data else 0
+                if data_count < 3 and query_intent == "query":
+                    should_continue = True
+                    reason = f"数据量较少({data_count}条)，建议补充更多数据"
+                else:
+                    should_continue = False
+                    reason = f"数据量({data_count}条)已足够或查询意图为{query_intent}"
+                
+                supplement_suggestions = []
+                guidance_for_next_step = ""
 
-            # 记录思维链
+            # 构建思维链记录
+            thought_output = {
+                "should_continue": should_continue,
+                "reason": reason,
+                "supplement_suggestions": supplement_suggestions,
+                "guidance_for_next_step": guidance_for_next_step,
+                "data_count": len(final_data) if final_data else 0,
+                "current_step": current_step
+            }
+
             thought_step = {
                 "step": current_step + 5,
                 "type": "result_check",
-                "action": "check_completeness",
-                "output": {
-                    "completeness": completeness,
-                    "should_continue": should_continue,
-                    "reason": reason
-                },
+                "action": "llm_decision_check",
+                "output": thought_output,
                 "status": "completed"
             }
 
-            return {
+            # 构建返回结果
+            result = {
                 "current_step": current_step + 1,
                 "should_continue": should_continue,
                 "thought_chain": [thought_step]
             }
+
+            # 如果需要继续且有补充建议，添加指导信息
+            if should_continue:
+                result["supplement_suggestions"] = supplement_suggestions
+                result["enhancement_guidance"] = guidance_for_next_step
+                result["supplement_needed"] = True
+
+            return result
 
         except Exception as e:
             self.logger.error(f"[Node: check_results] Error: {e}")
@@ -948,12 +1078,15 @@ class AgentNodes:
             query_intent = state.get("query_intent")
             current_step = state.get("current_step", 0)
 
-            self.logger.info(f"[Node: validate_results] Validating results for {count} records")
-            self.logger.info(f"[Node: validate_results] Query intent: {query_intent}")
+            self.logger.info(
+                f"[Node: validate_results] Validating results for {count} records")
+            self.logger.info(
+                f"[Node: validate_results] Query intent: {query_intent}")
 
             # 无数据情况直接通过验证
             if count == 0 or not final_data:
-                self.logger.info("[Node: validate_results] No data to validate, passing through")
+                self.logger.info(
+                    "[Node: validate_results] No data to validate, passing through")
                 return {
                     "validation_passed": True,
                     "validation_reason": "无数据，无需验证",
@@ -967,11 +1100,13 @@ class AgentNodes:
                 }
 
             # 使用LLM验证结果质量
-            validation_result = self._validate_with_llm(query, final_data, count, query_intent)
+            validation_result = self._validate_with_llm(
+                query, final_data, count, query_intent)
 
             if validation_result["passed"]:
                 # 验证通过，继续生成答案
-                self.logger.info("[Node: validate_results] ✓ Validation passed")
+                self.logger.info(
+                    "[Node: validate_results] ✓ Validation passed")
                 return {
                     "validation_passed": True,
                     "validation_reason": validation_result["reason"],
@@ -989,7 +1124,8 @@ class AgentNodes:
                 }
             else:
                 # 验证失败，返回错误信息和指导重新生成SQL
-                self.logger.warning(f"[Node: validate_results] ✗ Validation failed: {validation_result['reason']}")
+                self.logger.warning(
+                    f"[Node: validate_results] ✗ Validation failed: {validation_result['reason']}")
                 return {
                     "validation_passed": False,
                     "validation_error": validation_result["reason"],
@@ -1050,12 +1186,15 @@ class AgentNodes:
             requires_spatial = state.get("requires_spatial", False)
             intent_info = state.get("intent_info")
 
-            self.logger.info(f"[Node: generate_answer] Generating answer with deep analysis for {count} records")
-            self.logger.info(f"[Node: generate_answer] Query intent: {query_intent}, Spatial: {requires_spatial}")
+            self.logger.info(
+                f"[Node: generate_answer] Generating answer with deep analysis for {count} records")
+            self.logger.info(
+                f"[Node: generate_answer] Query intent: {query_intent}, Spatial: {requires_spatial}")
 
             # ✅ 使用新的数据分析器（如果可用）
             if self.data_analyzer:
-                self.logger.info("[Node: generate_answer] Using DataAnalyzer for deep analysis")
+                self.logger.info(
+                    "[Node: generate_answer] Using DataAnalyzer for deep analysis")
 
                 # 调用数据分析器
                 analysis_result = self.data_analyzer.analyze(
@@ -1071,13 +1210,15 @@ class AgentNodes:
                 suggestions = analysis_result.suggestions
                 analysis_type = analysis_result.analysis_type
 
-                self.logger.info(f"[Node: generate_answer] Analysis completed - Type: {analysis_type}")
+                self.logger.info(
+                    f"[Node: generate_answer] Analysis completed - Type: {analysis_type}")
 
             else:
                 # 回退：使用增强答案生成器
-                self.logger.warning("[Node: generate_answer] DataAnalyzer not available, using EnhancedAnswerGenerator")
+                self.logger.warning(
+                    "[Node: generate_answer] DataAnalyzer not available, using EnhancedAnswerGenerator")
 
-                from ..processors.enhanced_answer_generator import EnhancedAnswerGenerator
+                from ...processors.enhanced_answer_generator import EnhancedAnswerGenerator
                 enhanced_generator = EnhancedAnswerGenerator(self.llm)
                 answer, analysis_details = enhanced_generator.generate_enhanced_answer(
                     query, final_data, count, query_intent, requires_spatial
@@ -1134,7 +1275,8 @@ class AgentNodes:
             self.logger.error(f"[Node: generate_answer] Error: {e}")
             # 回退到基本答案生成器
             try:
-                answer = self.answer_generator.generate(query, final_data, count)
+                answer = self.answer_generator.generate(
+                    query, final_data, count)
                 return {
                     "answer": answer,
                     "analysis": None,  # ✅ 错误时无分析
@@ -1152,7 +1294,8 @@ class AgentNodes:
                     }]
                 }
             except Exception as fallback_error:
-                self.logger.error(f"[Node: generate_answer] Fallback also failed: {fallback_error}")
+                self.logger.error(
+                    f"[Node: generate_answer] Fallback also failed: {fallback_error}")
                 return {
                     "answer": "",
                     "analysis": None,
@@ -1191,17 +1334,18 @@ class AgentNodes:
             retry_count = state.get("retry_count", 0)
             current_sql = state.get("current_sql")
             current_step = state.get("current_step", 0)
-            
+
             # ✅ 获取错误上下文
             error_context = state.get("error_context", {})
-            
+
             # 获取增强的错误处理器（如果可用）
             error_handler = getattr(self, 'error_handler', None)
-            
+
             if error_handler:
                 # 使用增强的错误处理器
-                self.logger.info(f"[Node: handle_error] Using enhanced error handler, retry {retry_count}")
-                
+                self.logger.info(
+                    f"[Node: handle_error] Using enhanced error handler, retry {retry_count}")
+
                 # 深度错误分析
                 error_analysis = error_handler.analyze_error(
                     error_message=error,
@@ -1212,14 +1356,14 @@ class AgentNodes:
                         "query": state.get("query")
                     }
                 )
-                
+
                 # 确定重试策略
                 retry_strategy = error_handler.determine_retry_strategy(
                     error_analysis=error_analysis,
                     retry_count=retry_count,
                     context={"current_step": current_step}
                 )
-                
+
                 # 记录错误历史
                 error_record = {
                     "step": current_step,
@@ -1229,7 +1373,7 @@ class AgentNodes:
                     "strategy": retry_strategy["strategy_type"],
                     "analysis": error_analysis
                 }
-                
+
                 # 记录思维链
                 thought_step = {
                     "step": current_step + 7,
@@ -1243,11 +1387,12 @@ class AgentNodes:
                     "output": {
                         "strategy": retry_strategy,
                         "root_cause": error_analysis["root_cause"],
-                        "fix_suggestions": error_analysis["fix_suggestions"][:3]  # 只显示前3条建议
+                        # 只显示前3条建议
+                        "fix_suggestions": error_analysis["fix_suggestions"][:3]
                     },
                     "status": "completed"
                 }
-                
+
                 # 根据策略返回不同的状态更新
                 if not retry_strategy["should_retry"]:
                     # 不重试，直接失败
@@ -1260,13 +1405,14 @@ class AgentNodes:
                         "error_history": [error_record],
                         "thought_chain": [thought_step]
                     }
-                
+
                 # 应用退避时间
                 if retry_strategy["backoff_seconds"] > 0:
                     import time
-                    self.logger.info(f"Applying backoff: {retry_strategy['backoff_seconds']}s")
+                    self.logger.info(
+                        f"Applying backoff: {retry_strategy['backoff_seconds']}s")
                     time.sleep(retry_strategy["backoff_seconds"])
-                
+
                 # 根据策略类型返回状态更新
                 if retry_strategy["strategy_type"] == "retry_sql":
                     return {
@@ -1280,7 +1426,7 @@ class AgentNodes:
                         "error": None,  # 清除错误标志，允许重试
                         "thought_chain": [thought_step]
                     }
-                    
+
                 elif retry_strategy["strategy_type"] == "simplify_query":
                     return {
                         "retry_count": retry_count + 1,
@@ -1293,7 +1439,7 @@ class AgentNodes:
                         "error": None,
                         "thought_chain": [thought_step]
                     }
-                    
+
                 elif retry_strategy["strategy_type"] == "retry_execution":
                     return {
                         "retry_count": retry_count + 1,
@@ -1305,13 +1451,14 @@ class AgentNodes:
                         "error": None,
                         "thought_chain": [thought_step]
                     }
-                    
+
             else:
                 # 回退到基本错误处理
                 return self._handle_error_basic(state, error, retry_count, current_step, error_context)
-                
+
         except Exception as e:
-            self.logger.error(f"[Node: handle_error] Error in enhanced error handler: {e}")
+            self.logger.error(
+                f"[Node: handle_error] Error in enhanced error handler: {e}")
             # 回退到基本错误处理
             return self._handle_error_basic(state, error, state.get("retry_count", 0), state.get("current_step", 0), state.get("error_context", {}))
 
@@ -1333,7 +1480,8 @@ class AgentNodes:
 
         # 检查是否超过最大重试次数
         if retry_count >= max_retries:
-            self.logger.warning(f"Max retries exceeded ({retry_count}/{max_retries})")
+            self.logger.warning(
+                f"Max retries exceeded ({retry_count}/{max_retries})")
             return {
                 "error": f"重试次数已达上限 ({max_retries}次): {error}",
                 "should_continue": False,
@@ -1414,7 +1562,8 @@ class AgentNodes:
             import time
             # 指数退避：1s, 2s, 4s
             backoff_time = 2 ** retry_count
-            self.logger.info(f"Retrying execution after {backoff_time}s backoff")
+            self.logger.info(
+                f"Retrying execution after {backoff_time}s backoff")
             time.sleep(min(backoff_time, 5))  # 最多等待5秒
 
             return {
@@ -1719,7 +1868,7 @@ class AgentNodes:
             for field in ['name', 'level', '评分', '所属省份', '所属城市']:
                 if field in record and record[field]:
                     key_info.append(f"{field}: {record[field]}")
-            
+
             if key_info:
                 preview_lines.append(f"记录 {i+1}: {', '.join(key_info)}")
 
@@ -1745,11 +1894,15 @@ class AgentNodes:
         validation_lower = validation_text.lower()
 
         # 判断验证是否通过
-        passed_keywords = ['良好', '合适', '符合', '正确', '通过', 'good', 'suitable', 'appropriate', 'correct']
-        failed_keywords = ['不佳', '不完整', '不相关', '错误', '失败', 'poor', 'incomplete', 'irrelevant', 'wrong', 'failed']
+        passed_keywords = ['良好', '合适', '符合', '正确', '通过',
+                           'good', 'suitable', 'appropriate', 'correct']
+        failed_keywords = ['不佳', '不完整', '不相关', '错误', '失败',
+                           'poor', 'incomplete', 'irrelevant', 'wrong', 'failed']
 
-        passed = any(keyword in validation_lower for keyword in passed_keywords)
-        failed = any(keyword in validation_lower for keyword in failed_keywords)
+        passed = any(
+            keyword in validation_lower for keyword in passed_keywords)
+        failed = any(
+            keyword in validation_lower for keyword in failed_keywords)
 
         # 计算置信度
         if passed and not failed:
@@ -1786,19 +1939,716 @@ class AgentNodes:
             改进建议
         """
         # 简单的关键词提取
-        guidance_keywords = ['建议', '改进', '应该', '需要', '可以', 'suggest', 'recommend', 'should', 'need', 'could']
-        
+        guidance_keywords = ['建议', '改进', '应该', '需要', '可以',
+                             'suggest', 'recommend', 'should', 'need', 'could']
+
         lines = validation_text.split('\n')
         guidance_lines = []
-        
+
         for line in lines:
             if any(keyword in line.lower() for keyword in guidance_keywords):
                 guidance_lines.append(line.strip())
-        
+
         if guidance_lines:
             return "\n".join(guidance_lines[:3])  # 最多返回3条建议
-        
+
         return "请调整查询条件或检查数据源"
+
+    # ==================== LLM智能分析辅助方法 ====================
+
+    def _analyze_with_llm(
+        self,
+        query: str,
+        current_data: List[Dict[str, Any]],
+        current_step: int
+    ) -> Dict[str, Any]:
+        """
+        使用LLM分析当前结果并提供补充建议
+
+        Args:
+            query: 用户查询
+            current_data: 当前查询结果
+            current_step: 当前迭代步数
+
+        Returns:
+            LLM分析结果字典
+        """
+        try:
+            if not self.llm:
+                # 没有LLM时返回默认分析
+                return {
+                    "should_continue": True,
+                    "reason": "无LLM可用，默认继续查询",
+                    "supplement_suggestions": [],
+                    "guidance_for_next_step": "请继续补充缺失字段"
+                }
+
+            # 准备数据预览
+            data_preview = self._prepare_llm_analysis_data_preview(
+                current_data)
+
+            # ✅ 新增：启发式提示词设计
+            # ❌ 注释：原预设类别提示词
+            # prompt = f"""
+            # 你是一个智能数据分析助手。请分析以下查询结果，判断是否需要补充信息。
+            # ...
+            # """
+
+            # ✅ 新增：启发式提示词，让LLM自由生成建议
+            prompt = f"""
+你是一个智能数据分析助手。请基于以下信息，自由分析查询结果并提供补充建议。
+
+## 用户查询
+{query}
+
+## 当前查询结果
+- 结果数量: {len(current_data)}
+- 当前迭代步数: {current_step}
+- 数据预览: {data_preview}
+
+## 分析任务
+请从以下角度自由分析：
+
+### 1. 查询匹配度评估
+- 当前结果是否直接回答了用户的问题？
+- 是否有明显的信息缺失或不匹配？
+
+### 2. 数据质量分析
+- 数据是否完整？哪些关键信息缺失？
+- 数据是否准确？是否有异常值？
+- 数据是否足够进行有意义的分析？
+
+### 3. 补充需求判断
+- 是否需要补充更多数据？
+- 需要补充哪些类型的信息？
+- 建议的补充策略是什么？
+
+### 4. 实用价值评估
+- 当前结果对用户是否有实际价值？
+- 如何提升结果的实用性？
+
+请基于你的专业判断，自由生成分析结果和建议。不需要拘泥于固定格式，但请确保分析全面且有针对性。
+
+分析结果:"""
+
+            # 调用LLM
+            response = self.llm.llm.invoke(prompt)
+
+            if hasattr(response, 'content'):
+                analysis_text = response.content.strip()
+            else:
+                analysis_text = str(response).strip()
+
+            # ✅ 改进：使用启发式解析方法
+            return self._parse_llm_analysis_heuristic(analysis_text, query, len(current_data))
+
+        except Exception as e:
+            self.logger.error(f"LLM analysis failed: {e}")
+            # 分析失败时默认继续
+            return {
+                "should_continue": True,
+                "reason": f"LLM分析失败，默认继续: {str(e)}",
+                "supplement_suggestions": [],
+                "guidance_for_next_step": "请继续补充缺失字段"
+            }
+
+    def _parse_llm_analysis_heuristic(self, analysis_text: str, query: str, count: int) -> Dict[str, Any]:
+        """
+        启发式解析LLM分析结果
+
+        Args:
+            analysis_text: LLM分析文本
+            query: 用户查询
+            count: 结果数量
+
+        Returns:
+            结构化的分析结果
+        """
+        analysis_lower = analysis_text.lower()
+
+        # ✅ 启发式判断是否需要继续
+        # 基于文本内容进行智能判断，而不是固定关键词
+        should_continue = False
+        reason = ""
+
+        # 启发式规则1：检查是否提到数据不足或需要补充
+        if any(keyword in analysis_lower for keyword in ['不足', '不够', '缺少', '缺失', '需要补充', '建议补充', '应该补充']):
+            should_continue = True
+            reason = "LLM分析认为数据不足，需要补充"
+        # 启发式规则2：检查是否提到数据完整或足够
+        elif any(keyword in analysis_lower for keyword in ['完整', '足够', '充分', '满足', '不需要补充', '无需补充']):
+            should_continue = False
+            reason = "LLM分析认为数据已足够完整"
+        # 启发式规则3：检查是否提到具体改进建议
+        elif any(keyword in analysis_lower for keyword in ['建议', '改进', '优化', '提升', '增强']):
+            should_continue = True
+            reason = "LLM分析提供了改进建议，需要补充数据"
+        # 启发式规则4：默认情况下，如果数据量较少且分析文本较长，认为需要补充
+        elif count < 5 and len(analysis_text) > 100:
+            should_continue = True
+            reason = f"数据量较少({count}条)且分析详细，建议补充更多数据"
+        else:
+            # 默认不继续
+            should_continue = False
+            reason = "LLM分析未明确建议补充数据"
+
+        # ✅ 启发式提取补充建议
+        supplement_suggestions = self._extract_suggestions_heuristic(
+            analysis_text)
+
+        # ✅ 生成下一步指导
+        guidance_for_next_step = self._generate_guidance_heuristic(
+            analysis_text, should_continue)
+
+        return {
+            "should_continue": should_continue,
+            "reason": reason,
+            "supplement_suggestions": supplement_suggestions,
+            "guidance_for_next_step": guidance_for_next_step
+        }
+
+    def _extract_suggestions_heuristic(self, analysis_text: str) -> List[Dict[str, Any]]:
+        """
+        启发式提取补充建议
+
+        Args:
+            analysis_text: 分析文本
+
+        Returns:
+            补充建议列表
+        """
+        suggestions = []
+        lines = analysis_text.split('\n')
+
+        # ✅ 启发式规则：基于自然语言理解提取建议
+        for line in lines:
+            line = line.strip()
+            if not line or len(line) < 10:  # 跳过短行
+                continue
+
+            # 检查是否包含建议性内容
+            if any(keyword in line.lower() for keyword in ['建议', '可以', '应该', '需要', '推荐', '考虑']):
+                # 尝试提取具体建议内容
+                suggestion_content = self._extract_suggestion_content(line)
+                if suggestion_content:
+                    # 根据内容类型分类建议
+                    suggestion_type = self._classify_suggestion_type(
+                        suggestion_content)
+                    suggestions.append({
+                        "type": suggestion_type,
+                        "description": suggestion_content,
+                        "reason": f"基于分析文本的建议: {suggestion_content[:50]}..."
+                    })
+
+        # 如果没有找到具体建议，添加默认建议
+        if not suggestions:
+            suggestions.append({
+                "type": "field_completion",
+                "description": "补充景区详细信息",
+                "reason": "建议补充景区的评分、门票、开放时间等详细信息"
+            })
+
+        return suggestions[:3]  # 最多返回3条建议
+
+    def _extract_suggestion_content(self, line: str) -> Optional[str]:
+        """
+        从文本行中提取建议内容
+
+        Args:
+            line: 文本行
+
+        Returns:
+            建议内容或None
+        """
+        # 简单的启发式提取
+        suggestion_markers = ['建议', '可以', '应该', '需要', '推荐', '考虑']
+
+        for marker in suggestion_markers:
+            if marker in line:
+                # 提取标记后的内容
+                parts = line.split(marker, 1)
+                if len(parts) > 1:
+                    content = parts[1].strip()
+                    # 清理标点符号
+                    content = content.strip('：:，,。.；;')
+                    if content and len(content) > 5:  # 确保内容有意义
+                        return content
+
+        return None
+
+    def _classify_suggestion_type(self, suggestion_content: str) -> str:
+        """
+        分类建议类型
+
+        Args:
+            suggestion_content: 建议内容
+
+        Returns:
+            建议类型
+        """
+        content_lower = suggestion_content.lower()
+
+        # 基于关键词分类
+        if any(keyword in content_lower for keyword in ['字段', '信息', '数据', '属性']):
+            return "field_completion"
+        elif any(keyword in content_lower for keyword in ['更多', '扩展', '增加', '补充']):
+            return "data_expansion"
+        elif any(keyword in content_lower for keyword in ['详细', '描述', '介绍', '说明']):
+            return "detail_enhancement"
+        elif any(keyword in content_lower for keyword in ['分类', '统计', '分析', '趋势']):
+            return "analysis_enhancement"
+        else:
+            return "general_improvement"
+
+    def _generate_guidance_heuristic(self, analysis_text: str, should_continue: bool) -> str:
+        """
+        生成启发式下一步指导
+
+        Args:
+            analysis_text: 分析文本
+            should_continue: 是否需要继续
+
+        Returns:
+            下一步指导
+        """
+        if should_continue:
+            # 如果需要继续，基于分析文本生成具体指导
+            if '字段' in analysis_text or '信息' in analysis_text:
+                return "请根据LLM分析的建议，补充缺失的字段信息"
+            elif '更多' in analysis_text or '扩展' in analysis_text:
+                return "请扩展查询范围，获取更多相关数据"
+            elif '详细' in analysis_text or '描述' in analysis_text:
+                return "请获取更详细的数据描述信息"
+            else:
+                return "请根据LLM分析的建议，补充相关数据"
+        else:
+            # 如果不需要继续，提供总结性指导
+            return "数据已足够完整，可以生成最终答案"
+
+    def _prepare_llm_analysis_data_preview(self, data: List[Dict[str, Any]]) -> str:
+        """
+        准备LLM分析用的数据预览
+
+        Args:
+            data: 查询结果
+
+        Returns:
+            数据预览字符串
+        """
+        if not data:
+            return "无数据"
+
+        # 限制预览记录数
+        preview_count = min(3, len(data))
+        preview_data = data[:preview_count]
+
+        preview_lines = []
+        for i, record in enumerate(preview_data):
+            # 提取关键信息
+            key_info = []
+            for field in ['name', 'level', '评分', '门票', '开放时间', '所属省份', '所属城市']:
+                if field in record and record[field]:
+                    key_info.append(f"{field}: {record[field]}")
+                else:
+                    key_info.append(f"{field}: 缺失")
+
+            preview_lines.append(
+                f"记录 {i+1}: {', '.join(key_info[:5])}")  # 只显示前5个字段
+
+        preview_text = "\n".join(preview_lines)
+
+        if len(data) > preview_count:
+            preview_text += f"\n... 还有 {len(data) - preview_count} 条记录"
+
+        return preview_text
+
+    def _parse_llm_analysis_result(self, analysis_text: str, query: str, count: int) -> Dict[str, Any]:
+        """
+        解析LLM分析结果
+
+        Args:
+            analysis_text: LLM分析文本
+            query: 用户查询
+            count: 结果数量
+
+        Returns:
+            结构化的分析结果
+        """
+        try:
+            # 尝试从JSON格式中提取
+            import json
+            import re
+
+            # 查找JSON块
+            json_pattern = r'```json\s*(.*?)\s*```'
+            match = re.search(json_pattern, analysis_text, re.DOTALL)
+
+            if match:
+                json_content = match.group(1)
+                analysis_result = json.loads(json_content)
+                return analysis_result
+            else:
+                # 如果没有找到JSON格式，尝试从文本中推断
+                return self._infer_analysis_from_text(analysis_text, query, count)
+
+        except Exception as e:
+            self.logger.warning(f"Failed to parse LLM analysis as JSON: {e}")
+            # 回退到文本推断
+            return self._infer_analysis_from_text(analysis_text, query, count)
+
+    def _infer_analysis_from_text(self, analysis_text: str, query: str, count: int) -> Dict[str, Any]:
+        """
+        从文本中推断分析结果
+
+        Args:
+            analysis_text: 分析文本
+            query: 用户查询
+            count: 结果数量
+
+        Returns:
+            推断的分析结果
+        """
+        analysis_lower = analysis_text.lower()
+
+        # 判断是否需要继续
+        continue_keywords = ['继续', '补充', '需要', '应该', '建议',
+                             'continue', 'supplement', 'need', 'should', 'recommend']
+        stop_keywords = ['停止', '足够', '完整', '完成',
+                         'stop', 'enough', 'complete', 'finished']
+
+        should_continue = any(
+            keyword in analysis_lower for keyword in continue_keywords)
+        should_stop = any(
+            keyword in analysis_lower for keyword in stop_keywords)
+
+        # 如果明确提到停止，则停止
+        if should_stop and not should_continue:
+            should_continue = False
+            reason = "数据已足够完整，无需继续补充"
+        else:
+            should_continue = True
+            reason = "数据需要进一步补充"
+
+        # 提取补充建议
+        supplement_suggestions = self._extract_supplement_suggestions(
+            analysis_text)
+
+        return {
+            "should_continue": should_continue,
+            "reason": reason,
+            "supplement_suggestions": supplement_suggestions,
+            "guidance_for_next_step": "请根据建议补充相关信息"
+        }
+
+    def _extract_supplement_suggestions(self, analysis_text: str) -> List[Dict[str, Any]]:
+        """
+        从分析文本中提取补充建议
+
+        Args:
+            analysis_text: 分析文本
+
+        Returns:
+            补充建议列表
+        """
+        suggestions = []
+
+        # 简单的关键词匹配
+        field_keywords = ['字段', '信息', '数据', 'field', 'information', 'data']
+        expansion_keywords = ['扩展', '更多', '增加', 'expand', 'more', 'additional']
+        detail_keywords = ['详细', '描述', '介绍',
+                           'detail', 'description', 'introduction']
+
+        lines = analysis_text.split('\n')
+
+        for line in lines:
+            line_lower = line.lower()
+
+            # 字段补充建议
+            if any(keyword in line_lower for keyword in field_keywords):
+                # 尝试提取字段名
+                field_pattern = r'["\']([^"\']+)["\']|([a-zA-Z\u4e00-\u9fa5]+字段|[a-zA-Z\u4e00-\u9fa5]+信息)'
+                field_matches = re.findall(field_pattern, line)
+
+                target_fields = []
+                for match in field_matches:
+                    field = match[0] or match[1]
+                    if field and len(field) > 1:  # 过滤掉单个字符
+                        target_fields.append(field)
+
+                if target_fields:
+                    suggestions.append({
+                        "type": "field_completion",
+                        "target_fields": target_fields[:3],  # 最多3个字段
+                        "reason": f"需要补充字段: {', '.join(target_fields[:3])}"
+                    })
+
+            # 数据扩展建议
+            elif any(keyword in line_lower for keyword in expansion_keywords):
+                suggestions.append({
+                    "type": "data_expansion",
+                    "description": "获取更多相关数据",
+                    "reason": "当前数据量较少，建议扩展查询范围"
+                })
+
+            # 细节增强建议
+            elif any(keyword in line_lower for keyword in detail_keywords):
+                suggestions.append({
+                    "type": "detail_enhancement",
+                    "description": "获取更详细的信息",
+                    "reason": "需要更详细的数据描述"
+                })
+
+        # 如果没有找到具体建议，添加默认建议
+        if not suggestions:
+            suggestions.append({
+                "type": "field_completion",
+                "target_fields": ["评分", "门票", "开放时间"],
+                "reason": "建议补充景区的评分、门票和开放时间信息"
+            })
+
+        return suggestions[:3]  # 最多返回3条建议
+
+    def _make_llm_decision(
+        self,
+        query: str,
+        final_data: List[Dict[str, Any]],
+        current_step: int,
+        query_intent: str
+    ) -> Dict[str, Any]:
+        """
+        使用LLM进行智能决策
+
+        Args:
+            query: 用户查询
+            final_data: 当前查询结果
+            current_step: 当前迭代步数
+            query_intent: 查询意图
+
+        Returns:
+            LLM决策结果
+        """
+        try:
+            if not self.llm:
+                # 没有LLM时返回默认决策
+                return {
+                    "should_continue": False,
+                    "reason": "无LLM可用，默认停止迭代",
+                    "supplement_suggestions": [],
+                    "guidance_for_next_step": ""
+                }
+
+            # 准备数据预览
+            data_preview = self._prepare_llm_decision_data_preview(final_data)
+
+            # 构建决策提示词
+            prompt = f"""你是一个智能数据分析助手。请基于以下信息，决定是否需要继续查询来补充数据。
+
+## 用户查询
+{query}
+
+## 查询意图
+{query_intent}
+
+## 当前查询结果
+- 结果数量: {len(final_data)}
+- 当前迭代步数: {current_step}
+- 数据预览: {data_preview}
+
+## 决策标准
+请从以下角度评估是否需要继续查询：
+
+### 1. 查询匹配度
+- 当前结果是否直接回答了用户的问题？
+- 是否有明显的信息缺失或不匹配？
+
+### 2. 数据质量
+- 数据是否足够进行有意义的分析？
+- 是否有必要补充更多信息？
+
+### 3. 用户需求满足度
+- 当前结果是否满足用户的潜在需求？
+- 补充数据是否能显著提升结果价值？
+
+### 4. 实用价值
+- 继续查询的预期收益是否大于成本？
+
+请给出决策结果：
+- 如果应该继续查询，请说明原因并提供具体的补充建议
+- 如果应该停止，请说明当前结果已足够的原因
+
+决策结果:"""
+
+            # 调用LLM
+            response = self.llm.llm.invoke(prompt)
+
+            if hasattr(response, 'content'):
+                decision_text = response.content.strip()
+            else:
+                decision_text = str(response).strip()
+
+            # 解析决策结果
+            return self._parse_llm_decision(decision_text, query, len(final_data))
+
+        except Exception as e:
+            self.logger.error(f"LLM decision failed: {e}")
+            # 决策失败时默认停止
+            return {
+                "should_continue": False,
+                "reason": f"LLM决策失败，默认停止: {str(e)}",
+                "supplement_suggestions": [],
+                "guidance_for_next_step": ""
+            }
+
+    def _parse_llm_decision(self, decision_text: str, query: str, count: int) -> Dict[str, Any]:
+        """
+        解析LLM决策结果
+
+        Args:
+            decision_text: LLM决策文本
+            query: 用户查询
+            count: 结果数量
+
+        Returns:
+            结构化的决策结果
+        """
+        decision_lower = decision_text.lower()
+
+        # 启发式判断是否需要继续
+        should_continue = False
+        reason = ""
+
+        # 启发式规则1：检查是否提到需要继续或补充
+        if any(keyword in decision_lower for keyword in ['继续', '补充', '需要', '应该', '建议', '不足', '不够', '缺少', '缺失']):
+            should_continue = True
+            reason = "LLM分析认为需要补充数据"
+        # 启发式规则2：检查是否提到数据已足够
+        elif any(keyword in decision_lower for keyword in ['停止', '足够', '完整', '完成', '满足', '不需要', '无需']):
+            should_continue = False
+            reason = "LLM分析认为数据已足够完整"
+        # 启发式规则3：默认情况下，如果数据量较少且决策文本较长，认为需要补充
+        elif count < 3 and len(decision_text) > 100:
+            should_continue = True
+            reason = f"数据量较少({count}条)且分析详细，建议补充更多数据"
+        else:
+            # 默认停止
+            should_continue = False
+            reason = "LLM分析未明确建议继续查询"
+
+        # 启发式提取补充建议
+        supplement_suggestions = self._extract_decision_suggestions(decision_text)
+
+        # 生成下一步指导
+        guidance_for_next_step = self._generate_decision_guidance(decision_text, should_continue)
+
+        return {
+            "should_continue": should_continue,
+            "reason": reason,
+            "supplement_suggestions": supplement_suggestions,
+            "guidance_for_next_step": guidance_for_next_step
+        }
+
+    def _extract_decision_suggestions(self, decision_text: str) -> List[Dict[str, Any]]:
+        """
+        从决策文本中提取补充建议
+
+        Args:
+            decision_text: 决策文本
+
+        Returns:
+            补充建议列表
+        """
+        suggestions = []
+        lines = decision_text.split('\n')
+
+        for line in lines:
+            line = line.strip()
+            if not line or len(line) < 10:  # 跳过短行
+                continue
+
+            # 检查是否包含建议性内容
+            if any(keyword in line.lower() for keyword in ['建议', '可以', '应该', '需要', '推荐', '考虑']):
+                # 尝试提取具体建议内容
+                suggestion_content = self._extract_suggestion_content(line)
+                if suggestion_content:
+                    # 根据内容类型分类建议
+                    suggestion_type = self._classify_suggestion_type(suggestion_content)
+                    suggestions.append({
+                        "type": suggestion_type,
+                        "description": suggestion_content,
+                        "reason": f"基于决策文本的建议: {suggestion_content[:50]}..."
+                    })
+
+        # 如果没有找到具体建议，添加默认建议
+        if not suggestions:
+            suggestions.append({
+                "type": "field_completion",
+                "description": "补充景区详细信息",
+                "reason": "建议补充景区的评分、门票、开放时间等详细信息"
+            })
+
+        return suggestions[:3]  # 最多返回3条建议
+
+    def _generate_decision_guidance(self, decision_text: str, should_continue: bool) -> str:
+        """
+        生成决策指导
+
+        Args:
+            decision_text: 决策文本
+            should_continue: 是否需要继续
+
+        Returns:
+            决策指导
+        """
+        if should_continue:
+            # 如果需要继续，基于决策文本生成具体指导
+            if '字段' in decision_text or '信息' in decision_text:
+                return "请根据LLM决策的建议，补充缺失的字段信息"
+            elif '更多' in decision_text or '扩展' in decision_text:
+                return "请扩展查询范围，获取更多相关数据"
+            elif '详细' in decision_text or '描述' in decision_text:
+                return "请获取更详细的数据描述信息"
+            else:
+                return "请根据LLM决策的建议，补充相关数据"
+        else:
+            # 如果不需要继续，提供总结性指导
+            return "数据已足够完整，可以生成最终答案"
+
+    def _prepare_llm_decision_data_preview(self, data: List[Dict[str, Any]]) -> str:
+        """
+        准备LLM决策用的数据预览
+
+        Args:
+            data: 查询结果
+
+        Returns:
+            数据预览字符串
+        """
+        if not data:
+            return "无数据"
+
+        # 限制预览记录数
+        preview_count = min(3, len(data))
+        preview_data = data[:preview_count]
+
+        preview_lines = []
+        for i, record in enumerate(preview_data):
+            # 提取关键信息
+            key_info = []
+            for field in ['name', 'level', '评分', '门票', '开放时间', '所属省份', '所属城市']:
+                if field in record and record[field]:
+                    key_info.append(f"{field}: {record[field]}")
+                else:
+                    key_info.append(f"{field}: 缺失")
+
+            preview_lines.append(
+                f"记录 {i+1}: {', '.join(key_info[:5])}")  # 只显示前5个字段
+
+        preview_text = "\n".join(preview_lines)
+
+        if len(data) > preview_count:
+            preview_text += f"\n... 还有 {len(data) - preview_count} 条记录"
+
+        return preview_text
 
 
 # 测试代码
@@ -1811,25 +2661,56 @@ if __name__ == "__main__":
 
     print("=== AgentNodes 测试 ===\n")
 
-    # 测试状态初始化
+    # 测试状态初始化 - 完整版本，包含所有必需字段
     test_state: AgentState = {
         "query": "查询浙江省的5A景区",
         "enhanced_query": "",
-        "query_intent": None,
+        "query_intent": "query",
         "requires_spatial": False,
+        "intent_info": {},
+        "database_schema": {},
+        "schema_fetched": False,
         "sql_history": [],
         "execution_results": [],
         "thought_chain": [],
         "current_step": 0,
-        "current_sql": None,
-        "current_result": None,
+        "current_sql": "",
+        "current_result": {},
         "should_continue": True,
         "max_iterations": 3,
-        "error": None,
-        "final_data": None,
+        "error": "",
+        "retry_count": 0,
+        "max_retries": 5,
+        "last_error": "",
+        "error_history": [],
+        "fallback_strategy": "",
+        "error_type": "",
+        "final_data": [],
         "answer": "",
         "status": "pending",
-        "message": ""
+        "message": "",
+        "session_history": [],
+        "conversation_id": "test-001",
+        "knowledge_base": {},
+        "learned_patterns": [],
+        "saved_checkpoint_id": "",
+        "saved_checkpoint_step": 0,
+        "is_resumed_from_checkpoint": False,
+        "last_checkpoint_time": "",
+        "error_context": {},
+        "query_id": "test-query-001",
+        "query_start_time": "",
+        "node_execution_logs": [],
+        "validation_history": [],
+        "validation_retry_count": 0,
+        "max_validation_retries": 3,
+        "validation_feedback": "",
+        "is_validation_enabled": True,
+        "should_return_data": True,
+        "analysis": "",
+        "insights": [],
+        "suggestions": [],
+        "analysis_type": ""
     }
 
     print(f"Initial state: query='{test_state['query']}'")
