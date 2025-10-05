@@ -14,6 +14,11 @@
 - **集群功能优化** - 完善地图要素集群显示和交互功能
 
 ## 近期变更
+**2025-10-05** - 记忆库更新：
+- 完成项目全面浏览和记忆库更新
+- 验证了sight_server和vue项目的完整架构
+- 确认了项目技术栈和组件关系
+
 **2025-10-05** - 缓存管理器修复：
 - 启用语义搜索功能（`enable_semantic_search=True`）
 - 为 GET `/query` 端点添加缓存逻辑，与 POST 端点保持一致
@@ -78,7 +83,7 @@
 - 创建FeatureDetailRequest和FeatureDetailResponse数据模型
 - 实现FeatureDetailMapper接口和XML配置，支持要素详情查询
 - 实现FeatureDetailService业务逻辑层，包含图片URL自动提取功能
-- 实现FeatureDetailController REST API控制器
+- 实现FeatureDetailController REST API 控制器
 - 支持通过路径参数和请求体两种方式查询要素详情
 - 自动检测和提取图片URL，支持前端直接加载图片
 
@@ -146,3 +151,33 @@
 - **下周**: 实现完整的前后端数据流
 - **下下周**: 进行系统集成测试和性能优化
 - **持续**: 定期更新记忆库文档
+
+## 项目架构确认
+通过全面浏览项目，确认以下架构细节：
+
+### Sight Server 架构
+- **核心组件**: `SQLQueryAgent` 基于 LangGraph 的多步查询Agent
+- **工作流**: fetch_schema → analyze_intent → enhance_query → generate_sql → execute_sql → check_results → generate_answer → handle_error
+- **关键特性**: Memory机制、Checkpoint机制、Fallback重试机制、缓存管理
+- **API端点**: `/query`, `/query/geojson`, `/query/thought-chain`, `/tables`, `/database/info`
+
+### Vue 前端架构
+- **核心组件**: `OlMap.vue` (主地图组件), `AgentQuery.vue` (AI查询组件), `TouristSpotSearch.vue` (景区搜索组件)
+- **地图引擎**: OpenLayers 9.x 集成
+- **状态管理**: 使用 Vue 3 Composition API 和 provide/inject
+- **图片缓存**: 实现图片加载和缓存系统，支持景区图片显示
+
+### Spring Boot 后端架构
+- **技术栈**: Spring Boot 3.5.5 + Java 21 + MyBatis + PostgreSQL + PostGIS
+- **核心控制器**: MapController, QueryController, SpatialTableController, TouristSpotController, FeatureDetailController
+- **数据访问**: 使用 MyBatis 和 JPA 进行数据库操作
+- **空间查询**: 集成 PostGIS 支持空间查询和坐标范围查询
+
+### 项目文件结构确认
+- `m_WGP_vue3/` - Vue.js 3 前端应用
+- `be/` - Spring Boot 后端服务  
+- `python/sight_server/` - Sight Server AI服务
+- `memory-bank/` - 项目文档和记忆库
+- `cache/` - 缓存数据
+- `checkpoints/` - LangGraph 检查点数据
+- `logs/` - 系统日志
