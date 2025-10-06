@@ -6,6 +6,7 @@ LangGraph图模块 - Sight Server
 from .nodes import (
     AgentNodes,
     LegacyAgentNodes,
+    build_node_context,
     build_legacy_nodes,
     build_node_mapping,
 )
@@ -15,6 +16,7 @@ from .builder import GraphBuilder
 __all__ = [
     "AgentNodes",
     "LegacyAgentNodes",
+    "build_node_context",
     "build_legacy_nodes",
     "build_node_mapping",
     "should_continue_querying",

@@ -121,11 +121,32 @@ class MockSQLGenerator:
     def __init__(self, llm):
         self.llm = llm
         self.generation_count = 0
+        self.schema_updates = 0
+        self.last_match_mode = None
 
-    def generate_initial_sql(self, query):
+    def set_database_schema(self, formatted_schema):
+        """记录 schema 注入次数"""
+        self.schema_updates += 1
+
+    def generate_initial_sql(self, query, intent_info=None, database_schema=None, match_mode="fuzzy"):
         """生成初始SQL"""
         self.generation_count += 1
+        self.last_match_mode = match_mode
         return "SELECT * FROM a_sight LIMIT 10"
+
+    def generate_followup_sql(
+        self,
+        original_query,
+        previous_sql,
+        record_count,
+        missing_fields=None,
+        database_schema=None,
+        match_mode="fuzzy",
+    ):
+        """生成后续SQL（简单返回上一次结果）"""
+        self.generation_count += 1
+        self.last_match_mode = match_mode
+        return previous_sql or "SELECT * FROM a_sight LIMIT 10"
 
     def fix_sql_with_error(self, sql, error, query):
         """修复SQL（模拟）"""

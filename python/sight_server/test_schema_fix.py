@@ -24,76 +24,98 @@ logger = logging.getLogger(__name__)
 
 
 class MockSQLGenerator:
-    """模拟SQL生成器，用于测试schema传递"""
-    
+    """模拟SQL生成器，用于测试 schema 注入逻辑"""
+
     def __init__(self):
         self.logger = logger
         self.schema_received_count = 0
+        self.schema_context_updates = 0
         self.last_schema = None
-    
-    def generate_initial_sql(self, query, intent_info=None, database_schema=None):
-        """模拟生成初始SQL，记录是否收到schema"""
-        self.schema_received_count += 1
-        self.last_schema = database_schema
-        
-        logger.info(f"✅ generate_initial_sql 收到schema: {database_schema is not None}")
+        self.match_modes = []
+
+    def set_database_schema(self, formatted_schema):
+        self.schema_context_updates += 1
+        self.last_schema = formatted_schema
+        if formatted_schema:
+            self.logger.info(f"✅ set_database_schema 调用，schema 长度: {len(formatted_schema)} 字符")
+        else:
+            self.logger.info("⚠️ set_database_schema 调用但未提供 schema 内容")
+
+    def generate_initial_sql(self, query, intent_info=None, database_schema=None, match_mode="fuzzy"):
+        self.match_modes.append(match_mode)
         if database_schema:
-            logger.info(f"Schema长度: {len(database_schema)} 字符")
-        
+            self.schema_received_count += 1
+            self.last_schema = database_schema
+
+        self.logger.info(f"✅ generate_initial_sql 接收到 schema: {database_schema is not None}")
+        self.logger.info(f"   匹配模式: {match_mode}")
+        if database_schema:
+            self.logger.info(f"Schema长度: {len(database_schema)} 字符")
+
         return "SELECT * FROM a_sight LIMIT 10"
-    
-    def generate_followup_sql(self, original_query, previous_sql, record_count, missing_fields, database_schema=None):
-        """模拟生成后续SQL，记录是否收到schema"""
-        self.schema_received_count += 1
-        self.last_schema = database_schema
-        
-        logger.info(f"✅ generate_followup_sql 收到schema: {database_schema is not None}")
+
+    def generate_followup_sql(
+        self,
+        original_query,
+        previous_sql,
+        record_count,
+        missing_fields=None,
+        database_schema=None,
+        match_mode="fuzzy",
+    ):
+        self.match_modes.append(match_mode)
         if database_schema:
-            logger.info(f"Schema长度: {len(database_schema)} 字符")
-        
+            self.schema_received_count += 1
+            self.last_schema = database_schema
+
+        self.logger.info(f"✅ generate_followup_sql 接收到 schema: {database_schema is not None}")
+        self.logger.info(f"   匹配模式: {match_mode}")
+        if database_schema:
+            self.logger.info(f"Schema长度: {len(database_schema)} 字符")
+
         return "SELECT * FROM tourist_spot LIMIT 10"
-    
+
     def fix_sql_with_error(self, sql, error, query, database_schema=None):
-        """模拟修复SQL，记录是否收到schema"""
-        self.schema_received_count += 1
-        self.last_schema = database_schema
-        
-        logger.info(f"✅ fix_sql_with_error 收到schema: {database_schema is not None}")
         if database_schema:
-            logger.info(f"Schema长度: {len(database_schema)} 字符")
-        
+            self.schema_received_count += 1
+            self.last_schema = database_schema
+
+        self.logger.info(f"✅ fix_sql_with_error 接收到 schema: {database_schema is not None}")
+        if database_schema:
+            self.logger.info(f"Schema长度: {len(database_schema)} 字符")
+
         return "SELECT * FROM a_sight LIMIT 5"
-    
+
     def fix_sql_with_context(self, sql, error_context, query, database_schema=None):
-        """模拟使用上下文修复SQL，记录是否收到schema"""
-        self.schema_received_count += 1
-        self.last_schema = database_schema
-        
-        logger.info(f"✅ fix_sql_with_context 收到schema: {database_schema is not None}")
         if database_schema:
-            logger.info(f"Schema长度: {len(database_schema)} 字符")
-        
+            self.schema_received_count += 1
+            self.last_schema = database_schema
+
+        self.logger.info(f"✅ fix_sql_with_context 接收到 schema: {database_schema is not None}")
+        if database_schema:
+            self.logger.info(f"Schema长度: {len(database_schema)} 字符")
+
         return "SELECT * FROM a_sight LIMIT 5"
-    
+
     def regenerate_with_feedback(self, query, previous_sql, feedback, intent_info=None, database_schema=None):
-        """模拟基于反馈重新生成SQL，记录是否收到schema"""
-        self.schema_received_count += 1
-        self.last_schema = database_schema
-        
-        logger.info(f"✅ regenerate_with_feedback 收到schema: {database_schema is not None}")
         if database_schema:
-            logger.info(f"Schema长度: {len(database_schema)} 字符")
-        
+            self.schema_received_count += 1
+            self.last_schema = database_schema
+
+        self.logger.info(f"✅ regenerate_with_feedback 接收到 schema: {database_schema is not None}")
+        if database_schema:
+            self.logger.info(f"Schema长度: {len(database_schema)} 字符")
+
         return "SELECT * FROM a_sight LIMIT 10"
-    
+
     def analyze_missing_info(self, query, current_data):
-        """模拟分析缺失信息"""
         return {
             "has_missing": False,
             "missing_fields": [],
             "data_complete": True,
-            "suggestion": "数据完整"
+            "suggestion": "数据完整",
         }
+
 
 
 class MockSQLExecutor:
@@ -278,17 +300,33 @@ def test_schema_passing():
     logger.info(f"结果: {result5.get('current_sql', 'N/A')}")
     
     # 统计结果
-    logger.info("📊 测试结果统计:")
+    logger.info("🧪 测试结果统计:")
     logger.info(f"✅ Schema获取次数: {schema_fetcher.fetch_count}")
     logger.info(f"✅ Schema格式化次数: {schema_fetcher.format_count}")
-    logger.info(f"✅ SQL生成器收到schema次数: {sql_generator.schema_received_count}")
-    
-    if sql_generator.schema_received_count == 5:
-        logger.info("🎉 所有测试通过！schema在所有路径中正确传递")
+    logger.info(f"✅ set_database_schema 调用次数: {sql_generator.schema_context_updates}")
+    logger.info(f"✅ SQL生成流程中直接传递schema次数: {sql_generator.schema_received_count}")
+    logger.info(f"✅ 匹配模式记录: {sql_generator.match_modes}")
+
+    success = (
+        sql_generator.schema_context_updates == 1
+        and sql_generator.schema_received_count == 0
+        and all(mode == "fuzzy" for mode in sql_generator.match_modes)
+    )
+
+    if success:
+        logger.info("✅ 所有测试通过: schema 经系统上下文注入且默认使用模糊匹配")
     else:
-        logger.warning(f"⚠️ 部分测试失败，期望5次，实际{sql_generator.schema_received_count}次")
-    
-    return sql_generator.schema_received_count == 5
+        logger.warning(
+            "⚠️ 部分测试失败: context_updates=%s, direct_passes=%s, match_modes=%s",
+            sql_generator.schema_context_updates,
+            sql_generator.schema_received_count,
+            sql_generator.match_modes,
+        )
+
+    return success
+
+
+
 
 
 def test_schema_fetch_node():

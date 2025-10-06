@@ -55,7 +55,11 @@ class SchemaFetcher:
             self.logger.info(f"Fetching schema for {len(table_names) if table_names else 'all'} tables...")
 
             # 获取详细schema
-            schema = self.db_connector.get_detailed_schema(table_names)
+            schema = self.db_connector.get_detailed_schema(
+                table_names=table_names,
+                use_cache=use_cache,
+                force_refresh=not use_cache,
+            )
 
             # 缓存结果
             if use_cache:
@@ -216,6 +220,8 @@ class SchemaFetcher:
     def clear_cache(self):
         """清除schema缓存"""
         self._schema_cache = None
+        if hasattr(self.db_connector, "clear_schema_cache"):
+            self.db_connector.clear_schema_cache()
         self.logger.info("Schema cache cleared")
 
 

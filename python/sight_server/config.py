@@ -150,6 +150,23 @@ class Settings(BaseSettings):
         description="Embedding模型名称（用于语义搜索）"
     )
 
+    # ==================== Schema缓存 ====================
+    SCHEMA_CACHE_ENABLED: bool = Field(
+        default=True,
+        description="是否启用本地schema缓存"
+    )
+
+    SCHEMA_CACHE_TTL: int = Field(
+        default=43200,
+        ge=0,
+        description="Schema缓存有效期（秒），0表示不失效"
+    )
+
+    SCHEMA_CACHE_PATH: str = Field(
+        default="schema_cache.json",
+        description="Schema缓存文件路径（相对路径会拼接到CACHE_DIR）"
+    )
+
     # ==================== CORS配置 ====================
     CORS_ORIGINS: list = Field(
         default=["*"],

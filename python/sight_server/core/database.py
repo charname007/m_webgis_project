@@ -4,7 +4,11 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any, Sequence
+import json
+import time
+import copy
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Sequence, Tuple
 from langchain_community.utilities import SQLDatabase
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -25,6 +29,8 @@ class DatabaseConnector:
     - 原始SQL查询执行
     """
 
+    SPATIAL_INDEX_TYPES = {"gist", "gin", "spgist"}
+
     def __init__(self, connection_string: Optional[str] = None, echo: bool = False):
         """
         初始化数据库连接器
@@ -34,6 +40,16 @@ class DatabaseConnector:
             echo: 是否打印SQL日志
         """
         self.logger = logger
+        self.default_schema = "public"
+        self.schema_cache_enabled = settings.SCHEMA_CACHE_ENABLED
+        self.schema_cache_ttl = settings.SCHEMA_CACHE_TTL
+        cache_path = Path(settings.SCHEMA_CACHE_PATH)
+        if not cache_path.is_absolute():
+            cache_path = Path(settings.CACHE_DIR) / cache_path
+        self.schema_cache_path = cache_path
+        self._schema_cache_data: Optional[Dict[str, Any]] = None
+        self._schema_cache_timestamp: Optional[float] = None
+
         self.logger.info("Initializing DatabaseConnector...")
 
         # 使用配置文件中的连接字符串，允许参数覆盖
@@ -88,12 +104,14 @@ class DatabaseConnector:
 
             # 获取表信息
             table_names = self.get_usable_table_names()
-            self.logger.info(f"✓ Found {len(table_names)} tables")
+            self.logger.info(f"Found {len(table_names)} tables")
 
-            # 获取空间表信息
-            spatial_tables = self.get_spatial_tables()
-            if spatial_tables:
-                self.logger.info(f"✓ Found {len(spatial_tables)} spatial tables")
+            if self.schema_cache_enabled:
+                self.logger.info(
+                    f"Schema cache enabled (path: {self.schema_cache_path})"
+                )
+            else:
+                self.logger.info("Schema cache disabled")
 
         except Exception as e:
             self.logger.error(f"✗ Database connection failed: {e}")
@@ -213,58 +231,318 @@ class DatabaseConnector:
 
         return self.db.get_table_info(table_names=table_names)
 
-    def get_spatial_tables(self) -> Sequence[Dict[str, Any]]:
-        """
-        获取包含几何列的空间表信息
+    def get_spatial_tables(
+        self,
+        use_cache: bool = True,
+        force_refresh: bool = False,
+    ) -> Sequence[Dict[str, Any]]:
+        """获取空间表信息（支持缓存）。"""
+        snapshot = self.get_detailed_schema(use_cache=use_cache, force_refresh=force_refresh)
+        spatial_map = snapshot.get("spatial_tables", {})
+        return list(spatial_map.values())
 
-        Returns:
-            空间表信息列表
-        """
+    def get_spatial_indexes(
+        self,
+        table_name: str,
+        use_cache: bool = True,
+        force_refresh: bool = False,
+    ) -> Sequence[Dict[str, Any]]:
+        """获取指定表的空间索引信息。"""
+        snapshot = self.get_detailed_schema(
+            table_names=[table_name],
+            use_cache=use_cache,
+            force_refresh=force_refresh,
+        )
+        spatial_tables = snapshot.get("spatial_tables", {})
+        info = spatial_tables.get(self._normalize_table_name(table_name))
+        if not info:
+            return []
+        return info.get("spatial_indexes", [])
+
+    def get_detailed_schema(
+        self,
+        table_names: Optional[List[str]] = None,
+        use_cache: bool = True,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """获取数据库 schema，支持本地缓存。"""
+        normalized_names = (
+            [self._normalize_table_name(name) for name in table_names]
+            if table_names
+            else None
+        )
+
+        if normalized_names is None:
+            cached = self._get_cached_schema_snapshot(use_cache=use_cache, force_refresh=force_refresh)
+            if cached is not None:
+                return cached
+
+            snapshot = self._build_schema_snapshot()
+            if self.schema_cache_enabled:
+                self._save_schema_cache_to_disk(snapshot)
+                self._schema_cache_data = snapshot
+                self._schema_cache_timestamp = snapshot.get("cached_at", time.time())
+            return snapshot
+
+        # 请求指定表
+        if use_cache and not force_refresh:
+            base_snapshot = self._get_cached_schema_snapshot(use_cache=True, force_refresh=False)
+            if base_snapshot is not None:
+                return self._filter_schema_snapshot(base_snapshot, normalized_names)
+
+        return self._build_schema_snapshot(table_names=normalized_names)
+
+    def refresh_schema_cache(self, table_names: Optional[List[str]] = None) -> Dict[str, Any]:
+        """手动刷新 schema 缓存，可选指定表。"""
+        snapshot = self._build_schema_snapshot(table_names=table_names)
+        if table_names is None and self.schema_cache_enabled:
+            self._save_schema_cache_to_disk(snapshot)
+            self._schema_cache_data = snapshot
+            self._schema_cache_timestamp = snapshot.get("cached_at", time.time())
+        return snapshot
+
+    def clear_schema_cache(self) -> None:
+        """清空 schema 缓存（内存+文件）。"""
+        self._schema_cache_data = None
+        self._schema_cache_timestamp = None
+        if self.schema_cache_path.exists():
+            try:
+                self.schema_cache_path.unlink()
+                self.logger.info(f"Schema cache file removed: {self.schema_cache_path}")
+            except Exception as exc:
+                self.logger.warning(f"Failed to remove schema cache file: {exc}")
+
+    def _get_cached_schema_snapshot(
+        self,
+        use_cache: bool,
+        force_refresh: bool,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.schema_cache_enabled or not use_cache or force_refresh:
+            return None
+
+        if (
+            self._schema_cache_data is not None
+            and self._schema_cache_timestamp is not None
+            and not self._is_cache_expired(self._schema_cache_timestamp)
+        ):
+            return copy.deepcopy(self._schema_cache_data)
+
+        snapshot = self._load_schema_cache_from_disk()
+        if snapshot is None:
+            return None
+
+        cached_at = snapshot.get("cached_at")
+        if cached_at is None or self._is_cache_expired(cached_at):
+            return None
+
+        self._schema_cache_data = snapshot
+        self._schema_cache_timestamp = cached_at
+        return copy.deepcopy(snapshot)
+
+    def _load_schema_cache_from_disk(self) -> Optional[Dict[str, Any]]:
+        if not self.schema_cache_enabled:
+            return None
+        try:
+            if not self.schema_cache_path.exists():
+                return None
+            with self.schema_cache_path.open("r", encoding="utf-8") as f:
+                snapshot = json.load(f)
+            return snapshot
+        except Exception as exc:
+            self.logger.warning(f"Failed to load schema cache: {exc}")
+            return None
+
+    def _save_schema_cache_to_disk(self, snapshot: Dict[str, Any]) -> None:
+        if not self.schema_cache_enabled:
+            return
+        try:
+            self.schema_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.schema_cache_path.open("w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            self.logger.warning(f"Failed to save schema cache: {exc}")
+
+    def _build_schema_snapshot(
+        self,
+        table_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        schema_name = self.default_schema
+        source_tables = table_names or self.get_usable_table_names()
+        normalized_tables = []
+        for name in source_tables:
+            schema, plain_name = self._split_table_identifier(name)
+            if schema != self.default_schema:
+                continue
+            normalized_tables.append(plain_name)
+
+        spatial_entries = self._query_spatial_tables_raw(schema_name)
+        spatial_map = {entry["table_name"]: entry for entry in spatial_entries}
+        index_map = self._query_indexes_by_schema(schema_name)
+
+        snapshot = {
+            "tables": {},
+            "spatial_tables": {},
+            "database_info": self.get_database_info(),
+            "cached_at": time.time(),
+        }
+
+        for table in normalized_tables:
+            columns = self.get_table_columns(table)
+            primary_keys = self.get_primary_keys(table)
+            foreign_keys = self.get_foreign_keys(table)
+            constraints = self.get_table_constraints(table)
+
+            table_info = {
+                "columns": [
+                    {
+                        "name": col["column_name"],
+                        "type": col["data_type"],
+                        "nullable": col["is_nullable"] == "YES",
+                        "default": col["column_default"],
+                        "max_length": col["character_maximum_length"],
+                        "is_primary_key": col["column_name"] in primary_keys,
+                    }
+                    for col in columns
+                ],
+                "primary_keys": primary_keys,
+                "foreign_keys": [
+                    {
+                        "column": fk["column_name"],
+                        "references_table": fk["foreign_table_name"],
+                        "references_column": fk["foreign_column_name"],
+                    }
+                    for fk in foreign_keys
+                ],
+                "constraints": [
+                    {
+                        "name": c["constraint_name"],
+                        "type": c["constraint_type"],
+                    }
+                    for c in constraints
+                ],
+            }
+
+            spatial_entry = spatial_map.get(table)
+            if spatial_entry:
+                spatial_indexes = [
+                    idx
+                    for idx in index_map.get(table, [])
+                    if idx.get("index_type") in self.SPATIAL_INDEX_TYPES
+                ]
+                table_info.update(
+                    {
+                        "spatial_column": spatial_entry.get("geometry_column"),
+                        "geometry_type": spatial_entry.get("geometry_type"),
+                        "srid": spatial_entry.get("srid"),
+                    }
+                )
+                table_info["spatial_indexes"] = spatial_indexes
+                snapshot["spatial_tables"][table] = {
+                    "table_name": table,
+                    "schema_name": spatial_entry.get("schema_name"),
+                    "geometry_column": spatial_entry.get("geometry_column"),
+                    "geometry_type": spatial_entry.get("geometry_type"),
+                    "srid": spatial_entry.get("srid"),
+                    "coord_dimension": spatial_entry.get("coord_dimension"),
+                    "spatial_indexes": spatial_indexes,
+                }
+
+            snapshot["tables"][table] = table_info
+
+        return snapshot
+
+    def _query_spatial_tables_raw(self, schema_name: str) -> List[Dict[str, Any]]:
         try:
             with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
-                        f_table_schema as schema_name,
-                        f_table_name as table_name,
-                        f_geometry_column as geometry_column,
-                        type as geometry_type,
+                        f_table_schema AS schema_name,
+                        f_table_name AS table_name,
+                        f_geometry_column AS geometry_column,
+                        type AS geometry_type,
                         srid,
                         coord_dimension
                     FROM geometry_columns
-                    WHERE f_table_schema = 'public'
+                    WHERE f_table_schema = %s
                     ORDER BY f_table_name;
-                """)
+                    """,
+                    (schema_name,),
+                )
                 return cursor.fetchall()
-        except Exception as e:
-            self.logger.error(f"Failed to get spatial tables: {e}")
+        except Exception as exc:
+            self.logger.error(f"Failed to query spatial tables: {exc}")
             return []
 
-    def get_spatial_indexes(self, table_name: str) -> Sequence[Dict[str, Any]]:
-        """
-        获取表的空间索引信息
-
-        Args:
-            table_name: 表名
-
-        Returns:
-            空间索引信息列表
-        """
+    def _query_indexes_by_schema(self, schema_name: str) -> Dict[str, List[Dict[str, Any]]]:
+        indexes: Dict[str, List[Dict[str, Any]]] = {}
         try:
             with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT
-                        indexname,
-                        indexdef
-                    FROM pg_indexes
-                    WHERE tablename = %s
-                    AND indexdef LIKE '%gist%'
-                    ORDER BY indexname;
-                """, (table_name,))
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger.error(f"Failed to get spatial indexes: {e}")
-            return []
+                        tbl.relname AS table_name,
+                        idx.relname AS index_name,
+                        am.amname AS index_type,
+                        pg_get_indexdef(idx.oid) AS index_def
+                    FROM pg_index ind
+                    JOIN pg_class idx ON idx.oid = ind.indexrelid
+                    JOIN pg_class tbl ON tbl.oid = ind.indrelid
+                    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+                    JOIN pg_am am ON am.oid = idx.relam
+                    WHERE ns.nspname = %s;
+                    """,
+                    (schema_name,),
+                )
+                for row in cursor.fetchall():
+                    table = row.get("table_name")
+                    if not table:
+                        continue
+                    indexes.setdefault(table, []).append(
+                        {
+                            "indexname": row.get("index_name"),
+                            "indexdef": row.get("index_def"),
+                            "index_type": row.get("index_type"),
+                        }
+                    )
+        except Exception as exc:
+            self.logger.error(f"Failed to query index metadata: {exc}")
+        return indexes
 
+    def _filter_schema_snapshot(
+        self,
+        snapshot: Dict[str, Any],
+        table_names: List[str],
+    ) -> Dict[str, Any]:
+        filtered_tables = {}
+        filtered_spatial = {}
+        for name in table_names:
+            table = self._normalize_table_name(name)
+            if table in snapshot.get("tables", {}):
+                filtered_tables[table] = copy.deepcopy(snapshot["tables"][table])
+            if table in snapshot.get("spatial_tables", {}):
+                filtered_spatial[table] = copy.deepcopy(snapshot["spatial_tables"][table])
+
+        return {
+            "tables": filtered_tables,
+            "spatial_tables": filtered_spatial,
+            "database_info": snapshot.get("database_info", {}),
+            "cached_at": snapshot.get("cached_at"),
+        }
+
+    def _normalize_table_name(self, table_name: str) -> str:
+        return table_name.split(".")[-1].strip('"')
+
+    def _split_table_identifier(self, table_name: str) -> Tuple[str, str]:
+        if "." in table_name:
+            schema, name = table_name.split(".", 1)
+            return schema.strip('"'), name.strip('"')
+        return self.default_schema, table_name.strip('"')
+
+    def _is_cache_expired(self, cached_at: float) -> bool:
+        if self.schema_cache_ttl <= 0:
+            return False
+        return (time.time() - cached_at) > self.schema_cache_ttl
     def check_spatial_function_availability(self) -> Dict[str, bool]:
         """
         检查常用空间函数的可用性
@@ -480,109 +758,7 @@ class DatabaseConnector:
             self.logger.error(f"Failed to get constraints for table {table_name}: {e}")
             return []
 
-    def get_detailed_schema(self, table_names: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        获取数据库的详细schema信息
-
-        Args:
-            table_names: 要获取schema的表名列表。如果为None则获取所有表
-
-        Returns:
-            详细schema信息字典
-        """
-        try:
-            # 获取所有表名
-            all_tables = table_names or self.get_usable_table_names()
-
-            schema_info = {
-                "tables": {},
-                "spatial_tables": {},
-                "database_info": self.get_database_info()
-            }
-
-            # 获取空间表信息
-            spatial_tables = self.get_spatial_tables()
-            spatial_table_map = {
-                st['table_name']: st for st in spatial_tables
-            }
-
-            # 遍历每个表获取详细信息
-            for table_name in all_tables:
-                # 获取列信息
-                columns = self.get_table_columns(table_name)
-
-                # 获取主键
-                primary_keys = self.get_primary_keys(table_name)
-
-                # 获取外键
-                foreign_keys = self.get_foreign_keys(table_name)
-
-                # 获取约束
-                constraints = self.get_table_constraints(table_name)
-
-                # 构建表信息
-                table_info = {
-                    "columns": [
-                        {
-                            "name": col['column_name'],
-                            "type": col['data_type'],
-                            "nullable": col['is_nullable'] == 'YES',
-                            "default": col['column_default'],
-                            "max_length": col['character_maximum_length'],
-                            "is_primary_key": col['column_name'] in primary_keys
-                        }
-                        for col in columns
-                    ],
-                    "primary_keys": primary_keys,
-                    "foreign_keys": [
-                        {
-                            "column": fk['column_name'],
-                            "references_table": fk['foreign_table_name'],
-                            "references_column": fk['foreign_column_name']
-                        }
-                        for fk in foreign_keys
-                    ],
-                    "constraints": [
-                        {
-                            "name": c['constraint_name'],
-                            "type": c['constraint_type']
-                        }
-                        for c in constraints
-                    ]
-                }
-
-                # 如果是空间表，添加空间信息
-                if table_name in spatial_table_map:
-                    spatial_info = spatial_table_map[table_name]
-                    table_info["spatial_column"] = spatial_info['geometry_column']
-                    table_info["geometry_type"] = spatial_info['geometry_type']
-                    table_info["srid"] = spatial_info['srid']
-
-                    # 获取空间索引
-                    spatial_indexes = self.get_spatial_indexes(table_name)
-                    table_info["spatial_indexes"] = [
-                        {
-                            "name": idx['indexname'],
-                            "definition": idx['indexdef']
-                        }
-                        for idx in spatial_indexes
-                    ]
-
-                    schema_info["spatial_tables"][table_name] = table_info
-
-                schema_info["tables"][table_name] = table_info
-
-            self.logger.info(f"✓ Retrieved detailed schema for {len(all_tables)} tables")
-            return schema_info
-
-        except Exception as e:
-            self.logger.error(f"Failed to get detailed schema: {e}")
-            return {
-                "error": str(e),
-                "tables": {},
-                "spatial_tables": {}
-            }
-
+    
     def close(self) -> None:
         """关闭数据库连接，释放资源"""
         # 关闭原始psycopg2连接
@@ -659,3 +835,6 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"Error: {e}")
+
+
+

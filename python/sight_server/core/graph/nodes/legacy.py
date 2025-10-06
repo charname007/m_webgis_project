@@ -497,7 +497,8 @@ class LegacyAgentNodes:
                 else:
                     # 没有之前的SQL，生成新的
                     sql = self.sql_generator.generate_initial_sql(
-                        enhanced_query
+                        enhanced_query,
+                        match_mode=state.get("match_mode", "fuzzy"),
                     )
 
             elif fallback_strategy == "simplify_query":
@@ -513,7 +514,8 @@ class LegacyAgentNodes:
                 else:
                     # 没有之前的SQL，生成新的并添加LIMIT
                     sql = self.sql_generator.generate_initial_sql(
-                        enhanced_query
+                        enhanced_query,
+                        match_mode=state.get("match_mode", "fuzzy"),
                     )
                     sql = self.sql_generator.simplify_sql(sql, max_limit=50)
 
@@ -524,7 +526,8 @@ class LegacyAgentNodes:
                 self.logger.info(f"Using intent info: {intent_info}")
                 sql = self.sql_generator.generate_initial_sql(
                     enhanced_query,
-                    intent_info=intent_info  # ✅ 传递意图信息到生成器
+                    intent_info=intent_info,  # ✅ 传递意图信息到生成器
+                    match_mode=state.get("match_mode", "fuzzy"),
                 )
             else:
                 # 后续查询：分析缺失信息（仅用于指导SQL生成，不用于停止决策）
@@ -547,7 +550,8 @@ class LegacyAgentNodes:
                     original_query=enhanced_query,
                     previous_sql=previous_sql,
                     record_count=len(previous_data) if previous_data else 0,
-                    missing_fields=missing_analysis["missing_fields"]
+                    missing_fields=missing_analysis["missing_fields"],
+                    match_mode=state.get("match_mode", "fuzzy"),
                 )
 
                 # 检查生成的SQL是否与之前的重复

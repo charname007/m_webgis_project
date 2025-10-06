@@ -56,9 +56,27 @@ class GraphBuilder:
         """
         logger.info("Building LangGraph workflow with Fallback support...")
 
+        required = {
+            "fetch_schema",
+            "analyze_intent",
+            "enhance_query",
+            "generate_sql",
+            "execute_sql",
+            "validate_results",
+            "check_results",
+            "generate_answer",
+            "handle_error",
+        }
+
+        missing = required - set(node_handlers)
+        if missing:
+            missing_list = ", ".join(sorted(missing))
+            raise ValueError(f"Missing node handlers: {missing_list}")
+
         workflow = StateGraph(AgentState)
 
         workflow.add_node("fetch_schema", node_handlers["fetch_schema"])
+
         workflow.add_node("analyze_intent", node_handlers["analyze_intent"])
         workflow.add_node("enhance_query", node_handlers["enhance_query"])
         workflow.add_node("generate_sql", node_handlers["generate_sql"])

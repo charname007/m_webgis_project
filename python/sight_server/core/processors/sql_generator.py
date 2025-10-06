@@ -34,9 +34,37 @@ class SQLGenerator:
         self.logger = logger
         self._cached_schema: Optional[str] = None
 
+    def _build_sql_generation_prompt(self, match_mode: str) -> PromptTemplate:
+        template = self.sql_generation_template.replace("{match_rules}", self._get_match_rules(match_mode, context="initial"))
+        return PromptTemplate(template=template, input_variables=self.sql_generation_inputs)
+
+    def _build_followup_prompt(self, match_mode: str) -> PromptTemplate:
+        template = self.followup_query_template.replace("{match_rules}", self._get_match_rules(match_mode, context="followup"))
+        return PromptTemplate(template=template, input_variables=self.followup_query_inputs)
+
+    def _get_match_rules(self, match_mode: str, context: str = "initial") -> str:
+        if match_mode.lower() == "exact":
+            rules = [
+                "## 🎯 精确匹配策略（按需启用）",
+                "",
+                "- 根据用户明确要求，使用 `=` 对文本字段进行精确比较。",
+                "- 可结合 `LOWER()` / `UPPER()` 统一大小写，避免遗漏。",
+                "- 如需匹配多个关键词，可使用 `IN` 或多条件 `OR`。",
+                "- 未明确要求时请谨慎使用精确过滤，以免遗漏结果。",
+            ]
+        else:
+            rules = [
+                "## 🔍 模糊匹配策略（默认启用）",
+                "",
+                "- 对涉及用户输入的文本条件，优先使用模糊匹配。",
+                "- 推荐书写 `column ILIKE '%' || <value> || '%'` 或 `column ILIKE CONCAT('%', <value>, '%')`。",
+                "- 用户明确要求“精确匹配/完全一致”时再使用 `=`。",
+                "- 组合多个关键字时可先用 `ILIKE` 然后通过 `AND/OR` 组合。",
+            ]
+        return "\n".join(rules)
+
         # ✅ 启发式 SQL 生成 Prompt（调动 LLM 的 SQL 专业知识和推理能力）
-        self.sql_generation_prompt = PromptTemplate(
-            template="""你是一个精通 PostgreSQL 和 PostGIS 的 SQL 专家。
+        self.sql_generation_template = """你是一个精通 PostgreSQL 和 PostGIS 的 SQL 专家。
 
 {base_prompt}
 
@@ -72,6 +100,7 @@ class SQLGenerator:
 
 ## ⚠️ CRITICAL RULES（绝对必须遵守）
 
+{match_rules}
 **根据 intent_type 和 is_spatial 严格选择 SQL 结构：**
 
 ### 📊 Summary 查询 (intent_type="summary") - 规则：
@@ -270,13 +299,20 @@ class SQLGenerator:
 
 只返回SQL语句，不要解释。
 
-SQL:""",
-            input_variables=["base_prompt", "database_schema", "query", "intent_type", "is_spatial", "spatial_type", "confidence", "keywords_matched"]
-        )
+SQL:"""
+        self.sql_generation_inputs = [
+            "base_prompt",
+            "database_schema",
+            "query",
+            "intent_type",
+            "is_spatial",
+            "spatial_type",
+            "confidence",
+            "keywords_matched",
+        ]
 
         # ✅ 启发式补充查询 Prompt（引导 LLM 思考如何获取完整数据）
-        self.followup_query_prompt = PromptTemplate(
-            template="""你是一个擅长优化和补充查询的 SQL 专家。
+        self.followup_query_template = """你是一个擅长优化和补充查询的 SQL 专家。
 
 {base_prompt}
 
@@ -295,6 +331,8 @@ SQL:""",
 - 发现缺失字段: {missing_fields}
 
 ---
+
+{match_rules}
 
 ## 🤔 请分析并决定如何获取完整数据
 
@@ -326,16 +364,15 @@ SQL:""",
 
 只返回SQL语句，不要解释。
 
-SQL:""",
-            input_variables=[
-                "base_prompt",
-                "database_schema",
-                "original_query",
-                "previous_sql",
-                "record_count",
-                "missing_fields"
-            ]
-        )
+SQL:"""
+        self.followup_query_inputs = [
+            "base_prompt",
+            "database_schema",
+            "original_query",
+            "previous_sql",
+            "record_count",
+            "missing_fields",
+        ]
 
     def set_database_schema(self, formatted_schema: Optional[str]):
         """缓存数据库schema，避免每次调用时重复传入"""
@@ -369,7 +406,8 @@ SQL:""",
         self,
         query: str,
         intent_info: Optional[Dict[str, Any]] = None,  # ✅ 意图信息
-        database_schema: Optional[str] = None  # ✅ 新增参数：数据库Schema
+        database_schema: Optional[str] = None,  # ✅ 新增参数：数据库Schema
+        match_mode: str = "fuzzy",
     ) -> str:
         """
         生成初始SQL查询
@@ -382,6 +420,7 @@ SQL:""",
                 - confidence: float
                 - keywords_matched: List[str]
             database_schema: 格式化的数据库Schema字符串（可选）
+            match_mode: 匹配模式（fuzzy/ exact），默认使用模糊匹配
 
         Returns:
             生成的SQL语句
@@ -409,7 +448,8 @@ SQL:""",
             schema_str = self._resolve_schema_for_prompt(database_schema)
 
             # 构建提示词（✅ 传递意图信息和Schema）
-            prompt_text = self.sql_generation_prompt.format(
+            generation_prompt = self._build_sql_generation_prompt(match_mode)
+            prompt_text = generation_prompt.format(
                 base_prompt=self.base_prompt,
                 database_schema=schema_str,
                 query=query,
@@ -423,7 +463,7 @@ SQL:""",
             # 调用LLM生成SQL
             self.logger.debug(
                 f"Generating initial SQL for query: {query} "
-                f"(intent={intent_type}, spatial={is_spatial}, confidence={confidence:.2f})"
+                f"(intent={intent_type}, spatial={is_spatial}, confidence={confidence:.2f}, match_mode={match_mode})"
             )
             response = self.llm.llm.invoke(prompt_text)
 
@@ -467,8 +507,9 @@ SQL:""",
         original_query: str,
         previous_sql: str,
         record_count: int,
-        missing_fields: List[str],
-        database_schema: Optional[str] = None  # ✅ 新增参数：数据库Schema
+        missing_fields: Optional[List[str]] = None,
+        database_schema: Optional[str] = None,  # ✅ 新增参数：数据库Schema
+        match_mode: str = "fuzzy",
     ) -> str:
         """
         生成后续补充查询SQL
@@ -477,8 +518,9 @@ SQL:""",
             original_query: 原始查询
             previous_sql: 之前执行的SQL
             record_count: 当前记录数
-            missing_fields: 缺失的字段列表
+            missing_fields: 缺失的字段列表（可选）
             database_schema: 格式化的数据库Schema字符串（可选）
+            match_mode: 匹配模式（fuzzy/ exact）
 
         Returns:
             生成的补充SQL语句
@@ -486,19 +528,23 @@ SQL:""",
         try:
             # ✅ 如果没有提供schema，使用空字符串
             schema_str = self._resolve_schema_for_prompt(database_schema)
+            missing_fields = missing_fields or []
 
-            # 构建提示词（✅ 传递Schema）
-            prompt_text = self.followup_query_prompt.format(
+            # 构建提示词（包含Schema）
+            followup_prompt = self._build_followup_prompt(match_mode)
+            prompt_text = followup_prompt.format(
                 base_prompt=self.base_prompt,
                 database_schema=schema_str,
                 original_query=original_query,
                 previous_sql=previous_sql,
                 record_count=record_count,
-                missing_fields=", ".join(missing_fields)
+                missing_fields=", ".join(missing_fields or [])
             )
 
             # 调用LLM生成SQL
-            self.logger.debug(f"Generating followup SQL for missing fields: {missing_fields}")
+            self.logger.debug(
+                f"Generating followup SQL; previous count={record_count}, missing fields={missing_fields or []}, match_mode={match_mode}"
+            )
             response = self.llm.llm.invoke(prompt_text)
 
             # 提取SQL
@@ -516,103 +562,22 @@ SQL:""",
         current_data: Optional[List[Dict[str, Any]]]
     ) -> Dict[str, Any]:
         """
-        分析当前结果缺失的信息
-
-        Args:
-            query: 原始查询
-            current_data: 当前查询结果
-
-        Returns:
-            分析结果字典:
-            {
-                "has_missing": bool,
-                "missing_fields": List[str],
-                "data_complete": bool,
-                "suggestion": str
-            }
+        保留兼容接口，直接返回统一结构，避免重复字段分析。
         """
         if not current_data:
             return {
                 "has_missing": True,
                 "missing_fields": [],
                 "data_complete": False,
-                "suggestion": "无数据，需要重新查询"
+                "suggestion": "暂无数据，可按需重新查询"
             }
 
-        # ✅ 改进1: 检查是否已经JOIN了tourist_spot（通过_hasDetails标志）
-        sample_record = current_data[0]
-
-        # 如果包含_hasDetails标志，说明已经JOIN过详细信息
-        if '_hasDetails' in sample_record:
-            has_details = sample_record['_hasDetails']
-            if has_details:
-                self.logger.info("Data already contains tourist_spot details (_hasDetails=true)")
-                return {
-                    "has_missing": False,
-                    "missing_fields": [],
-                    "data_complete": True,
-                    "suggestion": "数据已包含详细信息，无需补充查询"
-                }
-            else:
-                # _hasDetails=false 说明数据源本身不完整
-                self.logger.warning("Data source incomplete (_hasDetails=false)")
-                return {
-                    "has_missing": True,
-                    "missing_fields": ['评分', '门票', '介绍', '图片链接'],
-                    "data_complete": False,
-                    "suggestion": "数据源不完整，无法通过补充查询获取"
-                }
-
-        # 检查字段完整性
-        missing_fields = []
-
-        # 定义期望字段
-        expected_fields = [
-            'name', 'level', 'address', 'coordinates',
-            '评分', '门票', '介绍', '图片链接'
-        ]
-
-        # ✅ 改进2: 检查字段是否存在且非空
-        for field in expected_fields:
-            field_value = sample_record.get(field)
-
-            # 判断字段是否缺失（不存在、None、空字符串、或默认占位值）
-            if field_value is None:
-                missing_fields.append(field)
-            elif isinstance(field_value, str):
-                # 空字符串或默认占位值视为缺失
-                if field_value.strip() == '' or field_value in ['暂无评分', '暂无介绍', '暂无门票信息']:
-                    missing_fields.append(field)
-
-        # ✅ 改进3: 计算缺失比例
-        missing_ratio = len(missing_fields) / len(expected_fields)
-
-        # 判断数据是否完整
-        data_complete = len(missing_fields) == 0
-
-        # ✅ 改进4: 根据缺失比例生成建议
-        if data_complete:
-            suggestion = "数据完整，无需补充查询"
-        elif missing_ratio > 0.5:
-            # 缺失超过50%的字段，可能是数据源问题，建议直接返回
-            self.logger.warning(f"Missing {missing_ratio:.1%} of fields, likely data source issue")
-            suggestion = "缺失字段过多，建议直接返回现有数据"
-            return {
-                "has_missing": False,  # 标记为无缺失（避免继续查询）
-                "missing_fields": missing_fields,
-                "data_complete": False,
-                "suggestion": suggestion
-            }
-        elif len(missing_fields) <= 2:
-            suggestion = f"缺少少量字段 ({', '.join(missing_fields)})，可补充查询"
-        else:
-            suggestion = f"缺少多个字段 ({len(missing_fields)}个)，建议补充详细查询"
-
+        self.logger.debug("Skipping missing-field analysis; assume full column set returned")
         return {
-            "has_missing": not data_complete,
-            "missing_fields": missing_fields,
-            "data_complete": data_complete,
-            "suggestion": suggestion
+            "has_missing": False,
+            "missing_fields": [],
+            "data_complete": True,
+            "suggestion": "结果已包含全部字段，可直接生成答案"
         }
 
     def _extract_sql(self, response) -> str:

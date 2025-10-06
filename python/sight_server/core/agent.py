@@ -16,7 +16,7 @@ from .database import DatabaseConnector
 from .prompts import PromptManager, PromptType
 from .schemas import QueryResult, AgentState
 from .processors import SQLGenerator, SQLExecutor, ResultParser, AnswerGenerator,OptimizedSQLExecutor
-from .graph import build_legacy_nodes, build_node_mapping, GraphBuilder
+from .graph import build_node_context, build_node_mapping, GraphBuilder
 from .memory import MemoryManager
 from .optimized_memory_manager import OptimizedMemoryManager
 from .checkpoint import CheckpointManager
@@ -61,8 +61,9 @@ class SQLQueryAgent:
         checkpoint_interval: int = 3,
         enable_error_handler: bool = True,  # ✅ 新增：是否启用增强错误处理器
         enable_cache: bool = True,  # ✅ 新增：是否启用查询缓存
-        cache_ttl: int = 3600,  # ✅ 新增：缓存生存时间（秒）
-        max_retries: int = 5  # ✅ 新增：最大重试次数
+        cache_ttl: int = 3600,  # ? ��������������ʱ�䣨�룩
+        max_retries: int = 5,  # ? ������������Դ���
+        graph_recursion_limit: int = 40,
     ):
         """
         初始化SQL查询Agent
@@ -80,6 +81,7 @@ class SQLQueryAgent:
             enable_cache: 是否启用查询缓存（✅ 新增）
             cache_ttl: 缓存生存时间（秒）（✅ 新增）
             max_retries: 最大重试次数（✅ 新增）
+            graph_recursion_limit: LangGraph 最大递归层数限制
         """
         self.logger = logger
         self.logger.info("Initializing SQLQueryAgent (LangGraph + Memory + Checkpoint mode)...")
@@ -90,6 +92,7 @@ class SQLQueryAgent:
         self.checkpoint_interval = checkpoint_interval
         self.enable_error_handler = enable_error_handler  # ✅ 新增
         self.enable_cache = enable_cache  # ✅ 新增
+        self.graph_recursion_limit = graph_recursion_limit
 
         # ==================== 初始化核心组件 ====================
 
@@ -163,7 +166,7 @@ class SQLQueryAgent:
         self.logger.info("✓ StructuredLogger initialized")
 
         # 创建节点函数
-        self.legacy_nodes = build_legacy_nodes(
+        self.node_context = build_node_context(
             sql_generator=self.sql_generator,
             sql_executor=self.sql_executor,
             result_parser=self.result_parser,
@@ -176,9 +179,8 @@ class SQLQueryAgent:
             result_validator=self.result_validator,
             data_analyzer=self.data_analyzer,
         )
-        self.node_handlers = build_node_mapping(self.legacy_nodes)
-        self.agent_nodes = self.legacy_nodes  # Legacy alias for compatibility
-        self.logger.info("✓ LegacyAgentNodes created")
+        self.node_handlers = build_node_mapping(self.node_context)
+        self.logger.info("? Node handlers registered")
 
         # 构建图
         self.graph = GraphBuilder.build(self.node_handlers)
@@ -447,7 +449,7 @@ class SQLQueryAgent:
         if self.enable_checkpoint and self.checkpoint_manager:
             # TODO: LangGraph的流式执行需要特殊API
             # 这里先使用简单invoke，后续可以升级为stream()
-            result_state = self.graph.invoke(state)
+            result_state = self.graph.invoke(state, config={"recursion_limit": self.graph_recursion_limit})
 
             # 执行完成后保存最终Checkpoint
             final_checkpoint_id = f"{state.get('conversation_id', 'unknown')}_final_{int(datetime.now().timestamp())}"
@@ -461,7 +463,7 @@ class SQLQueryAgent:
             return result_state
         else:
             # 不使用Checkpoint，直接执行
-            return self.graph.invoke(state)
+            return self.graph.invoke(state, config={"recursion_limit": self.graph_recursion_limit})
 
     def _create_initial_state(
         self,
