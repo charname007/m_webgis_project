@@ -253,14 +253,15 @@ class HandleErrorNode(NodeBase):
 
         error_lower = error.lower()
 
+        # 优先识别超时错误（包含中文和英文关键词）
+        if any(keyword in error_lower for keyword in ["timeout", "timed out", "查询超时", "超时"]):
+            return "execution_timeout"
         if any(keyword in error_lower for keyword in ["syntax", "near", "unexpected"]):
             return "sql_syntax_error"
         if any(keyword in error_lower for keyword in ["aggregate", "聚合", "嵌套"]):
             return "sql_syntax_error"
         if any(keyword in error_lower for keyword in ["from子句", "缺少from", "missing from", "from-clause"]):
             return "sql_syntax_error"
-        if any(keyword in error_lower for keyword in ["timeout", "timed out"]):
-            return "execution_timeout"
         if any(keyword in error_lower for keyword in ["connection", "connect", "refused"]):
             return "connection_error"
         if any(keyword in error_lower for keyword in ["column", "field", "relation", "does not exist"]):

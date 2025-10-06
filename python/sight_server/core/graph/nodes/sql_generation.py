@@ -72,12 +72,14 @@ class GenerateSqlNode(NodeBase):
                         sql=previous_sql,
                         error_context=error_context,
                         query=enhanced_query,
+                        intent_type_override=state.get("query_intent"),
                     )
                 else:
                     sql = self.sql_generator.fix_sql_with_error(
                         sql=previous_sql,
                         error=last_error,
                         query=enhanced_query,
+                        intent_type=state.get("query_intent"),
                     )
             else:
                 sql = self.sql_generator.generate_initial_sql(

@@ -66,6 +66,7 @@ class GraphBuilder:
             "check_results",
             "generate_answer",
             "handle_error",
+            "final_validation",
         }
 
         missing = required - set(node_handlers)
@@ -85,8 +86,9 @@ class GraphBuilder:
         workflow.add_node("check_results", node_handlers["check_results"])
         workflow.add_node("validate_results", node_handlers["validate_results"])
         workflow.add_node("generate_answer", node_handlers["generate_answer"])
+        workflow.add_node("final_validation", node_handlers["final_validation"])
 
-        logger.info("✓ Added 9 nodes to workflow (including fetch_schema, handle_error, and validate_results)")
+        logger.info("✓ Added 10 nodes to workflow (including fetch_schema, handle_error, validate_results, and final_validation)")
 
         workflow.set_entry_point("fetch_schema")
 
@@ -133,8 +135,9 @@ class GraphBuilder:
 
         logger.info("✓ Added conditional edge for iteration control")
 
-        workflow.add_edge("generate_answer", END)
-        logger.info("✓ Added end edge")
+        workflow.add_edge("generate_answer", "final_validation")
+        workflow.add_edge("final_validation", END)
+        logger.info("✓ Added final validation edge and end edge")
 
         compiled_graph = workflow.compile()
 

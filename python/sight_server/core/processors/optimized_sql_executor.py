@@ -34,10 +34,11 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
     def __init__(
         self,
         db_connector,
-        timeout: int = 30,
+        timeout: int = 90,  # 默认超时时间从30秒增加到90秒
         max_rows: int = 1000,
         enable_optimization: bool = True,
-        enable_timeout: bool = True
+        enable_timeout: bool = True,
+        max_retries: int = 3  # 添加最大重试次数
     ):
         """
         初始化优化的SQL执行器
@@ -57,6 +58,7 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         self.max_rows = max_rows
         self.enable_optimization = enable_optimization
         self.enable_timeout = enable_timeout
+        self.max_retries = max_retries  # 最大重试次数
         self.logger = logger
         
         # 性能统计
@@ -79,35 +81,150 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
             f"max_rows={max_rows}, optimization={enable_optimization}"
         )
 
+
     def execute_with_timeout(self, sql: str) -> Dict[str, Any]:
-        """
-        带超时控制的SQL执行
+        """Execute SQL with optional timeout and keep statistics."""
+        return self._execute_with_retry(sql)
 
+    def _execute_with_retry(self, sql: str) -> Dict[str, Any]:
+        """
+        带重试机制的SQL执行
+        
+        重试策略:
+        - 第一次重试: 90秒超时，保持原查询
+        - 第二次重试: 120秒超时，简化查询条件
+        - 第三次重试: 150秒超时，限制返回数据量
+        
         Args:
-            sql: SQL查询语句
-
+            sql: SQL语句
+            
         Returns:
-            执行结果字典
+            执行结果
         """
+        retry_count = 0
+        last_error = None
+        
+        while retry_count <= self.max_retries:
+            try:
+                # 根据重试次数调整超时时间
+                current_timeout = self._get_retry_timeout(retry_count)
+                
+                # 根据重试次数优化SQL
+                current_sql = self._get_retry_sql(sql, retry_count)
+                
+                self.logger.info(f"重试 {retry_count}/{self.max_retries}: 超时={current_timeout}s, SQL={current_sql[:200]}...")
+                
+                # 执行查询
+                result = self._execute_single_query(current_sql, current_timeout)
+                
+                if result["status"] == "success":
+                    self.logger.info(f"重试成功: 第{retry_count}次重试")
+                    return result
+                else:
+                    last_error = result.get("error")
+                    self.logger.warning(f"重试失败: 第{retry_count}次重试, 错误: {last_error}")
+                    
+            except Exception as e:
+                last_error = str(e)
+                self.logger.warning(f"重试异常: 第{retry_count}次重试, 异常: {last_error}")
+            
+            retry_count += 1
+            if retry_count <= self.max_retries:
+                # 重试间隔
+                time.sleep(2)
+        
+        # 所有重试都失败
+        self.logger.error(f"所有重试都失败: {last_error}")
+        return {
+            "status": "error",
+            "data": None,
+            "count": 0,
+            "raw_result": None,
+            "error": f"查询失败，经过{self.max_retries}次重试: {last_error}",
+            "error_type": "RETRY_EXHAUSTED"
+        }
+
+    def _get_retry_timeout(self, retry_count: int) -> int:
+        """根据重试次数获取超时时间"""
+        timeout_increments = [90, 120, 150, 180]  # 逐步增加超时时间
+        if retry_count < len(timeout_increments):
+            return timeout_increments[retry_count]
+        return timeout_increments[-1]  # 使用最大超时时间
+
+    def _get_retry_sql(self, original_sql: str, retry_count: int) -> str:
+        """根据重试次数优化SQL"""
+        if retry_count == 0:
+            # 第一次重试: 保持原查询
+            return original_sql
+        elif retry_count == 1:
+            # 第二次重试: 简化查询条件
+            return self._simplify_query(original_sql)
+        else:
+            # 第三次及以后重试: 限制返回数据量
+            return self._limit_query_results(original_sql)
+
+    def _simplify_query(self, sql: str) -> str:
+        """简化查询条件"""
+        # 移除复杂的JOIN条件
+        simplified_sql = re.sub(r'\bFULL\s+OUTER\s+JOIN\b', 'LEFT JOIN', sql, flags=re.IGNORECASE)
+        simplified_sql = re.sub(r'\bCROSS\s+JOIN\b', 'INNER JOIN', simplified_sql, flags=re.IGNORECASE)
+        
+        # 移除复杂的子查询
+        if self._has_complex_subquery(simplified_sql):
+            simplified_sql = self._remove_complex_subqueries(simplified_sql)
+            
+        self.logger.info(f"简化查询: {simplified_sql[:200]}...")
+        return simplified_sql
+
+    def _limit_query_results(self, sql: str) -> str:
+        """限制查询结果数量"""
+        if self._is_select_query(sql) and not self._has_limit(sql):
+            limited_sql = self._add_limit(sql, min(self.max_rows, 100))  # 限制为100条
+            self.logger.info(f"限制结果数量: {limited_sql[:200]}...")
+            return limited_sql
+        return sql
+
+    def _remove_complex_subqueries(self, sql: str) -> str:
+        """移除复杂子查询"""
+        # 这里可以实现具体的子查询移除逻辑
+        # 目前返回原始SQL，后续可以扩展
+        return sql
+
+    def _execute_single_query(self, sql: str, timeout: int) -> Dict[str, Any]:
+        """执行单次查询"""
         start_time = time.time()
         self.stats["total_queries"] += 1
-        
+
+        optimized_sql = sql
+        optimized_applied = False
+
         try:
-            # 优化SQL（如果启用）
             if self.enable_optimization:
-                optimized_sql = self._optimize_sql(sql)
-                if optimized_sql != sql:
+                candidate_sql = self._optimize_sql(sql)
+                if candidate_sql != sql:
                     self.stats["optimized_queries"] += 1
-                    self.logger.info(f"SQL optimized: {optimized_sql[:200]}...")
-                sql = optimized_sql
+                    self.logger.info(f"SQL optimized: {candidate_sql[:200]}...")
+                    optimized_applied = True
+                optimized_sql = candidate_sql
 
-            # 执行SQL（带超时）
+            # 临时设置超时时间
+            original_timeout = self.timeout
+            self.timeout = timeout
+            
             if self.enable_timeout:
-                result = self._execute_with_timeout(sql)
+                result = self._execute_with_timeout(optimized_sql)
             else:
-                result = self._execute_directly(sql)
+                result = self._execute_directly(optimized_sql)
+                
+            # 恢复原始超时时间
+            self.timeout = original_timeout
 
-            # 更新统计信息
+            status = result.get("status", "success")
+            if status == "timeout":
+                raise TimeoutError(result.get("error") or f"Query timed out after {timeout}s")
+            if status == "error":
+                raise RuntimeError(result.get("error") or "SQL execution failed")
+
             execution_time = time.time() - start_time
             self.stats["total_execution_time"] += execution_time
             self.stats["successful_queries"] += 1
@@ -116,21 +233,25 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
             )
 
             result["execution_time"] = execution_time
-            result["optimized"] = (optimized_sql != sql) if self.enable_optimization else False
-            
+            result["optimized"] = optimized_applied
+
             self.logger.info(
-                f"SQL executed successfully: {execution_time:.2f}s, "
-                f"rows={result.get('count', 0)}"
+                f"SQL executed successfully: {execution_time:.2f}s, rows={result.get('count', 0)}"
             )
-            
+
             return result
 
         except Exception as e:
-            # 错误处理
             execution_time = time.time() - start_time
-            error_result = self._handle_execution_error(sql, e, execution_time)
-            return error_result
+            self.logger.error(f"SQL execution failed after {execution_time:.2f}s: {e}")
+            self.stats["total_execution_time"] += execution_time
+            self.stats["failed_queries"] += 1
+            self.stats["average_execution_time"] = (
+                self.stats["total_execution_time"] /
+                max(self.stats["successful_queries"], 1)
+            )
 
+            return self._handle_execution_error(optimized_sql, e, execution_time)
     def _execute_with_timeout(self, sql: str) -> Dict[str, Any]:
         """
         使用线程池执行带超时的SQL

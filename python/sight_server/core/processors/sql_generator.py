@@ -12,6 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class SQLGenerator:
+    ALIAS_TABLE_MAP = {
+        'a': 'a_sight',
+        'a_sight': 'a_sight',
+        't': 'tourist_spot',
+        'ts': 'tourist_spot',
+        'tourist_spot': 'tourist_spot',
+    }
+    ALIAS_DEFAULT_MAPPING = {
+        'a_sight': 'a',
+        'tourist_spot': 't',
+    }
+    SUPPORTED_CTE_ALIASES = {'combined', 'combined_data'}
+
     """
     SQL生成器
 
@@ -33,12 +46,23 @@ class SQLGenerator:
         self.base_prompt = base_prompt
         self.logger = logger
         self._cached_schema: Optional[str] = None
+        self._init_prompt_templates()
 
     def _build_sql_generation_prompt(self, match_mode: str) -> PromptTemplate:
+        # 确保模板已初始化
+        if not hasattr(self, 'sql_generation_template') or not self.sql_generation_template:
+            self.logger.warning("sql_generation_template not initialized, reinitializing...")
+            self._init_prompt_templates()
+        
         template = self.sql_generation_template.replace("{match_rules}", self._get_match_rules(match_mode, context="initial"))
         return PromptTemplate(template=template, input_variables=self.sql_generation_inputs)
 
     def _build_followup_prompt(self, match_mode: str) -> PromptTemplate:
+        # 确保模板已初始化
+        if not hasattr(self, 'followup_query_template') or not self.followup_query_template:
+            self.logger.warning("followup_query_template not initialized, reinitializing...")
+            self._init_prompt_templates()
+        
         template = self.followup_query_template.replace("{match_rules}", self._get_match_rules(match_mode, context="followup"))
         return PromptTemplate(template=template, input_variables=self.followup_query_inputs)
 
@@ -63,316 +87,317 @@ class SQLGenerator:
             ]
         return "\n".join(rules)
 
-        # ✅ 启发式 SQL 生成 Prompt（调动 LLM 的 SQL 专业知识和推理能力）
-        self.sql_generation_template = """你是一个精通 PostgreSQL 和 PostGIS 的 SQL 专家。
+    def _init_prompt_templates(self) -> None:
+                # ✅ 启发式 SQL 生成 Prompt（调动 LLM 的 SQL 专业知识和推理能力）
+                self.sql_generation_template = """你是一个精通 PostgreSQL 和 PostGIS 的 SQL 专家。
 
-{base_prompt}
+        {base_prompt}
 
-**数据库Schema信息**（完整字段类型供你参考）:
-{database_schema}
+        **数据库Schema信息**（完整字段类型供你参考）:
+        {database_schema}
 
-**用户查询**: {query}
+        **用户查询**: {query}
 
-**查询意图分析**（供你参考）:
-- 查询类型: {intent_type} (query=用户需要具体数据 / summary=用户需要统计结果)
-- 空间特征: {is_spatial} (True=涉及距离/位置计算 / False=普通数据查询)
-- 置信度: {confidence}
-- 相关关键词: {keywords_matched}
+        **查询意图分析**（供你参考）:
+        - 查询类型: {intent_type} (query=用户需要具体数据 / summary=用户需要统计结果)
+        - 空间特征: {is_spatial} (True=涉及距离/位置计算 / False=普通数据查询)
+        - 置信度: {confidence}
+        - 相关关键词: {keywords_matched}
 
----
+        ---
 
-## 📋 意图组合决策表（快速决策指南）
+        ## 📋 意图组合决策表（快速决策指南）
 
-根据 **intent_type** 和 **is_spatial** 的组合，选择对应的 SQL 结构：
+        根据 **intent_type** 和 **is_spatial** 的组合，选择对应的 SQL 结构：
 
-┌─────────────┬─────────────┬──────────────────────────────┬────────────────────────────┐
-│ intent_type │ is_spatial  │ 查询示例                     │ SQL 结构要求               │
-├─────────────┼─────────────┼──────────────────────────────┼────────────────────────────┤
-│ query       │ False       │ "查询浙江省的5A景区"         │ json_agg + 完整字段        │
-│ query       │ True        │ "距离西湖10公里内的景区"     │ json_agg + 坐标 + 空间过滤 │
-│ summary     │ False       │ "统计浙江省有多少景区"       │ COUNT/AVG + 可选GROUP BY   │
-│ summary     │ True ⭐     │ "武汉市景区的空间分布"       │ GROUP BY + 空间字段        │
-└─────────────┴─────────────┴──────────────────────────────┴────────────────────────────┘
+        ┌─────────────┬─────────────┬──────────────────────────────┬────────────────────────────┐
+        │ intent_type │ is_spatial  │ 查询示例                     │ SQL 结构要求               │
+        ├─────────────┼─────────────┼──────────────────────────────┼────────────────────────────┤
+        │ query       │ False       │ "查询浙江省的5A景区"         │ json_agg + 完整字段        │
+        │ query       │ True        │ "距离西湖10公里内的景区"     │ json_agg + 坐标 + 空间过滤 │
+        │ summary     │ False       │ "统计浙江省有多少景区"       │ COUNT/AVG + 可选GROUP BY   │
+        │ summary     │ True ⭐     │ "武汉市景区的空间分布"       │ GROUP BY + 空间字段        │
+        └─────────────┴─────────────┴──────────────────────────────┴────────────────────────────┘
 
-**当前查询属于**: {intent_type} + {spatial_type} → 请严格遵守对应的 SQL 结构要求
+        **当前查询属于**: {intent_type} + {spatial_type} → 请严格遵守对应的 SQL 结构要求
 
----
+        ---
 
-## ⚠️ CRITICAL RULES（绝对必须遵守）
+        ## ⚠️ CRITICAL RULES（绝对必须遵守）
 
-{match_rules}
-**根据 intent_type 和 is_spatial 严格选择 SQL 结构：**
+        {match_rules}
+        **根据 intent_type 和 is_spatial 严格选择 SQL 结构：**
 
-### 📊 Summary 查询 (intent_type="summary") - 规则：
+        ### 📊 Summary 查询 (intent_type="summary") - 规则：
 
-#### Summary + Non-Spatial (普通统计查询)
-   ✅ **必须使用聚合函数**: COUNT(*), SUM(...), AVG(...), MAX(...), MIN(...)
-   ✅ **必须返回简单数值或分组统计**
-   ✅ **允许 GROUP BY 分组统计**
-   ❌ **禁止使用 json_agg 或 json_build_object**
+        #### Summary + Non-Spatial (普通统计查询)
+           ✅ **必须使用聚合函数**: COUNT(*), SUM(...), AVG(...), MAX(...), MIN(...)
+           ✅ **必须返回简单数值或分组统计**
+           ✅ **允许 GROUP BY 分组统计**
+           ❌ **禁止使用 json_agg 或 json_build_object**
 
-   **正确示例**：
-   ```sql
-   -- 简单数量统计
-   SELECT COUNT(*) as count FROM a_sight WHERE level = '5A'
+           **正确示例**：
+           ```sql
+           -- 简单数量统计
+           SELECT COUNT(*) as count FROM a_sight WHERE level = '5A'
 
-   -- 分组统计
-   SELECT "所属省份" as province, COUNT(*) as count
-   FROM a_sight GROUP BY "所属省份"
+           -- 分组统计
+           SELECT "所属省份" as province, COUNT(*) as count
+           FROM a_sight GROUP BY "所属省份"
 
-   -- 多维度统计
-   SELECT level, COUNT(*) as count 
-   FROM a_sight GROUP BY level ORDER BY count DESC
-   ```
+           -- 多维度统计
+           SELECT level, COUNT(*) as count 
+           FROM a_sight GROUP BY level ORDER BY count DESC
+           ```
 
-#### Summary + Spatial (空间统计查询) ⭐ 重要
-   ✅ **必须返回空间维度的统计**（不能只有总数）
-   ✅ **推荐使用 GROUP BY + 空间字段**（按区域/等级分组）
-   ✅ **必须包含空间信息**（中心坐标、边界范围等）
-   ❌ **禁止只返回简单的 COUNT(*)**
+        #### Summary + Spatial (空间统计查询) ⭐ 重要
+           ✅ **必须返回空间维度的统计**（不能只有总数）
+           ✅ **推荐使用 GROUP BY + 空间字段**（按区域/等级分组）
+           ✅ **必须包含空间信息**（中心坐标、边界范围等）
+           ❌ **禁止只返回简单的 COUNT(*)**
 
-   **正确示例1：按行政区分组统计**（⭐ 推荐，最常用）
-   ```sql
-   -- "武汉市景区的空间分布" → 按区域分组 + 空间中心
-   SELECT
-     COALESCE(a."所属行政区", '未知') as district,
-     COUNT(*) as count,
-     AVG(a.lng_wgs84) as center_lng,  -- ⭐ 区域中心经度
-     AVG(a.lat_wgs84) as center_lat   -- ⭐ 区域中心纬度
-   FROM a_sight a
-   WHERE a."所属城市" = '武汉市'
-     AND a.lng_wgs84 IS NOT NULL
-     AND a.lat_wgs84 IS NOT NULL
-   GROUP BY a."所属行政区"
-   ORDER BY count DESC
-   ```
+           **正确示例1：按行政区分组统计**（⭐ 推荐，最常用）
+           ```sql
+           -- "武汉市景区的空间分布" → 按区域分组 + 空间中心
+           SELECT
+             COALESCE(a."所属行政区", '未知') as district,
+             COUNT(*) as count,
+             AVG(a.lng_wgs84) as center_lng,  -- ⭐ 区域中心经度
+             AVG(a.lat_wgs84) as center_lat   -- ⭐ 区域中心纬度
+           FROM a_sight a
+           WHERE a."所属城市" = '武汉市'
+             AND a.lng_wgs84 IS NOT NULL
+             AND a.lat_wgs84 IS NOT NULL
+           GROUP BY a."所属行政区"
+           ORDER BY count DESC
+           ```
 
-   **正确示例2：按景区等级分组 + 空间中心**
-   ```sql
-   -- "统计各等级景区的空间分布"
-   SELECT
-     a.level,
-     COUNT(*) as count,
-     AVG(a.lng_wgs84) as center_lng,
-     AVG(a.lat_wgs84) as center_lat
-   FROM a_sight a
-   WHERE a."所属城市" = '武汉市'
-     AND a.lng_wgs84 IS NOT NULL
-   GROUP BY a.level
-   ORDER BY a.level
-   ```
+           **正确示例2：按景区等级分组 + 空间中心**
+           ```sql
+           -- "统计各等级景区的空间分布"
+           SELECT
+             a.level,
+             COUNT(*) as count,
+             AVG(a.lng_wgs84) as center_lng,
+             AVG(a.lat_wgs84) as center_lat
+           FROM a_sight a
+           WHERE a."所属城市" = '武汉市'
+             AND a.lng_wgs84 IS NOT NULL
+           GROUP BY a.level
+           ORDER BY a.level
+           ```
 
-   **正确示例3：空间范围统计**（边界框）
-   ```sql
-   -- "武汉市景区的分布范围"
-   SELECT
-     COUNT(*) as total_count,
-     MIN(lng_wgs84) as bbox_min_lng,  -- 西边界
-     MAX(lng_wgs84) as bbox_max_lng,  -- 东边界
-     MIN(lat_wgs84) as bbox_min_lat,  -- 南边界
-     MAX(lat_wgs84) as bbox_max_lat,  -- 北边界
-     AVG(lng_wgs84) as center_lng,    -- 中心点经度
-     AVG(lat_wgs84) as center_lat     -- 中心点纬度
-   FROM a_sight
-   WHERE "所属城市" = '武汉市' AND lng_wgs84 IS NOT NULL
-   ```
+           **正确示例3：空间范围统计**（边界框）
+           ```sql
+           -- "武汉市景区的分布范围"
+           SELECT
+             COUNT(*) as total_count,
+             MIN(lng_wgs84) as bbox_min_lng,  -- 西边界
+             MAX(lng_wgs84) as bbox_max_lng,  -- 东边界
+             MIN(lat_wgs84) as bbox_min_lat,  -- 南边界
+             MAX(lat_wgs84) as bbox_max_lat,  -- 北边界
+             AVG(lng_wgs84) as center_lng,    -- 中心点经度
+             AVG(lat_wgs84) as center_lat     -- 中心点纬度
+           FROM a_sight
+           WHERE "所属城市" = '武汉市' AND lng_wgs84 IS NOT NULL
+           ```
 
-   **正确示例4：高级空间分析**（可选，使用 PostGIS 函数）
-   ```sql
-   -- 地理网格统计（需要 PostGIS）
-   SELECT
-     ST_GeoHash(lng_wgs84, lat_wgs84, 4) as grid_id,
-     COUNT(*) as count,
-     AVG(lng_wgs84) as center_lng,
-     AVG(lat_wgs84) as center_lat
-   FROM a_sight
-   WHERE "所属城市" = '武汉市'
-     AND lng_wgs84 IS NOT NULL
-   GROUP BY ST_GeoHash(lng_wgs84, lat_wgs84, 4)
-   ORDER BY count DESC
-   ```
+           **正确示例4：高级空间分析**（可选，使用 PostGIS 函数）
+           ```sql
+           -- 地理网格统计（需要 PostGIS）
+           SELECT
+             ST_GeoHash(lng_wgs84, lat_wgs84, 4) as grid_id,
+             COUNT(*) as count,
+             AVG(lng_wgs84) as center_lng,
+             AVG(lat_wgs84) as center_lat
+           FROM a_sight
+           WHERE "所属城市" = '武汉市'
+             AND lng_wgs84 IS NOT NULL
+           GROUP BY ST_GeoHash(lng_wgs84, lat_wgs84, 4)
+           ORDER BY count DESC
+           ```
 
-   ❌ **错误示例**（只返回总数，丢失空间维度）：
-   ```sql
-   -- ❌ 错误："空间分布"查询不能只返回总数
-   SELECT COUNT(*) as count
-   FROM a_sight
-   WHERE "所属城市" = '武汉市'
-   ```
+           ❌ **错误示例**（只返回总数，丢失空间维度）：
+           ```sql
+           -- ❌ 错误："空间分布"查询不能只返回总数
+           SELECT COUNT(*) as count
+           FROM a_sight
+           WHERE "所属城市" = '武汉市'
+           ```
 
-### 📋 Query 查询 (intent_type="query") - 规则：
+        ### 📋 Query 查询 (intent_type="query") - 规则：
 
-#### Query + Non-Spatial (普通数据查询)
-   ✅ **必须使用 json_agg(json_build_object(...))**
-   ✅ **必须返回 JSON 数组格式**
-   ✅ **必须包含完整的记录信息**
+        #### Query + Non-Spatial (普通数据查询)
+           ✅ **必须使用 json_agg(json_build_object(...))**
+           ✅ **必须返回 JSON 数组格式**
+           ✅ **必须包含完整的记录信息**
 
-   **正确示例**：
-   ```sql
-   SELECT json_agg(json_build_object(
-       'name', name,
-       'level', level,
-       'city', city
-   )) as result
-   FROM a_sight WHERE level = '5A'
-   ```
+           **正确示例**：
+           ```sql
+           SELECT json_agg(json_build_object(
+               'name', name,
+               'level', level,
+               'city', city
+           )) as result
+           FROM a_sight WHERE level = '5A'
+           ```
 
-#### Query + Spatial (空间数据查询)
-   ✅ **必须使用 json_agg(json_build_object(...))**
-   ✅ **必须包含空间坐标信息**
-   ✅ **应该使用空间排序和过滤**
-   ✅ **可以包含空间聚类分析**
+        #### Query + Spatial (空间数据查询)
+           ✅ **必须使用 json_agg(json_build_object(...))**
+           ✅ **必须包含空间坐标信息**
+           ✅ **应该使用空间排序和过滤**
+           ✅ **可以包含空间聚类分析**
 
-   **正确示例**：
-   ```sql
-   -- 空间查询（带坐标）
-   SELECT json_agg(json_build_object(
-       'name', name,
-       'level', level,
-       'coordinates', json_build_array(lng_wgs84, lat_wgs84)
-   )) as result
-   FROM a_sight 
-   WHERE "所属城市" = '武汉市'
-     AND lng_wgs84 IS NOT NULL 
-     AND lat_wgs84 IS NOT NULL
+           **正确示例**：
+           ```sql
+           -- 空间查询（带坐标）
+           SELECT json_agg(json_build_object(
+               'name', name,
+               'level', level,
+               'coordinates', json_build_array(lng_wgs84, lat_wgs84)
+           )) as result
+           FROM a_sight 
+           WHERE "所属城市" = '武汉市'
+             AND lng_wgs84 IS NOT NULL 
+             AND lat_wgs84 IS NOT NULL
 
-   -- 空间聚类查询
-   SELECT json_agg(json_build_object(
-       'name', name,
-       'level', level,
-       'coordinates', json_build_array(lng_wgs84, lat_wgs84),
-       'cluster_id', ST_GeoHash(lng_wgs84, lat_wgs84, 3)
-   )) as result
-   FROM a_sight 
-   WHERE "所属城市" = '武汉市'
-   ORDER BY ST_GeoHash(lng_wgs84, lat_wgs84, 3)
-   ```
+           -- 空间聚类查询
+           SELECT json_agg(json_build_object(
+               'name', name,
+               'level', level,
+               'coordinates', json_build_array(lng_wgs84, lat_wgs84),
+               'cluster_id', ST_GeoHash(lng_wgs84, lat_wgs84, 3)
+           )) as result
+           FROM a_sight 
+           WHERE "所属城市" = '武汉市'
+           ORDER BY ST_GeoHash(lng_wgs84, lat_wgs84, 3)
+           ```
 
----
+        ---
 
-## 🤔 请运用你的 SQL 专业知识
+        ## 🤔 请运用你的 SQL 专业知识
 
-基于以上信息，请思考：
+        基于以上信息，请思考：
 
-### 1. 查询意图理解
-   - 用户真正需要什么数据？
-   - 是需要统计汇总（数量、平均值等），还是具体记录列表？
-   - 是否涉及空间计算（距离、范围等）？
+        ### 1. 查询意图理解
+           - 用户真正需要什么数据？
+           - 是需要统计汇总（数量、平均值等），还是具体记录列表？
+           - 是否涉及空间计算（距离、范围等）？
 
-   💡 **关键区分**：
-   - **intent_type = "summary"**: 用户只需要统计数字（数量、平均值、总数、分布等），不需要详细记录
-   - **intent_type = "query"**: 用户需要具体记录列表或详细信息
+           💡 **关键区分**：
+           - **intent_type = "summary"**: 用户只需要统计数字（数量、平均值、总数、分布等），不需要详细记录
+           - **intent_type = "query"**: 用户需要具体记录列表或详细信息
 
-### 2. 数据获取策略
-   - 需要从哪些表获取数据？（参考上方Schema信息中的表结构）
-   - 如何确保获取完整的数据（包括只在某个表中存在的记录）？
-   - 是否需要表连接？用什么连接方式最合适（INNER JOIN、LEFT JOIN、UNION ALL等）？
-   - 对于两表数据只有部分重合的情况，如何设计查询才不会遗漏数据？
+        ### 2. 数据获取策略
+           - 需要从哪些表获取数据？（参考上方Schema信息中的表结构）
+           - 如何确保获取完整的数据（包括只在某个表中存在的记录）？
+           - 是否需要表连接？用什么连接方式最合适（INNER JOIN、LEFT JOIN、UNION ALL等）？
+           - 对于两表数据只有部分重合的情况，如何设计查询才不会遗漏数据？
 
-### 3. SQL 结构设计
+        ### 3. SQL 结构设计
 
-   **Summary 查询**（intent_type="summary"）：
-   - ✅ 直接使用聚合函数：COUNT、SUM、AVG、MAX、MIN 等
-   - ✅ 返回简单的数值或统计结果
-   - ❌ **不要使用 json_agg 或 json_build_object**
-   - 示例：`SELECT COUNT(*) as count FROM table WHERE condition`
-   - 示例：`SELECT level, COUNT(*) as count FROM table GROUP BY level`
+           **Summary 查询**（intent_type="summary"）：
+           - ✅ 直接使用聚合函数：COUNT、SUM、AVG、MAX、MIN 等
+           - ✅ 返回简单的数值或统计结果
+           - ❌ **不要使用 json_agg 或 json_build_object**
+           - 示例：`SELECT COUNT(*) as count FROM table WHERE condition`
+           - 示例：`SELECT level, COUNT(*) as count FROM table GROUP BY level`
 
-   **Query 查询**（intent_type="query"）：
-   - ✅ 使用 json_agg(json_build_object(...)) 返回 JSON 数组
-   - ✅ 返回完整的记录列表
-   - 示例：`SELECT json_agg(json_build_object(...)) as result FROM table WHERE condition`
+           **Query 查询**（intent_type="query"）：
+           - ✅ 使用 json_agg(json_build_object(...)) 返回 JSON 数组
+           - ✅ 返回完整的记录列表
+           - 示例：`SELECT json_agg(json_build_object(...)) as result FROM table WHERE condition`
 
-   **其他注意事项**：
-   - WHERE 条件应该放在哪里？（子查询内部、外层、还是两者都有）
-   - 如何处理可能的 NULL 值和数据类型问题？（参考Schema中的字段类型）
-   - 如何避免表别名作用域错误（子查询内的别名外层无法访问）？
+           **其他注意事项**：
+           - WHERE 条件应该放在哪里？（子查询内部、外层、还是两者都有）
+           - 如何处理可能的 NULL 值和数据类型问题？（参考Schema中的字段类型）
+           - 如何避免表别名作用域错误（子查询内的别名外层无法访问）？
 
-### 4. 性能和正确性
-   - SQL 语法是否完整（FROM 子句、表别名定义等）？
-   - 是否考虑了查询性能（LIMIT、索引利用等）？
-   - 对于聚合查询，是否遵守了 GROUP BY 规则？
+        ### 4. 性能和正确性
+           - SQL 语法是否完整（FROM 子句、表别名定义等）？
+           - 是否考虑了查询性能（LIMIT、索引利用等）？
+           - 对于聚合查询，是否遵守了 GROUP BY 规则？
 
----
+        ---
 
-请基于你的专业判断和 PostgreSQL 最佳实践，生成最优的 SQL 查询。
+        请基于你的专业判断和 PostgreSQL 最佳实践，生成最优的 SQL 查询。
 
-只返回SQL语句，不要解释。
+        只返回SQL语句，不要解释。
 
-SQL:"""
-        self.sql_generation_inputs = [
-            "base_prompt",
-            "database_schema",
-            "query",
-            "intent_type",
-            "is_spatial",
-            "spatial_type",
-            "confidence",
-            "keywords_matched",
-        ]
+        SQL:"""
+                self.sql_generation_inputs = [
+                    "base_prompt",
+                    "database_schema",
+                    "query",
+                    "intent_type",
+                    "is_spatial",
+                    "spatial_type",
+                    "confidence",
+                    "keywords_matched",
+                ]
 
-        # ✅ 启发式补充查询 Prompt（引导 LLM 思考如何获取完整数据）
-        self.followup_query_template = """你是一个擅长优化和补充查询的 SQL 专家。
+                # ✅ 启发式补充查询 Prompt（引导 LLM 思考如何获取完整数据）
+                self.followup_query_template = """你是一个擅长优化和补充查询的 SQL 专家。
 
-{base_prompt}
+        {base_prompt}
 
-**数据库Schema信息**（完整字段类型供你参考）:
-{database_schema}
+        **数据库Schema信息**（完整字段类型供你参考）:
+        {database_schema}
 
-**用户原始需求**: {original_query}
+        **用户原始需求**: {original_query}
 
-**已执行的查询**:
-```sql
-{previous_sql}
-```
+        **已执行的查询**:
+        ```sql
+        {previous_sql}
+        ```
 
-**当前数据状况**:
-- 已获取记录数: {record_count}
-- 发现缺失字段: {missing_fields}
+        **当前数据状况**:
+        - 已获取记录数: {record_count}
+        - 发现缺失字段: {missing_fields}
 
----
+        ---
 
-{match_rules}
+        {match_rules}
 
-## 🤔 请分析并决定如何获取完整数据
+        ## 🤔 请分析并决定如何获取完整数据
 
-### 思考框架：
+        ### 思考框架：
 
-1. **数据完整性分析**
-   - 哪些字段缺失了？
-   - 这些字段通常在哪个表中？（参考上方Schema信息中的表结构和字段类型）
-   - 是否可以通过补充查询获取？还是数据源本身不完整？
+        1. **数据完整性分析**
+           - 哪些字段缺失了？
+           - 这些字段通常在哪个表中？（参考上方Schema信息中的表结构和字段类型）
+           - 是否可以通过补充查询获取？还是数据源本身不完整？
 
-2. **补充查询策略**
-   - 应该查询哪些表？
-   - 如何与已有数据关联？（通过名称匹配、ID 关联等）
-   - 用什么连接方式最合适？（LEFT JOIN、INNER JOIN、还是其他）
+        2. **补充查询策略**
+           - 应该查询哪些表？
+           - 如何与已有数据关联？（通过名称匹配、ID 关联等）
+           - 用什么连接方式最合适？（LEFT JOIN、INNER JOIN、还是其他）
 
-3. **查询优化**
-   - 如何避免重复获取已有数据？
-   - 如何确保补充查询的效率？
-   - WHERE 条件应该如何设置以精准获取缺失数据？
+        3. **查询优化**
+           - 如何避免重复获取已有数据？
+           - 如何确保补充查询的效率？
+           - WHERE 条件应该如何设置以精准获取缺失数据？
 
-4. **SQL 结构设计**
-   - 是否使用 json_agg 返回 JSON 数组？
-   - 如何确保返回的数据可以与已有数据合并？
-   - 如何处理可能的 NULL 值？（参考Schema中的字段类型）
+        4. **SQL 结构设计**
+           - 是否使用 json_agg 返回 JSON 数组？
+           - 如何确保返回的数据可以与已有数据合并？
+           - 如何处理可能的 NULL 值？（参考Schema中的字段类型）
 
----
+        ---
 
-请基于你的 SQL 专业知识，生成补充查询的 SQL 语句。
+        请基于你的 SQL 专业知识，生成补充查询的 SQL 语句。
 
-只返回SQL语句，不要解释。
+        只返回SQL语句，不要解释。
 
-SQL:"""
-        self.followup_query_inputs = [
-            "base_prompt",
-            "database_schema",
-            "original_query",
-            "previous_sql",
-            "record_count",
-            "missing_fields",
-        ]
+        SQL:"""
+                self.followup_query_inputs = [
+                    "base_prompt",
+                    "database_schema",
+                    "original_query",
+                    "previous_sql",
+                    "record_count",
+                    "missing_fields",
+                ]
 
     def set_database_schema(self, formatted_schema: Optional[str]):
         """缓存数据库schema，避免每次调用时重复传入"""
@@ -844,6 +869,12 @@ SQL:"""
         system_keywords = {'select', 'from', 'where', 'group', 'order', 'having', 'limit', 'offset', 'join', 'on', 'as', 'and', 'or', 'not', 'in', 'is', 'null', 'true', 'false'}
         used_aliases = used_aliases - system_keywords
 
+        allowed_aliases = set(self.ALIAS_TABLE_MAP.keys()) | set(self.SUPPORTED_CTE_ALIASES)
+        unsupported_aliases = {alias for alias in used_aliases if alias not in allowed_aliases}
+        if unsupported_aliases:
+            self.logger.warning(f"Unsupported aliases detected during auto-repair: {unsupported_aliases}")
+            raise ValueError(f"Unsupported aliases for auto-repair: {', '.join(sorted(unsupported_aliases))}")
+
         if not used_aliases:
             # 如果没有使用任何别名，则只需检查FROM子句存在即可
             self.logger.debug("No table aliases used in SQL")
@@ -893,7 +924,7 @@ SQL:"""
                 defined_aliases.add(table_name)
 
         # 检查所有使用的别名是否都已定义
-        undefined_aliases = used_aliases - defined_aliases
+        undefined_aliases = (used_aliases - set(self.SUPPORTED_CTE_ALIASES)) - defined_aliases
         
         if undefined_aliases:
             self.logger.warning(f"SQL uses undefined table aliases: {undefined_aliases}")
@@ -1117,181 +1148,143 @@ SQL:"""
 
         return "FROM a_sight a\n"
 
+
+
+
     def _add_from_clause_if_missing(self, sql: str, query: str) -> str:
-        """
-        当SQL缺少FROM子句或别名定义时，自动补全。
-
-        增强功能：
-        - 支持任意表别名的检测和修复
-        - 处理多表连接和子查询场景
-        - 更智能的FROM子句重建
-
-        Args:
-            sql: 原始SQL
-            query: 用户查询
-
-        Returns:
-            修正后的SQL
-        """
+        """当SQL缺少FROM子句或别名定义时，自动补全。"""
         fixed_sql = sql
-        newline = '\n'
-        
-        # 提取所有使用的表别名
-        alias_pattern = r'\b([a-z_][a-z0-9_]*)\.\w+'
-        used_aliases = set(re.findall(alias_pattern, sql.lower()))
-        
-        # 移除系统关键字
-        system_keywords = {'select', 'from', 'where', 'group', 'order', 'having', 'limit', 'offset', 'join', 'on', 'as', 'and', 'or', 'not', 'in', 'is', 'null', 'true', 'false'}
-        used_aliases = used_aliases - system_keywords
-        
-        # 特殊处理：检测常用的表别名模式
-        uses_a = 'a' in used_aliases
-        uses_t = 't' in used_aliases
-        
-        # 尝试自动修复表别名定义
-        alias_adjusted = False
-        
-        # 修复 a_sight 表的别名定义
-        if uses_a:
-            fixed_sql, count_a = re.subn(
-                r'\ba_sight\b(?!\s+(?:as\s+)?a\b)',
-                'a_sight a',
-                fixed_sql,
-                count=1,
-                flags=re.IGNORECASE
-            )
-            if count_a:
-                alias_adjusted = True
 
-        # 修复 tourist_spot 表的别名定义
-        if uses_t:
-            fixed_sql, count_t = re.subn(
-                r'\btourist_spot\b(?!\s+(?:as\s+)?t\b)',
-                'tourist_spot t',
-                fixed_sql,
-                count=1,
-                flags=re.IGNORECASE
-            )
-            if count_t:
+        alias_pattern = r"\b([a-z_][a-z0-9_]*)\.\w+"
+        used_aliases = {alias for alias in re.findall(alias_pattern, sql.lower())}
+
+        system_keywords = {
+            "select", "from", "where", "group", "order", "having", "limit",
+            "offset", "join", "on", "as", "and", "or", "not", "in", "is",
+            "null", "true", "false",
+        }
+        used_aliases -= system_keywords
+
+        alias_lookup: dict[str, str] = {}
+        unsupported_aliases: list[str] = []
+        for alias in used_aliases:
+            if alias in self.SUPPORTED_CTE_ALIASES:
+                continue
+            table = self.ALIAS_TABLE_MAP.get(alias)
+            if not table:
+                unsupported_aliases.append(alias)
+                continue
+            alias_lookup.setdefault(table, alias)
+
+        if unsupported_aliases:
+            raise ValueError(f"Unsupported aliases for auto-repair: {', '.join(sorted(unsupported_aliases))}")
+
+        if not alias_lookup:
+            return fixed_sql
+
+        alias_adjusted = False
+        for table_name, alias in alias_lookup.items():
+            pattern = rf"\b{table_name}\b(?!\s+(?:as\s+)?{alias}\b)"
+            updated_sql, replacements = re.subn(pattern, f"{table_name} {alias}", fixed_sql, count=1, flags=re.IGNORECASE)
+            if replacements:
+                fixed_sql = updated_sql
                 alias_adjusted = True
 
         sql_lower = fixed_sql.lower()
-        
-        # 检查是否需要添加FROM子句
-        needs_default_from = 'from' not in sql_lower
-        
-        # 检查别名是否已定义
-        for alias in used_aliases:
-            # 检查FROM子句中是否定义了该别名
-            if not re.search(rf'\bfrom\s+.*\b(?:as\s+)?{alias}\b', sql_lower):
+        needs_default_from = "from" not in sql_lower
+        for alias in alias_lookup.values():
+            if not re.search(rf"\bfrom\s+.*\b(?:as\s+)?{alias}\b", sql_lower):
                 needs_default_from = True
                 break
 
-        # 如果需要添加FROM子句，构建合适的FROM子句
         if needs_default_from:
-            # 根据使用的别名构建FROM子句
-            default_from = self._build_enhanced_from_clause(used_aliases)
+            from_block = self._build_enhanced_from_clause(alias_lookup)
 
-            from_match = re.search(r'\bfrom\b', fixed_sql, re.IGNORECASE)
+            from_match = re.search(r"\bfrom\b", fixed_sql, re.IGNORECASE)
             if from_match:
-                # 已有FROM子句但别名定义不完整，需要重建
                 after_from = fixed_sql[from_match.end():]
                 boundary_match = re.search(
-                    r'\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|\bUNION\b|\bEXCEPT\b|\bINTERSECT\b',
+                    r"\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|\bUNION\b|\bEXCEPT\b|\bINTERSECT\b",
                     after_from,
-                    re.IGNORECASE
+                    re.IGNORECASE,
                 )
-                if boundary_match:
-                    end_index = from_match.end() + boundary_match.start()
-                else:
-                    end_index = len(fixed_sql)
-
+                end_index = from_match.end() + boundary_match.start() if boundary_match else len(fixed_sql)
                 original_from_segment = fixed_sql[from_match.start():end_index]
                 trailing_clause = fixed_sql[end_index:]
 
-                # 保留原有的JOIN子句
-                join_pattern = re.compile(
-                    r'\b(?:INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\b|\bJOIN\b',
-                    re.IGNORECASE
-                )
+                join_pattern = re.compile(r"\b(?:INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\b|\bJOIN\b", re.IGNORECASE)
                 join_match = join_pattern.search(original_from_segment)
-                trailing_joins = ''
-                if join_match:
-                    trailing_joins = original_from_segment[join_match.start():].strip()
+                trailing_joins = original_from_segment[join_match.start():].strip() if join_match else ""
 
-                # 重建FROM子句
-                rebuilt_from = default_from.rstrip(newline)
+                rebuilt_from = from_block.rstrip("\n")
                 if trailing_joins:
-                    rebuilt_from = f"{rebuilt_from}{newline}{trailing_joins.strip()}"
-                rebuilt_from = f"{rebuilt_from}{newline}"
+                    rebuilt_from = f"{rebuilt_from}\n{trailing_joins}"
+                rebuilt_from = f"{rebuilt_from}\n"
 
                 prefix = fixed_sql[:from_match.start()].rstrip()
-                if prefix and not prefix.endswith(newline):
-                    prefix += newline
+                if prefix and not prefix.endswith("\n"):
+                    prefix += "\n"
                 suffix = trailing_clause.lstrip()
                 fixed_sql = f"{prefix}{rebuilt_from}{suffix}"
             else:
-                # 完全没有FROM子句，需要插入
-                before_where = re.search(r'\bWHERE\b', fixed_sql, re.IGNORECASE)
+                before_where = re.search(r"\bWHERE\b", fixed_sql, re.IGNORECASE)
                 if before_where:
                     prefix = fixed_sql[:before_where.start()].rstrip()
-                    if prefix and not prefix.endswith(newline):
-                        prefix += newline
+                    if prefix and not prefix.endswith("\n"):
+                        prefix += "\n"
                     suffix = fixed_sql[before_where.start():]
-                    fixed_sql = f"{prefix}{default_from}{suffix}"
+                    fixed_sql = f"{prefix}{from_block}{suffix}"
                 else:
                     trimmed = fixed_sql.rstrip()
-                    if trimmed and not trimmed.endswith(newline):
-                        trimmed += newline
-                    fixed_sql = f"{trimmed}{default_from}"
+                    if trimmed and not trimmed.endswith("\n"):
+                        trimmed += "\n"
+                    fixed_sql = f"{trimmed}{from_block}"
 
-            self.logger.info(f"Auto-rebuilt FROM clause for aliases: {used_aliases}")
+            self.logger.info(f"Auto-rebuilt FROM clause for aliases: {set(alias_lookup.values())}")
         else:
             if alias_adjusted:
                 self.logger.info("Auto-added missing table aliases in FROM clause")
             else:
                 self.logger.info("SQL structure appears valid, no changes needed")
 
-        # 最终验证修复后的SQL
         if not self._validate_sql_structure(fixed_sql):
             self.logger.warning("Auto-repair failed, SQL structure still invalid")
-            # 如果自动修复失败，记录详细信息用于调试
             self.logger.debug(f"Failed to repair SQL: {fixed_sql}")
 
         return fixed_sql
 
-    def _build_enhanced_from_clause(self, used_aliases: set) -> str:
-        """
-        根据使用的别名构建增强的FROM子句
+    def _build_enhanced_from_clause(self, alias_lookup: dict[str, str]) -> str:
+        """根据使用的别名构建增强的FROM子句"""
+        def alias_for_join(table: str, alias: Optional[str]) -> str:
+            return alias if alias else self.ALIAS_DEFAULT_MAPPING[table]
 
-        Args:
-            used_aliases: 使用的表别名集合
+        def format_table_clause(table: str, alias: Optional[str]) -> str:
+            if alias and alias == table:
+                return table
+            effective_alias = alias if alias else self.ALIAS_DEFAULT_MAPPING[table]
+            if effective_alias == table:
+                return table
+            return f"{table} {effective_alias}"
 
-        Returns:
-            构建的FROM子句字符串
-        """
-        lines = []
-        
-        # 处理常见的表别名组合
-        if 'a' in used_aliases and 't' in used_aliases:
+        sight_alias = alias_lookup.get('a_sight')
+        tourist_alias = alias_lookup.get('tourist_spot')
+        sight_join_alias = alias_for_join('a_sight', sight_alias)
+        tourist_join_alias = alias_for_join('tourist_spot', tourist_alias)
+
+        if sight_alias and tourist_alias:
             lines = [
-                "FROM a_sight a",
-                "LEFT JOIN tourist_spot t ON t.name LIKE a.name || '%'",
-                "    OR TRIM(SPLIT_PART(t.name, ' ', 1)) = a.name"
+                format_table_clause('a_sight', sight_alias),
+                f"LEFT JOIN {format_table_clause('tourist_spot', tourist_alias)} ON {tourist_join_alias}.name LIKE {sight_join_alias}.name || '%'",
+                f"    OR TRIM(SPLIT_PART({tourist_join_alias}.name, ' ', 1)) = {sight_join_alias}.name",
             ]
-        elif 'a' in used_aliases:
-            lines = ["FROM a_sight a"]
-        elif 't' in used_aliases:
-            lines = ["FROM tourist_spot t"]
+        elif sight_alias:
+            lines = [format_table_clause('a_sight', sight_alias)]
+        elif tourist_alias:
+            lines = [format_table_clause('tourist_spot', tourist_alias)]
         else:
-            # 默认使用a_sight表
-            lines = ["FROM a_sight a"]
-            
-            # 如果使用了其他未知别名，尝试添加它们
-            for alias in used_aliases:
-                if alias not in ['a', 't']:
-                    self.logger.warning(f"Unknown table alias '{alias}' used, cannot auto-resolve")
-        
+            default_alias = self.ALIAS_DEFAULT_MAPPING['a_sight']
+            lines = [format_table_clause('a_sight', default_alias)]
+
         return "\n".join(lines) + "\n"
 
     def fix_sql_with_context(

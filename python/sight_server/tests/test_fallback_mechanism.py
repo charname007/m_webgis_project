@@ -148,7 +148,7 @@ class MockSQLGenerator:
         self.last_match_mode = match_mode
         return previous_sql or "SELECT * FROM a_sight LIMIT 10"
 
-    def fix_sql_with_error(self, sql, error, query):
+    def fix_sql_with_error(self, sql, error, query, intent_type=None):
         """修复SQL（模拟）"""
         logger.info(f"[MockSQLGenerator] Fixing SQL with error: {error[:50]}...")
         return "SELECT * FROM a_sight LIMIT 10"  # 修复后的SQL

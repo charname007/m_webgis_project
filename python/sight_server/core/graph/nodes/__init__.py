@@ -12,6 +12,7 @@ from .legacy import LegacyAgentNodes  # Legacy compatibility
 from .sql_execution import ExecuteSqlNode
 from .sql_generation import GenerateSqlNode
 from .validation import CheckResultsNode, ValidateResultsNode
+from .final_validation import FinalValidationNode
 
 NodeCallable = Callable[[AgentState], Dict[str, Any]]
 
@@ -35,6 +36,7 @@ def build_node_mapping(context: NodeContext) -> Dict[str, NodeCallable]:
         "check_results": CheckResultsNode(context),
         "generate_answer": GenerateAnswerNode(context),
         "handle_error": HandleErrorNode(context),
+        "final_validation": FinalValidationNode(context),
     }
 
 
@@ -58,4 +60,3 @@ class AgentNodes:
 
     def _determine_fallback_strategy(self, error_type: str, retry_count: int) -> str:
         return self.handle_error._determine_fallback_strategy(error_type, retry_count)
-

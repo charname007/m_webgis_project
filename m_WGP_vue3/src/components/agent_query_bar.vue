@@ -141,7 +141,7 @@ export default {
             q: queryText.value.trim(),
             include_sql: true  // 请求包含 SQL 语句
           },
-          timeout: 120000  // 30秒超时
+          timeout: 600000  // 30秒超时
         })
 
         console.log('✅ AI查询成功:', response.data)

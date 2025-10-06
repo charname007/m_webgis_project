@@ -75,7 +75,7 @@ class MockSQLGenerator:
 
         return "SELECT * FROM tourist_spot LIMIT 10"
 
-    def fix_sql_with_error(self, sql, error, query, database_schema=None):
+    def fix_sql_with_error(self, sql, error, query, database_schema=None, intent_type=None):
         if database_schema:
             self.schema_received_count += 1
             self.last_schema = database_schema
@@ -86,7 +86,7 @@ class MockSQLGenerator:
 
         return "SELECT * FROM a_sight LIMIT 5"
 
-    def fix_sql_with_context(self, sql, error_context, query, database_schema=None):
+    def fix_sql_with_context(self, sql, error_context, query, database_schema=None, intent_type_override=None):
         if database_schema:
             self.schema_received_count += 1
             self.last_schema = database_schema

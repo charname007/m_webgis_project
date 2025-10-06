@@ -290,114 +290,65 @@ class ValidateResultsNode(NodeBase):
 
 
 class CheckResultsNode(NodeBase):
-    """Decide whether further querying is required based on LLM analysis."""
+    """Decide whether further querying is required based on rule-based analysis."""
 
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         try:
             current_step = state.get("current_step", 0)
             max_iterations = state.get("max_iterations", 3)
-            final_data: Optional[List[Dict[str, Any]]
-                                 ] = state.get("final_data")
-            query = state.get("query", "")
+            final_data: Optional[List[Dict[str, Any]]] = state.get("final_data")
             query_intent = state.get("query_intent", "query")
+            validation_passed = state.get("validation_passed", True)
 
             self.logger.info(
                 "[Node: check_results] Checking results for step %s",
                 current_step,
             )
 
+            # 检查迭代限制
             if current_step >= max_iterations - 1:
-                if not final_data:
-                    reason = f"达到最大迭代次数 ({current_step + 1}/{max_iterations})，查询无结果"
-                    self.logger.warning(
-                        "[Node: check_results] No data returned, stopping")
-                    return {
-                        "current_step": current_step + 1,
-                        "should_continue": False,
-                        "thought_chain": [
-                            {
-                                "step": current_step + 5,
-                                "type": "result_check",
-                                "action": "check_completeness",
-                                "output": {
-                                    "should_continue": False,
-                                    "reason": reason,
-                                },
-                                "status": "completed",
-                            }
-                        ],
-                    }
-                else:
-                    reason = f"达到最大迭代次数 ({current_step + 1}/{max_iterations})"
-                    self.logger.info(reason)
-                    return {
-                        "current_step": current_step + 1,
-                        "should_continue": False,
-                        "thought_chain": [
-                            {
-                                "step": current_step + 5,
-                                "type": "result_check",
-                                "action": "check_completeness",
-                                "output": {
-                                    "should_continue": False,
-                                    "reason": reason,
-                                },
-                                "status": "completed",
-                            }
-                        ],
-                    }
+                reason = f"达到最大迭代次数 ({current_step + 1}/{max_iterations})"
+                self.logger.info(reason)
+                return self._build_stop_result(current_step, reason)
 
-            if self.llm:
-                decision = self._make_llm_decision(
-                    query=query,
-                    final_data=final_data,
-                    current_step=current_step,
-                    query_intent=query_intent,
-                )
-                should_continue = decision.get("should_continue", False)
-                reason = decision.get("reason", "LLM判断需要继续查询")
-                supplement_suggestions = decision.get(
-                    "supplement_suggestions", [])
-                guidance_for_next_step = decision.get(
-                    "guidance_for_next_step", "")
-            else:
-                data_count = len(final_data)
-                if data_count < 3 and query_intent == "query":
-                    should_continue = True
-                    reason = f"返回结果仅 {data_count} 条，建议补充"
-                else:
-                    should_continue = False
-                    reason = f"返回结果 {data_count} 条，已满足 {query_intent} 需求"
-                supplement_suggestions = []
-                guidance_for_next_step = ""
+            # 检查验证结果
+            if not validation_passed:
+                reason = "结果验证失败，需要重新查询"
+                self.logger.warning(reason)
+                return self._build_continue_result(current_step, reason)
+
+            # 基于规则的迭代决策
+            decision = self._make_rule_decision(
+                final_data=final_data,
+                current_step=current_step,
+                query_intent=query_intent,
+            )
 
             thought_output = {
-                "should_continue": should_continue,
-                "reason": reason,
-                "supplement_suggestions": supplement_suggestions,
-                "guidance_for_next_step": guidance_for_next_step,
-                "data_count": len(final_data),
+                "should_continue": decision["should_continue"],
+                "reason": decision["reason"],
+                "data_count": len(final_data) if final_data else 0,
                 "current_step": current_step,
+                "decision_type": "rule_based",
             }
 
             thought_step = {
                 "step": current_step + 5,
                 "type": "result_check",
-                "action": "llm_decision_check",
+                "action": "rule_decision_check",
                 "output": thought_output,
                 "status": "completed",
             }
 
             result: Dict[str, Any] = {
                 "current_step": current_step + 1,
-                "should_continue": should_continue,
+                "should_continue": decision["should_continue"],
                 "thought_chain": [thought_step],
             }
 
-            if should_continue:
-                result["supplement_suggestions"] = supplement_suggestions
-                result["enhancement_guidance"] = guidance_for_next_step
+            if decision["should_continue"]:
                 result["supplement_needed"] = True
+                result["enhancement_guidance"] = decision.get("guidance", "")
 
             return result
 
@@ -416,184 +367,107 @@ class CheckResultsNode(NodeBase):
             }
 
     # ------------------------------------------------------------------
-    def _make_llm_decision(
+    def _build_stop_result(self, current_step: int, reason: str) -> Dict[str, Any]:
+        """构建停止迭代的结果"""
+        return {
+            "current_step": current_step + 1,
+            "should_continue": False,
+            "thought_chain": [
+                {
+                    "step": current_step + 5,
+                    "type": "result_check",
+                    "action": "check_completeness",
+                    "output": {
+                        "should_continue": False,
+                        "reason": reason,
+                    },
+                    "status": "completed",
+                }
+            ],
+        }
+
+    def _build_continue_result(self, current_step: int, reason: str) -> Dict[str, Any]:
+        """构建继续迭代的结果"""
+        return {
+            "current_step": current_step + 1,
+            "should_continue": True,
+            "supplement_needed": True,
+            "thought_chain": [
+                {
+                    "step": current_step + 5,
+                    "type": "result_check",
+                    "action": "check_completeness",
+                    "output": {
+                        "should_continue": True,
+                        "reason": reason,
+                    },
+                    "status": "completed",
+                }
+            ],
+        }
+
+    def _make_rule_decision(
         self,
-        query: str,
-        final_data: List[Dict[str, Any]],
+        final_data: Optional[List[Dict[str, Any]]],
         current_step: int,
         query_intent: str,
     ) -> Dict[str, Any]:
-        try:
-            if not self.llm:
-                return {
-                    "should_continue": False,
-                    "reason": "无LLM可用，默认停止",
-                    "supplement_suggestions": [],
-                    "guidance_for_next_step": "",
-                }
-
-            data_preview = self._prepare_llm_decision_data_preview(final_data)
-            prompt = f"""请扮演资深的数据分析顾问，判断是否需要继续补充查询。
-
-## 用户查询
-{query}
-
-## 查询意图
-{query_intent}
-
-## 当前结果
-- 返回条数: {len(final_data)}
-- 当前迭代: {current_step}
-- 结果预览: {data_preview}
-
-请判断是否需要继续补充查询，并给出票据。"""
-
-            response = self.llm.llm.invoke(prompt)
-            decision_text = (
-                response.content.strip()
-                if hasattr(response, "content")
-                else str(response).strip()
-            )
-            return self._parse_llm_decision(decision_text, query, len(final_data))
-
-        except Exception as exc:
-            self.logger.error("LLM decision failed: %s", exc)
+        """基于规则的迭代决策"""
+        data_count = len(final_data) if final_data else 0
+        
+        # 规则1: 无数据时继续查询
+        if data_count == 0:
             return {
-                "should_continue": False,
-                "reason": f"LLM 调用失败，默认停止: {str(exc)}",
-                "supplement_suggestions": [],
-                "guidance_for_next_step": "",
+                "should_continue": True,
+                "reason": "无返回结果，需要继续查询",
+                "guidance": "尝试不同的查询条件或扩展查询范围"
             }
-
-    def _parse_llm_decision(
-        self,
-        decision_text: str,
-        query: str,
-        count: int,
-    ) -> Dict[str, Any]:
-        decision_lower = decision_text.lower()
-        should_continue = False
-        reason = ""
-
-        if any(
-            keyword in decision_lower
-            for keyword in ["补充", "继续", "缺失", "需要", "建议", "expand", "more", "missing"]
-        ):
-            should_continue = True
-            reason = "LLM 认为需要继续补充查询"
-        elif any(
-            keyword in decision_lower
-            for keyword in ["停止", "足够", "充分", "sufficient", "enough", "complete"]
-        ):
-            should_continue = False
-            reason = "LLM 认为当前结果已经足够"
-        elif count < 3 and len(decision_text) > 100:
-            should_continue = True
-            reason = f"结果仅 {count} 条且分析较详尽，建议补充"
-        else:
-            should_continue = False
-            reason = "LLM 未明确要求补充，默认停止"
-
-        supplement_suggestions = self._extract_decision_suggestions(
-            decision_text)
-        guidance_for_next_step = self._generate_decision_guidance(
-            decision_text, should_continue
-        )
-
+        
+        # 规则2: 查询意图为"query"且数据量较少时继续
+        if query_intent == "query" and data_count < 3:
+            return {
+                "should_continue": True,
+                "reason": f"返回结果仅 {data_count} 条，建议补充",
+                "guidance": "扩展查询范围获取更多样本"
+            }
+        
+        # 规则3: 查询意图为"summary"且数据量较少时继续
+        if query_intent == "summary" and data_count < 5:
+            return {
+                "should_continue": True,
+                "reason": f"统计查询结果仅 {data_count} 条，建议补充",
+                "guidance": "获取更多数据以支持统计分析"
+            }
+        
+        # 规则4: 数据质量检查 - 检查关键字段完整性
+        if final_data and self._has_missing_key_fields(final_data):
+            return {
+                "should_continue": True,
+                "reason": "关键字段信息缺失，需要补充",
+                "guidance": "补充景区名称、等级、位置等关键信息"
+            }
+        
+        # 默认停止
         return {
-            "should_continue": should_continue,
-            "reason": reason,
-            "supplement_suggestions": supplement_suggestions,
-            "guidance_for_next_step": guidance_for_next_step,
+            "should_continue": False,
+            "reason": f"返回结果 {data_count} 条，已满足 {query_intent} 需求",
+            "guidance": ""
         }
 
-    def _extract_decision_suggestions(
-        self,
-        decision_text: str,
-    ) -> List[Dict[str, Any]]:
-        suggestions: List[Dict[str, Any]] = []
-        for line in decision_text.split("\n"):
-            line = line.strip()
-            if not line or len(line) < 10:
-                continue
-            if any(
-                keyword in line.lower()
-                for keyword in ["建议", "应当", "需要", "推荐", "补充", "should", "recommend"]
-            ):
-                content = self._extract_suggestion_content(line)
-                if content:
-                    suggestions.append(
-                        {
-                            "type": self._classify_suggestion_type(content),
-                            "description": content,
-                            "reason": f"源自 LLM 建议: {content[:50]}...",
-                        }
-                    )
-
-        if not suggestions:
-            suggestions.append(
-                {
-                    "type": "field_completion",
-                    "description": "补充缺失的关键信息",
-                    "reason": "建议补充景区名称、门票、开放时间等字段",
-                }
-            )
-
-        return suggestions[:3]
-
-    def _extract_suggestion_content(self, line: str) -> Optional[str]:
-        markers = ["建议", "应当", "需要", "推荐", "补充"]
-        for marker in markers:
-            if marker in line:
-                parts = line.split(marker, 1)
-                if len(parts) > 1:
-                    content = parts[1].strip().strip("：:，,。.;；")
-                    if content and len(content) > 5:
-                        return content
-        return None
-
-    def _classify_suggestion_type(self, suggestion_content: str) -> str:
-        content_lower = suggestion_content.lower()
-        if any(keyword in content_lower for keyword in ["字段", "信息", "详情", "描述"]):
-            return "field_completion"
-        if any(keyword in content_lower for keyword in ["扩展", "更多", "additional", "expand"]):
-            return "data_expansion"
-        if any(keyword in content_lower for keyword in ["详细", "深度", "分析", "洞察"]):
-            return "analysis_enhancement"
-        return "general_improvement"
-
-    def _generate_decision_guidance(
-        self,
-        decision_text: str,
-        should_continue: bool,
-    ) -> str:
-        if should_continue:
-            if "字段" in decision_text or "信息" in decision_text:
-                return "根据 LLM 建议补充缺失字段"
-            if "扩展" in decision_text or "更多" in decision_text:
-                return "扩展查询范围，获取更多样本"
-            if "详细" in decision_text or "深入" in decision_text:
-                return "获取更详细的数据描述"
-            return "根据 LLM 建议继续补充查询"
-        return "当前结果充足，可生成最终回答"
-
-    def _prepare_llm_decision_data_preview(
-        self,
-        data: List[Dict[str, Any]],
-    ) -> str:
+    def _has_missing_key_fields(self, data: List[Dict[str, Any]]) -> bool:
+        """检查数据中关键字段是否缺失"""
         if not data:
-            return "无数据"
-
-        preview_count = min(3, len(data))
-        preview_lines: List[str] = []
-        for idx, record in enumerate(data[:preview_count]):
-            key_info: List[str] = []
-            for field in ["name", "level", "地区", "门票", "开放时间", "所属省份", "景区类型"]:
-                value = record.get(field)
-                key_info.append(f"{field}: {value if value else '缺失'}")
-            preview_lines.append(f"记录 {idx + 1}: {', '.join(key_info[:5])}")
-
-        preview_text = "\n".join(preview_lines)
-        if len(data) > preview_count:
-            preview_text += f"\n... 还有 {len(data) - preview_count} 条记录"
-        return preview_text
+            return False
+            
+        key_fields = ["name", "level", "所属省份", "地区"]
+        missing_count = 0
+        
+        for record in data:
+            for field in key_fields:
+                if field not in record or not record[field]:
+                    missing_count += 1
+                    break  # 每个记录只计一次缺失
+        
+        # 如果超过30%的记录缺少关键字段，认为需要补充
+        missing_ratio = missing_count / len(data)
+        return missing_ratio > 0.25
