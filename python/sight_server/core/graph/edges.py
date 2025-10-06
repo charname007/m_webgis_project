@@ -21,6 +21,7 @@ def should_retry_or_fail(
     1. 如果没有错误 → 继续验证结果
     2. 如果有错误且可以重试 → 进入错误处理节点
     3. 如果错误不可恢复 → 继续（在validate_results/check_results中会停止）
+    4. 如果SQL执行重试耗尽 → 继续到验证节点（避免无限循环）
 
     Args:
         state: Agent状态
@@ -31,10 +32,22 @@ def should_retry_or_fail(
     error = state.get("error")
     retry_count = state.get("retry_count", 0)
     max_retries = state.get("max_retries", 5)
+    
+    # 检查SQL执行重试是否已耗尽
+    sql_execution_retries = state.get("sql_execution_retries", 0)
+    max_sql_execution_retries = state.get("max_sql_execution_retries", 3)
 
     # 没有错误，正常继续到验证节点
     if not error:
         logger.info("[Edge: should_retry_or_fail] No error, proceeding to validate_results")
+        return "validate_results"
+
+    # 有错误但SQL执行重试已耗尽
+    if sql_execution_retries >= max_sql_execution_retries:
+        logger.warning(
+            f"[Edge: should_retry_or_fail] SQL execution retries exhausted "
+            f"({sql_execution_retries}/{max_sql_execution_retries}), proceeding to validate_results"
+        )
         return "validate_results"
 
     # 有错误但已达重试上限
@@ -47,8 +60,8 @@ def should_retry_or_fail(
 
     # 有错误且可以重试
     logger.info(
-        f"[Edge: should_retry_or_fail] Error detected (retry {retry_count}/{max_retries}), "
-        f"going to handle_error"
+        f"[Edge: should_retry_or_fail] Error detected (retry {retry_count}/{max_retries}, "
+        f"sql_retry {sql_execution_retries}/{max_sql_execution_retries}), going to handle_error"
     )
     return "handle_error"
 

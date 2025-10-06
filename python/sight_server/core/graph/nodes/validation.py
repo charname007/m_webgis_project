@@ -470,4 +470,4 @@ class CheckResultsNode(NodeBase):
         
         # 如果超过30%的记录缺少关键字段，认为需要补充
         missing_ratio = missing_count / len(data)
-        return missing_ratio > 0.25
+        return missing_ratio > 0.2

@@ -74,8 +74,34 @@ class HandleErrorNode(NodeBase):
                     time.sleep(backoff)
 
                 strategy_type = strategy_info["strategy_type"]
+                
+                # 获取并更新SQL执行重试计数
+                sql_execution_retries = state.get("sql_execution_retries", 0)
+                max_sql_execution_retries = state.get("max_sql_execution_retries", 3)
+                
+                # 检查SQL执行重试是否已耗尽
+                if sql_execution_retries >= max_sql_execution_retries:
+                    self.logger.warning(
+                        "[Node: handle_error] SQL execution retries exhausted (%s/%s)",
+                        sql_execution_retries,
+                        max_sql_execution_retries,
+                    )
+                    return {
+                        "error": f"SQL执行重试次数已达到上限 ({max_sql_execution_retries}次): {error}",
+                        "error_type": analysis["error_type"],
+                        "fallback_strategy": "fail",
+                        "should_continue": False,
+                        "error_context": error_context,
+                        "error_history": [error_record],
+                        "thought_chain": [thought_step],
+                    }
+                
+                # 增加SQL执行重试计数
+                updated_sql_execution_retries = sql_execution_retries + 1
+                
                 payload: Dict[str, Any] = {
                     "retry_count": retry_count + 1,
+                    "sql_execution_retries": updated_sql_execution_retries,
                     "last_error": error,
                     "error_type": analysis["error_type"],
                     "fallback_strategy": strategy_type,
@@ -146,6 +172,33 @@ class HandleErrorNode(NodeBase):
     ) -> Dict[str, Any]:
         max_retries = state.get("max_retries", 5)
         error_context = error_context or {}
+        
+        # 获取SQL执行重试计数
+        sql_execution_retries = state.get("sql_execution_retries", 0)
+        max_sql_execution_retries = state.get("max_sql_execution_retries", 3)
+
+        # 检查SQL执行重试是否已耗尽
+        if sql_execution_retries >= max_sql_execution_retries:
+            self.logger.warning(
+                "[Node: handle_error] SQL execution retries exhausted (%s/%s)",
+                sql_execution_retries,
+                max_sql_execution_retries,
+            )
+            return {
+                "error": f"SQL执行重试次数已达到上限 ({max_sql_execution_retries}次): {error}",
+                "should_continue": False,
+                "fallback_strategy": "fail",
+                "thought_chain": [
+                    {
+                        "step": current_step + 7,
+                        "type": "error_handling",
+                        "action": "sql_execution_retries_exhausted",
+                        "error": error,
+                        "sql_execution_retries": sql_execution_retries,
+                        "status": "failed",
+                    }
+                ],
+            }
 
         if retry_count >= max_retries:
             self.logger.warning(
@@ -177,6 +230,7 @@ class HandleErrorNode(NodeBase):
             "error": error,
             "error_type": error_type,
             "retry_count": retry_count,
+            "sql_execution_retries": sql_execution_retries,
             "strategy": strategy,
         }
 
@@ -188,6 +242,7 @@ class HandleErrorNode(NodeBase):
                 "error": error,
                 "error_type": error_type,
                 "retry_count": retry_count,
+                "sql_execution_retries": sql_execution_retries,
             },
             "output": {
                 "strategy": strategy,
@@ -196,9 +251,13 @@ class HandleErrorNode(NodeBase):
             "status": "completed",
         }
 
+        # 增加SQL执行重试计数
+        updated_sql_execution_retries = sql_execution_retries + 1
+
         if strategy == "retry_sql":
             return {
                 "retry_count": retry_count + 1,
+                "sql_execution_retries": updated_sql_execution_retries,
                 "last_error": error,
                 "error_type": error_type,
                 "fallback_strategy": strategy,
@@ -211,6 +270,7 @@ class HandleErrorNode(NodeBase):
         if strategy == "simplify_query":
             return {
                 "retry_count": retry_count + 1,
+                "sql_execution_retries": updated_sql_execution_retries,
                 "last_error": error,
                 "error_type": error_type,
                 "fallback_strategy": strategy,
@@ -229,6 +289,7 @@ class HandleErrorNode(NodeBase):
             time.sleep(backoff_time)
             return {
                 "retry_count": retry_count + 1,
+                "sql_execution_retries": updated_sql_execution_retries,
                 "last_error": error,
                 "error_type": error_type,
                 "fallback_strategy": strategy,

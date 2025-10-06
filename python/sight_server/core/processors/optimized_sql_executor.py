@@ -88,12 +88,11 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
 
     def _execute_with_retry(self, sql: str) -> Dict[str, Any]:
         """
-        带重试机制的SQL执行
+        带智能重试机制的SQL执行
         
-        重试策略:
-        - 第一次重试: 90秒超时，保持原查询
-        - 第二次重试: 120秒超时，简化查询条件
-        - 第三次重试: 150秒超时，限制返回数据量
+        新策略:
+        - 超时错误: 立即返回完整错误上下文，不重试
+        - 其他错误: 按原策略重试
         
         Args:
             sql: SQL语句
@@ -103,6 +102,7 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         """
         retry_count = 0
         last_error = None
+        last_error_type = None
         
         while retry_count <= self.max_retries:
             try:
@@ -112,21 +112,39 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
                 # 根据重试次数优化SQL
                 current_sql = self._get_retry_sql(sql, retry_count)
                 
-                self.logger.info(f"重试 {retry_count}/{self.max_retries}: 超时={current_timeout}s, SQL={current_sql[:200]}...")
+                self.logger.info(f"执行 {retry_count}/{self.max_retries}: 超时={current_timeout}s, SQL={current_sql[:200]}...")
                 
                 # 执行查询
                 result = self._execute_single_query(current_sql, current_timeout)
                 
                 if result["status"] == "success":
-                    self.logger.info(f"重试成功: 第{retry_count}次重试")
+                    self.logger.info(f"执行成功: 第{retry_count}次执行")
                     return result
                 else:
                     last_error = result.get("error")
-                    self.logger.warning(f"重试失败: 第{retry_count}次重试, 错误: {last_error}")
+                    last_error_type = result.get("error_type")
+                    
+                    # 如果是超时错误，立即返回完整错误上下文，不重试
+                    if last_error_type == "TIMEOUT_ERROR":
+                        self.logger.warning(f"查询超时，立即返回错误上下文: {last_error}")
+                        return {
+                            "status": "timeout_immediate_retry",
+                            "data": None,
+                            "count": 0,
+                            "raw_result": None,
+                            "error": last_error,
+                            "error_type": last_error_type,
+                            "failed_sql": current_sql,
+                            "query_complexity": self._analyze_query_complexity(current_sql),
+                            "optimization_suggestions": self._generate_optimization_suggestions(current_sql, last_error_type, "high")
+                        }
+                    else:
+                        self.logger.warning(f"执行失败: 第{retry_count}次执行, 错误: {last_error}")
                     
             except Exception as e:
                 last_error = str(e)
-                self.logger.warning(f"重试异常: 第{retry_count}次重试, 异常: {last_error}")
+                last_error_type = self._classify_error(last_error)
+                self.logger.warning(f"执行异常: 第{retry_count}次执行, 异常: {last_error}")
             
             retry_count += 1
             if retry_count <= self.max_retries:
@@ -480,6 +498,9 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         
         self.logger.error(f"SQL execution failed (type: {error_type}): {error_message}")
         
+        # 分析查询复杂度
+        query_complexity = self._analyze_query_complexity(sql)
+        
         return {
             "status": "error",
             "data": None,
@@ -487,7 +508,10 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
             "raw_result": None,
             "error": error_message,
             "error_type": error_type,
-            "execution_time": execution_time
+            "execution_time": execution_time,
+            "failed_sql": sql,  # 包含完整的SQL语句
+            "query_complexity": query_complexity,  # 查询复杂度分析
+            "optimization_suggestions": self._generate_optimization_suggestions(sql, error_type, query_complexity)
         }
 
     def get_performance_stats(self) -> Dict[str, Any]:
@@ -561,6 +585,92 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         }
         
         return compatible_result
+
+    def _analyze_query_complexity(self, sql: str) -> str:
+        """
+        分析查询复杂度
+        
+        Args:
+            sql: SQL语句
+            
+        Returns:
+            复杂度等级: "low", "medium", "high"
+        """
+        complexity_score = 0
+        
+        # 检查复杂JSON构建
+        if re.search(r'json_agg\s*\(\s*json_build_object', sql, re.IGNORECASE):
+            complexity_score += 3
+        
+        # 检查多表JOIN
+        join_count = len(re.findall(r'\bJOIN\b', sql, re.IGNORECASE))
+        complexity_score += min(join_count, 3)
+        
+        # 检查子查询
+        subquery_count = len(re.findall(r'\(\s*SELECT', sql, re.IGNORECASE))
+        complexity_score += min(subquery_count, 2)
+        
+        # 检查复杂函数
+        if re.search(r'\bCOALESCE\b.*\bCOALESCE\b', sql, re.IGNORECASE):
+            complexity_score += 1
+        
+        # 检查UNION/UNION ALL
+        if re.search(r'\bUNION\s+ALL\b|\bUNION\b', sql, re.IGNORECASE):
+            complexity_score += 2
+        
+        # 确定复杂度等级
+        if complexity_score >= 5:
+            return "high"
+        elif complexity_score >= 3:
+            return "medium"
+        else:
+            return "low"
+
+    def _generate_optimization_suggestions(self, sql: str, error_type: str, complexity: str) -> List[str]:
+        """
+        生成优化建议
+        
+        Args:
+            sql: SQL语句
+            error_type: 错误类型
+            complexity: 查询复杂度
+            
+        Returns:
+            优化建议列表
+        """
+        suggestions = []
+        
+        # 基于错误类型的建议
+        if error_type == "TIMEOUT_ERROR":
+            suggestions.append("查询执行超时，建议简化查询结构")
+            
+            # 基于复杂度的具体建议
+            if complexity == "high":
+                suggestions.extend([
+                    "简化复杂的JSON构建结构",
+                    "减少JOIN表数量",
+                    "添加LIMIT限制结果数量",
+                    "考虑分步查询而不是单次复杂查询"
+                ])
+            elif complexity == "medium":
+                suggestions.extend([
+                    "优化JOIN条件",
+                    "添加适当的索引",
+                    "限制返回字段数量"
+                ])
+        
+        # 基于SQL结构的建议
+        if re.search(r'json_agg\s*\(\s*json_build_object', sql, re.IGNORECASE):
+            suggestions.append("考虑使用简单的SELECT查询代替复杂的JSON构建")
+        
+        if len(re.findall(r'\bJOIN\b', sql, re.IGNORECASE)) > 2:
+            suggestions.append("减少JOIN表数量或使用更简单的JOIN类型")
+        
+        if not re.search(r'\bLIMIT\s+\d+', sql, re.IGNORECASE):
+            suggestions.append("添加LIMIT子句限制返回结果数量")
+        
+        # 移除重复建议
+        return list(set(suggestions))
 
     def close(self):
         """关闭资源"""

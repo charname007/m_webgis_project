@@ -984,13 +984,38 @@ export default {
       searchKeyword.value = `AI 查询: ${result.query || '未知'}`
       hasSearched.value = true
 
-      // 将 AI 返回的数据赋值给搜索结果
+      // 将 AI 返回的数据赋值给搜索结果，并进行字段名映射
       // 为每条数据添加标记，表示这是从 AI 查询获得的
-      const processedData = result.data.map(item => ({
-        ...item,
-        _fromAI: true,          // 标记来源为 AI
-        _hasCoordinates: !!item.coordinates  // 标记是否有坐标
-      }))
+      const processedData = result.data.map(item => {
+        // 字段名映射：将 AI 返回的字段名映射为前端模板期望的字段名
+        const mappedItem = {
+          ...item,
+          // 映射字段名 - 正确处理 null 值
+          地址: item.address !== undefined ? item.address : item.地址,
+          评分: item.rating !== undefined ? item.rating : item.评分,
+          门票: item.ticket_price !== undefined ? item.ticket_price : item.门票,
+          开放时间: item.opening_hours !== undefined ? item.opening_hours : item.开放时间,
+          建议游玩时间: item.suggested_duration !== undefined ? item.suggested_duration : item.建议游玩时间,
+          建议季节: item.suggested_season !== undefined ? item.suggested_season : item.建议季节,
+          小贴士: item.tips !== undefined ? item.tips : item.小贴士,
+          介绍: item.introduction !== undefined ? item.introduction : item.介绍,
+          // 添加标记
+          _fromAI: true,          // 标记来源为 AI
+          _hasCoordinates: !!item.coordinates  // 标记是否有坐标
+        }
+
+        // 删除重复的字段，避免数据冗余
+        delete mappedItem.address
+        delete mappedItem.rating
+        delete mappedItem.ticket_price
+        delete mappedItem.opening_hours
+        delete mappedItem.suggested_duration
+        delete mappedItem.suggested_season
+        delete mappedItem.tips
+        delete mappedItem.introduction
+
+        return mappedItem
+      })
 
       allSearchResults.value = processedData
       totalCount.value = result.count || processedData.length
@@ -1001,6 +1026,7 @@ export default {
       applyPagination()
 
       console.log('TouristSpotSearch: AI 查询结果已显示，总数:', totalCount.value)
+      console.log('TouristSpotSearch: 处理后的第一条数据:', processedData[0])
     }
 
     // 监听 AI 查询结果的变化

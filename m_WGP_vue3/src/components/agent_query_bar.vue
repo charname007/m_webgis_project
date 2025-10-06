@@ -166,6 +166,7 @@ export default {
               data: response.data.data,
               query: queryText.value,
               count: response.data.count
+              
             })
           }
         } else {
