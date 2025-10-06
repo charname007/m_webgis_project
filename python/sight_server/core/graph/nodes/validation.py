@@ -323,6 +323,8 @@ class CheckResultsNode(NodeBase):
                 current_step=current_step,
                 query_intent=query_intent,
             )
+            
+            self.logger.info('[Node: check_results] decision: %s', decision)
 
             thought_output = {
                 "should_continue": decision["should_continue"],
@@ -439,13 +441,13 @@ class CheckResultsNode(NodeBase):
                 "guidance": "获取更多数据以支持统计分析"
             }
         
-        # 规则4: 数据质量检查 - 检查关键字段完整性
-        if final_data and self._has_missing_key_fields(final_data):
-            return {
-                "should_continue": True,
-                "reason": "关键字段信息缺失，需要补充",
-                "guidance": "补充景区名称、等级、位置等关键信息"
-            }
+        # # 规则4: 数据质量检查 - 检查关键字段完整性
+        # if final_data and self._has_missing_key_fields(final_data):
+        #     return {
+        #         "should_continue": True,
+        #         "reason": "关键字段信息缺失，需要补充",
+        #         "guidance": "补充景区名称、等级、位置等关键信息"
+        #     }
         
         # 默认停止
         return {

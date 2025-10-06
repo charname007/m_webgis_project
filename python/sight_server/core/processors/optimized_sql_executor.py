@@ -92,7 +92,7 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         
         新策略:
         - 超时错误: 立即返回完整错误上下文，不重试
-        - 其他错误: 按原策略重试
+        - 其他错误: 保留重试机制
         
         Args:
             sql: SQL语句
@@ -106,8 +106,8 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         
         while retry_count <= self.max_retries:
             try:
-                # 根据重试次数调整超时时间
-                current_timeout = self._get_retry_timeout(retry_count)
+                # 使用固定超时时间，不再逐步增加
+                current_timeout = self.timeout
                 
                 # 根据重试次数优化SQL
                 current_sql = self._get_retry_sql(sql, retry_count)

@@ -109,6 +109,8 @@ class HandleErrorNode(NodeBase):
                     "error_history": [error_record],
                     "error": None,
                     "thought_chain": [thought_step],
+                    # 确保错误SQL传递给LLM
+                    "failed_sql": error_context.get("failed_sql") or current_sql,
                 }
 
                 if strategy_type in {"retry_sql", "simplify_query"}:
