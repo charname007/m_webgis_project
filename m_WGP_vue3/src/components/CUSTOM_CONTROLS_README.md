@@ -131,6 +131,13 @@ export default {
 | className | string | 'ol-measure-control' | CSS 类名 |
 | title | string | '测量工具' | 按钮标题 |
 | activeClassName | string | 'active' | 激活状态类名 |
+| eventsToSuspend | string[] | ['singleclick', 'moveend'] | 测量激活时暂时移除的地图事件类型 |
+| cursorWhenActive | string | 'crosshair' | 测量激活时应用的鼠标指针样式 |
+| measureModes | (string \| object)[] | ['LineString', 'Polygon', 'angle'] | 可通过长按切换的测量模式集合（支持字符串或 { type, label, icon }） |
+| defaultMeasureMode | string | null | 初始化时选中的测量模式（匹配 measureModes 内的 type） |
+| longPressDuration | number | 600 | 触发长按切换模式所需的持续时间（毫秒） |
+
+> **提示**：单击按钮即可开始/结束测量，长按按钮会在 `measureModes` 配置的模式之间循环切换。测量激活时会暂时移除 `eventsToSuspend` 指定的地图事件监听（默认包含 `singleclick` 和 `moveend`），结束后自动恢复，避免与自定义行为冲突。
 
 ### LocationControl 配置选项
 
@@ -155,6 +162,8 @@ measureControl.deactivate();
 // 设置测量类型
 measureControl.setMeasureType('LineString'); // 距离测量
 measureControl.setMeasureType('Polygon');    // 面积测量
+measureControl.setMeasureType('angle');      // 角度测量
+measureControl.cycleMeasureMode();           // 顺序切换到下一个测量模式
 
 // 清理测量工具
 measureControl.cleanupMeasureTool();

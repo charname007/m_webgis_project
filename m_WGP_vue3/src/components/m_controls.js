@@ -5,7 +5,8 @@ import Feature from 'ol/Feature';
 import { Style, Stroke, Fill, Circle } from 'ol/style';
 import { Draw, Snap } from 'ol/interaction';
 import { getLength, getArea } from 'ol/sphere';
-import { LineString, Polygon } from 'ol/geom';
+import { LineString, Polygon, Point } from 'ol/geom';
+import CircleGeometry from 'ol/geom/Circle';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 
@@ -25,7 +26,12 @@ export class MeasureControl extends Control {
     const {
       className = 'ol-measure-control',
       title = '测量工具',
-      activeClassName = 'active'
+      activeClassName = 'active',
+      eventsToSuspend = ['singleclick', 'moveend'],
+      cursorWhenActive = 'crosshair',
+      longPressDuration = 600,
+      measureModes = null,
+      defaultMeasureMode = null
     } = options;
 
     // 创建按钮元素
@@ -56,9 +62,63 @@ export class MeasureControl extends Control {
     this.snapInteraction = null;
     this.tooltip = null;
     this.tooltipElement = null;
+    this.defaultButtonContent = button.innerHTML;
+    this.eventsToSuspend = Array.isArray(eventsToSuspend)
+      ? [...eventsToSuspend]
+      : ['singleclick', 'moveend'];
+    this.cursorWhenActive = cursorWhenActive;
+    this.suspendedMapEvents = new Map();
+    this.eventsSuspended = false;
+    this.cursorBeforeMeasure = null;
+
+    const defaultModeConfigs = [
+      { type: 'LineString', label: '距离', icon: '📏' },
+
+      { type: 'Polygon', label: '面积', icon: '⬜' },
+      { type: 'angle', label: '角度', icon: '📐'}
+    ];
+    const providedModes = Array.isArray(measureModes) && measureModes.length ? measureModes : defaultModeConfigs;
+
+    this.measureModes = providedModes
+      .map((mode) => {
+        if (typeof mode === 'string') {
+          return { type: mode, label: this.getDefaultModeLabel(mode) };
+        }
+        if (mode && typeof mode === 'object' && mode.type) {
+          return {
+            ...mode,
+            label: mode.label || this.getDefaultModeLabel(mode.type)
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (this.measureModes.length === 0) {
+      this.measureModes = defaultModeConfigs;
+    }
+
+    this.baseTitle = title;
+    this.longPressDuration = longPressDuration;
+    this.longPressTimer = null;
+    this.longPressTriggered = false;
+    this.ignoreNextClick = false;
+
+    const requestedMode = defaultMeasureMode || this.measureType;
+    const foundIndex = this.measureModes.findIndex((mode) => mode.type === requestedMode);
+    this.currentModeIndex = foundIndex !== -1 ? foundIndex : 0;
+    this.measureType = this.measureModes[this.currentModeIndex]?.type || 'LineString';
+
+    this.updateButtonDisplay();
 
     // 绑定事件
     button.addEventListener('click', this.handleButtonClick.bind(this));
+    button.addEventListener('mousedown', this.handlePressStart.bind(this));
+    button.addEventListener('touchstart', this.handlePressStart.bind(this), { passive: false });
+    button.addEventListener('mouseup', this.handlePressEnd.bind(this));
+    button.addEventListener('mouseleave', this.handlePressCancel.bind(this));
+    button.addEventListener('touchend', this.handlePressEnd.bind(this));
+    button.addEventListener('touchcancel', this.handlePressCancel.bind(this));
   }
 
   /**
@@ -66,6 +126,9 @@ export class MeasureControl extends Control {
    * @param {ol.Map} map 地图实例
    */
   setMap(map) {
+    if (this.map && this.isActive) {
+      this.deactivate();
+    }
     super.setMap(map);
     this.map = map;
   }
@@ -74,11 +137,78 @@ export class MeasureControl extends Control {
    * 处理按钮点击事件
    */
   handleButtonClick() {
+    if (this.ignoreNextClick) {
+      this.ignoreNextClick = false;
+      return;
+    }
+
     if (this.isActive) {
       this.deactivate();
     } else {
       this.activate();
     }
+  }
+
+  /**
+   * 处理按钮长按开始
+   */
+  handlePressStart(evt) {
+    if (!this.measureModes || this.measureModes.length <= 1 || this.longPressDuration <= 0) return;
+    if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
+
+    if (evt && evt.type === 'touchstart') {
+      evt.preventDefault();
+    }
+
+    this.longPressTriggered = false;
+
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+    }
+
+    this.longPressTimer = setTimeout(() => {
+      this.longPressTriggered = true;
+      this.ignoreNextClick = true;
+      this.cycleMeasureMode();
+    }, this.longPressDuration);
+  }
+
+  /**
+   * 处理按钮长按结束
+   */
+  handlePressEnd(evt) {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+
+    if (this.longPressTriggered) {
+      if (evt) {
+        if (typeof evt.preventDefault === 'function') {
+          evt.preventDefault();
+        }
+        if (typeof evt.stopPropagation === 'function') {
+          evt.stopPropagation();
+        }
+      }
+    } else {
+      this.ignoreNextClick = false;
+    }
+
+    this.longPressTriggered = false;
+  }
+
+  /**
+   * 处理长按取消
+   */
+  handlePressCancel() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+
+    this.longPressTriggered = false;
+    this.ignoreNextClick = false;
   }
 
   /**
@@ -105,9 +235,14 @@ export class MeasureControl extends Control {
    * 设置测量工具
    */
   setupMeasureTool() {
+    if (!this.map) return;
+
+    this.suspendMapEvents();
+
     // 创建测量图层
     const measureSource = new VectorSource();
     this.measureLayer = new VectorLayer({
+      name: 'measure-layer',
       source: measureSource,
       style: new Style({
         fill: new Fill({ color: 'rgba(252, 86, 49, 0.1)' }),
@@ -123,9 +258,10 @@ export class MeasureControl extends Control {
     this.map.addLayer(this.measureLayer);
 
     // 创建绘制交互
-    this.drawInteraction = new Draw({
+    const drawType = this.measureType === 'angle' ? 'LineString' : this.measureType;
+    const drawOptions = {
       source: measureSource,
-      type: this.measureType,
+      type: drawType,
       style: new Style({
         fill: new Fill({ color: 'rgba(252, 86, 49, 0.1)' }),
         stroke: new Stroke({ color: '#fc5531', lineDash: [10, 10], width: 3 }),
@@ -135,7 +271,13 @@ export class MeasureControl extends Control {
           fill: new Fill({ color: '#fc5531' })
         })
       })
-    });
+    };
+
+    if (this.measureType === 'angle') {
+      drawOptions.maxPoints = 3;
+    }
+
+    this.drawInteraction = new Draw(drawOptions);
 
     // 创建吸附交互
     this.snapInteraction = new Snap({ source: measureSource });
@@ -187,19 +329,31 @@ export class MeasureControl extends Control {
     let listener;
 
     draw.on('drawstart', (evt) => {
+      this.resetMeasurementForNewSketch();
+
       sketch = evt.feature;
       const tooltipCoord = evt.coordinate;
 
       listener = sketch.getGeometry().on('change', (evt) => {
         const geom = evt.target;
-        const output = this.formatMeasureResult(geom);
+        const output = this.formatMeasureResult(geom, this.measureType);
         if (this.tooltipElement) {
           this.tooltipElement.innerHTML = output;
         }
         if (this.tooltip) {
-          const coord = geom.getType() === 'Polygon' 
-            ? geom.getInteriorPoint().getCoordinates()
-            : geom.getLastCoordinate();
+          let coord;
+          if (this.measureType === 'angle') {
+            const coords = geom.getCoordinates();
+            if (Array.isArray(coords) && coords.length >= 2) {
+              coord = coords[coords.length - 2];
+            } else {
+              coord = geom.getLastCoordinate();
+            }
+          } else if (geom.getType() === 'Polygon') {
+            coord = geom.getInteriorPoint().getCoordinates();
+          } else {
+            coord = geom.getLastCoordinate();
+          }
           this.tooltip.setPosition(coord);
         }
       });
@@ -220,9 +374,15 @@ export class MeasureControl extends Control {
    * @param {ol.geom.Geometry} geometry 几何图形
    * @returns {string} 格式化后的结果
    */
-  formatMeasureResult(geometry) {
+  formatMeasureResult(geometry, measureType = this.measureType) {
+    if (!geometry || !this.map) return '';
+
+    if (measureType === 'angle') {
+      return this.formatAngle(geometry);
+    }
+
     const proj = this.map.getView().getProjection();
-    
+
     if (geometry instanceof LineString) {
       const length = getLength(geometry, { projection: proj });
       return this.formatLength(length);
@@ -230,7 +390,7 @@ export class MeasureControl extends Control {
       const area = getArea(geometry, { projection: proj });
       return this.formatArea(area);
     }
-    
+
     return '';
   }
 
@@ -262,6 +422,83 @@ export class MeasureControl extends Control {
     }
   }
 
+  resetMeasurementForNewSketch() {
+    const source = this.measureLayer ? this.measureLayer.getSource() : null;
+    if (source) {
+      source.clear();
+    }
+
+    if (this.tooltipElement) {
+      this.tooltipElement.className = 'ol-tooltip ol-tooltip-measure';
+      this.tooltipElement.innerHTML = '';
+    }
+
+    if (this.tooltip) {
+      this.tooltip.setPosition(undefined);
+    }
+  }
+
+  /**
+   * 格式化角度
+   * @param {ol.geom.Geometry} geometry 几何对象
+   * @returns {string} 格式化后的角度
+   */
+  formatAngle(geometry) {
+    if (!(geometry instanceof LineString)) return '';
+
+    const coords = geometry.getCoordinates();
+    if (!Array.isArray(coords)) {
+      return '';
+    }
+
+    if (coords.length < 3) {
+      const remaining = 3 - coords.length;
+      if (remaining === 2) {
+        return '请选择角的第二个点';
+      }
+      if (remaining === 1) {
+        return '请选择角的第三个点';
+      }
+      return '';
+    }
+
+    const points = coords.length > 3 ? coords.slice(-3) : coords;
+    const angle = this.calculateAngle(points[0], points[1], points[2]);
+
+    if (!Number.isFinite(angle)) {
+      return '';
+    }
+
+    return `${angle.toFixed(2)}°`;
+  }
+
+  /**
+   * 计算三点构成的角度
+   * @param {number[]} p1 第一个点
+   * @param {number[]} p2 顶点
+   * @param {number[]} p3 第三个点
+   * @returns {number} 角度（度）
+   */
+  calculateAngle(p1, p2, p3) {
+    if (!p1 || !p2 || !p3) return NaN;
+
+    const v1x = p1[0] - p2[0];
+    const v1y = p1[1] - p2[1];
+    const v2x = p3[0] - p2[0];
+    const v2y = p3[1] - p2[1];
+
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.hypot(v1x, v1y);
+    const mag2 = Math.hypot(v2x, v2y);
+
+    if (!mag1 || !mag2) return NaN;
+
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    const angleRad = Math.acos(cos);
+    return (angleRad * 180) / Math.PI;
+  }
+
+  /**
   /**
    * 清理测量工具
    */
@@ -291,6 +528,8 @@ export class MeasureControl extends Control {
       this.tooltipElement.remove();
       this.tooltipElement = null;
     }
+
+    this.restoreMapEvents();
   }
 
   /**
@@ -299,10 +538,113 @@ export class MeasureControl extends Control {
    */
   setMeasureType(type) {
     this.measureType = type;
+
+    const foundIndex = this.measureModes.findIndex((mode) => mode.type === type);
+    if (foundIndex !== -1) {
+      this.currentModeIndex = foundIndex;
+    }
+
+    this.updateButtonDisplay();
+
     if (this.isActive) {
       this.deactivate();
       this.activate();
     }
+  }
+
+  cycleMeasureMode() {
+    if (!this.measureModes || this.measureModes.length <= 1) return;
+
+    const nextIndex = (this.currentModeIndex + 1) % this.measureModes.length;
+    const nextMode = this.measureModes[nextIndex];
+    if (!nextMode) return;
+
+    this.setMeasureType(nextMode.type);
+  }
+
+  updateButtonDisplay() {
+    if (!this.button) return;
+
+    const mode = this.measureModes[this.currentModeIndex] || { type: this.measureType };
+    const modeLabel = mode.label || this.getDefaultModeLabel(mode.type);
+
+    this.button.setAttribute('data-measure-mode', mode.type || 'unknown');
+    this.button.setAttribute('data-measure-label', modeLabel || '');
+    this.button.title = `${this.baseTitle}（${modeLabel}） - 单击开始/停止，长按切换模式`;
+    this.button.setAttribute('aria-label', `${this.baseTitle}（${modeLabel}）`);
+
+    if (mode.icon) {
+      this.button.innerHTML = mode.icon;
+    } else if (typeof this.defaultButtonContent === 'string') {
+      this.button.innerHTML = this.defaultButtonContent;
+    }
+  }
+
+  getDefaultModeLabel(type) {
+    switch (type) {
+      case 'Polygon':
+        return '面积';
+      case 'angle':
+        return '角度';
+      case 'LineString':
+      default:
+        return '距离';
+    }
+  }
+
+  /**
+   * 暂停地图事件，避免与量测操作冲突
+   */
+  suspendMapEvents() {
+    if (!this.map || this.eventsSuspended) return;
+
+    this.suspendedMapEvents = new Map();
+    const eventTypes = Array.isArray(this.eventsToSuspend)
+      ? this.eventsToSuspend
+      : [];
+
+    eventTypes.forEach((type) => {
+      const listeners = this.map.getListeners?.(type);
+      if (!listeners || listeners.length === 0) return;
+
+      const stored = listeners.slice();
+      stored.forEach((listener) => this.map.un(type, listener));
+      if (stored.length > 0) {
+        this.suspendedMapEvents.set(type, stored);
+      }
+    });
+
+    const viewport = this.map.getViewport?.();
+    if (viewport) {
+      this.cursorBeforeMeasure = viewport.style.cursor;
+      viewport.style.cursor = this.cursorWhenActive;
+    }
+
+    this.map.__measureControlActive = true;
+    this.eventsSuspended = true;
+  }
+
+  /**
+   * 恢复先前暂停的地图事件
+   */
+  restoreMapEvents() {
+    if (!this.map || !this.eventsSuspended) return;
+
+    if (this.suspendedMapEvents && this.suspendedMapEvents.size > 0) {
+      this.suspendedMapEvents.forEach((listeners, type) => {
+        listeners.forEach((listener) => this.map.on(type, listener));
+      });
+      this.suspendedMapEvents.clear();
+    }
+
+    const viewport = this.map.getViewport?.();
+    if (viewport) {
+      viewport.style.cursor = this.cursorBeforeMeasure || '';
+      this.cursorBeforeMeasure = null;
+    }
+
+    delete this.map.__measureControlActive;
+    this.eventsSuspended = false;
   }
 }
 
@@ -484,64 +826,213 @@ export class LocationControl extends Control {
    * @param {Object} position 位置信息
    */
   showLocationMarker(position) {
-    // 创建定位图层（如果不存在）
+
     if (!this.locationLayer) {
+
       const source = new VectorSource();
+
       this.locationLayer = new VectorLayer({
+        name:'CurrentLocation',
         source: source,
+
         style: new Style({
+
           image: new Circle({
+
             radius: 8,
+
             fill: new Fill({ color: '#4285F4' }),
+
             stroke: new Stroke({
+
               color: '#FFFFFF',
+
               width: 2
+
             })
+
           })
+
         }),
-        zIndex: 1000
+
+        // zIndex: 1000
+
       });
+
       this.map.addLayer(this.locationLayer);
+
     }
 
-    // 创建精度圆圈
-    if (position.accuracy && position.accuracy > 0) {
-      const accuracyFeature = new Feature({
-        geometry: new Circle(position.coordinate, position.accuracy)
-      });
-      accuracyFeature.setStyle(new Style({
-        stroke: new Stroke({
-          color: '#4285F4',
-          width: 1,
-          lineDash: [5, 5]
-        }),
-        fill: new Fill({
-          color: 'rgba(66, 133, 244, 0.1)'
-        })
-      }));
-      this.locationLayer.getSource().addFeature(accuracyFeature);
+
+
+    const locationSource = this.locationLayer.getSource ? this.locationLayer.getSource() : null;
+
+    if (locationSource) {
+
+      locationSource.clear();
+
     }
 
-    // 创建位置标记
+
+    //添加精度圆会导致卡顿
+    // if (position.accuracy && position.accuracy > 0 && locationSource) {
+
+    //   const accuracyFeature = new Feature({
+
+    //     geometry: new CircleGeometry(position.coordinate, position.accuracy)
+
+    //   });
+
+    //   accuracyFeature.setStyle(new Style({
+
+    //     stroke: new Stroke({
+
+    //       color: '#4285F4',
+
+    //       width: 1,
+
+    //       lineDash: [5, 5]
+
+    //     }),
+
+    //     fill: new Fill({
+
+    //       color: 'rgba(66, 133, 244, 0.1)'
+
+    //     })
+
+    //   }));
+
+    //   locationSource.addFeature(accuracyFeature);
+
+    // }
+
+
+
     this.locationMarker = new Feature({
-      geometry: new Circle(position.coordinate, 8)
+
+      geometry: new Point(position.coordinate)
+
     });
+
     this.locationMarker.setStyle(new Style({
+
       image: new Circle({
+
         radius: 8,
+
         fill: new Fill({ color: '#4285F4' }),
+
         stroke: new Stroke({
+
           color: '#FFFFFF',
+
           width: 2
+
         })
+
       })
+
     }));
-    this.locationLayer.getSource().addFeature(this.locationMarker);
+
+
+
+    if (locationSource) {
+
+      locationSource.addFeature(this.locationMarker);
+
+    }
+
+
+
+    this.updateCenterPinPosition(position.coordinate);
+
   }
 
-  /**
-   * 隐藏位置标记
-   */
+
+
+  updateCenterPinPosition(coordinate) {
+
+    if (!this.map || !coordinate) return;
+
+
+
+    const layerCollection = typeof this.map.getLayers === 'function' ? this.map.getLayers() : null;
+
+    const layers = layerCollection && typeof layerCollection.getArray === 'function'
+
+      ? layerCollection.getArray()
+
+      : [];
+
+
+
+    const pinLayer = layers.find((layer) => {
+
+      return layer && typeof layer.get === 'function' && layer.get('title') === '当前位置';
+
+    });
+
+
+
+    if (!pinLayer || typeof pinLayer.getSource !== 'function') return;
+
+
+
+    const source = pinLayer.getSource();
+
+    if (!source || typeof source.getFeatures !== 'function') return;
+
+
+
+    const features = source.getFeatures();
+
+    let pinFeature = features && features.length > 0 ? features[0] : null;
+
+
+
+    if (!pinFeature) {
+
+      pinFeature = new Feature({ geometry: new Point(coordinate) });
+
+      source.addFeature(pinFeature);
+
+    } else {
+
+      const geometry = pinFeature.getGeometry();
+
+      if (geometry && geometry instanceof Point) {
+
+        geometry.setCoordinates(coordinate);
+
+      } else {
+
+        pinFeature.setGeometry(new Point(coordinate));
+
+      }
+
+    }
+
+
+
+    pinFeature.set('coordinates', coordinate);
+
+    if (typeof pinFeature.changed === 'function') {
+
+      pinFeature.changed();
+
+    }
+
+    if (typeof source.changed === 'function') {
+
+      source.changed();
+
+    }
+
+  }
+
+
+
   hideLocationMarker() {
     if (this.locationLayer) {
       this.locationLayer.getSource().clear();
@@ -583,3 +1074,5 @@ export default {
   MeasureControl,
   LocationControl
 };
+
+

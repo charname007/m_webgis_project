@@ -51,7 +51,7 @@ import GeoJSON from "ol/format/GeoJSON";
 // import '../assets/oles.css'
 // import "https://unpkg.com/oles/lib/oles.css"
 // import Measure from 'oles/control/Measure';
-import '../assets/map-controls.css'
+import '../assets/map-controls.css';
 // import { proj } from "oles";
 
 // 确保 OverviewMap 不会被 tree-shaking 移除
@@ -64,13 +64,16 @@ import '../assets/map-controls.css'
 
 // // 强制引用 OverviewMap 确保不被 tree-shaking 移除
 // ensureOverviewMap();
-
+import {MeasureControl,LocationControl} from "./m_controls";
+import m_controls from "./m_controls";
 export default class MapUtils {
   constructor(target) {
-    this.map = this.#initMap(target);
-    // 默认中心点坐标 [经度, 纬度]
+    this.target = target;
     this.defaultCenter = [114.305, 30.5928]; // 武汉坐标
-    // 状态管理 - 确保所有交互状态可追踪
+    this.currentCenter = [...this.defaultCenter];
+    this.map = null;
+    this.ready = this.#initializeMap(target);
+    // 状态管理    // 状态管理 - 确保所有交互状态可追踪
     this.state = {
       // 测量相关状态
       measure: {
@@ -100,12 +103,39 @@ export default class MapUtils {
   }
 
   // 初始化地图（私有方法）
+  async #initializeMap(target) {
+    let resolvedCenter = [...this.defaultCenter];
+    const geolocationAvailable = typeof navigator !== 'undefined' && navigator.geolocation;
+
+    if (geolocationAvailable) {
+      try {
+        const { coordinate } = await this.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 8000,
+          maximumAge: 0
+        });
+
+        if (Array.isArray(coordinate) && coordinate.length === 2 && coordinate.every((value) => Number.isFinite(value))) {
+          resolvedCenter = coordinate;
+        }
+      } catch (error) {
+        console.warn('自动定位失败，使用默认中心点:', (error && error.message) ? error.message : error);
+      }
+    }
+
+    this.defaultCenter = resolvedCenter;
+    this.currentCenter = [...resolvedCenter];
+
+    this.map = this.#initMap(target);
+    return this.map;
+  }
+
   #initMap(target) {
     // 中国范围定义 [minLon, minLat, maxLon, maxLat]
     this.chinaExtent = [73, 18, 135, 54];
     
     const view = new View({
-      center: [114.305, 30.5928], // 默认武汉坐标
+      center: this.currentCenter || this.defaultCenter, // 默认武汉坐标
       zoom: 15,
       projection: "EPSG:4326",
       extent: this.chinaExtent, // 中国范围限制
@@ -158,6 +188,8 @@ export default class MapUtils {
           controls: [
             new FullScreen({ className: "custom-fullscreen" }),
             new ZoomToExtent({ className: "custom-zoom-to-extent" }),
+            new MeasureControl({ className: "custom-measure" }),
+            new LocationControl({ className: "custom-location" }),
         //             new Measure({
         //   className: "custom-measure",  
         // })

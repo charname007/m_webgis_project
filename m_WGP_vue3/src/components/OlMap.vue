@@ -403,70 +403,125 @@ export default {
       mapUtilsRef.value = mapUtils;
 
       // 等待地图完全初始化
-      setTimeout(() => {
-        if (mapUtils && mapUtils.map) {
+      mapUtils.ready
+
+        .then(() => {
+
+          if (!mapUtils || !mapUtils.map) {
+
+            throw new Error('Map instance unavailable after initialization');
+
+          }
+
+
+
           // 添加底图
+
           baseLayers.value = mapUtils.addBaseLayer();
 
-          // 创建基于缩放级别的景区图层
+
+
+          // 根据当前缩放级别加载景区图层
+
           const sightLayer = mapUtils.createZoomBasedVectorLayer(
-            'level', // 字段名：景区等级字段
+
+            'level',
+
             {
+
               type: 'discrete',
+
               values: [
-                { value: '5A', minZoom: 0 },   // 5A景区从缩放级别0开始显示
-                { value: '4A', minZoom: 8 },   // 4A景区在缩放级别8+显示
-                { value: '3A', minZoom: 10 },  // 3A景区在缩放级别10+显示
-                { value: '2A', minZoom: 12 },  // 2A景区在缩放级别12+显示
-                { value: '1A', minZoom: 14 }   // 1A景区在缩放级别14+显示
+
+                { value: '5A', minZoom: 0 },
+
+                { value: '4A', minZoom: 8 },
+
+                { value: '3A', minZoom: 10 },
+
+                { value: '2A', minZoom: 12 },
+
+                { value: '1A', minZoom: 14 }
+
               ]
+
             },
-            '景区', // 图层名称
+
+            '景区',
+
             {
-              styleFunction: getSightStyle, // 自定义样式函数
+
+              styleFunction: getSightStyle,
+
               debounceDelay: 300
+
             }
+
           );
-          
-          // 存储景区图层引用
+
+
+
           sightLayerRef.value = sightLayer;
 
-          // 创建矢量图层（用于绘制）
-          vectorLayer.value = mapUtils.createVectorLayer({
-            fillColor: "rgba(255, 255, 255, 0.2)",
-            strokeColor: "#4CAF50",
-            strokeWidth: 2,
-            pointColor: "#4CAF50",
-          });
-          
-          vectorLayer.value.set("title", "绘制图层");
-          mapUtils.map.addLayer(vectorLayer.value);
 
-          // 添加修改交互
-          modifyInteraction.value = mapUtils.addModifyInteraction(
-            vectorLayer.value
-          );
 
-          // 设置地图事件监听（包含要素点击事件）
+          // vectorLayer.value = mapUtils.createVectorLayer({
+
+          //   fillColor: "rgba(255, 255, 255, 0.2)",
+
+          //   strokeColor: "#4CAF50",
+
+          //   strokeWidth: 2,
+
+          //   pointColor: "#4CAF50",
+
+          // });
+
+
+
+          // vectorLayer.value.set("title", "绘制图层");
+
+          // mapUtils.map.addLayer(vectorLayer.value);
+
+
+
+          // modifyInteraction.value = mapUtils.addModifyInteraction(vectorLayer.value);
+
+
+
           setupMapListeners();
 
-          // 创建地图中心标记图层
           createMapCenterLayer();
 
-          // 延迟创建弹窗 Overlay，确保组件已挂载
+
+
           setTimeout(() => {
+
             createPopupOverlay();
+
           }, 200);
 
-          // 初始加载一次景区数据 - 使用响应式引用
+
+
           setTimeout(() => {
+
             fetchGeoJsonByExtent();
+
           }, 500);
 
-          console.log("地图初始化完成，景区图层已创建，mapUtils实例已注入");
-        }
-      }, 100);
-    };
+
+
+          console.log('地图初始化完成，MapUtils 实例已注入');
+
+        })
+
+        .catch((error) => {
+
+          console.error('地图初始化失败:', error);
+
+        });
+
+   };
 
 
     // 激活绘制工具
@@ -730,7 +785,18 @@ export default {
 
       // 清除范围选择图层内容
       if (extentDrawLayer.value) {
-        extentDrawLayer.value.getSource().clear();
+        const layer = extentDrawLayer.value;
+        const source = layer.getSource ? layer.getSource() : null;
+        if (source) {
+          source.clear();
+        }
+        if (map && typeof map.removeLayer === 'function') {
+          const layers = map.getLayers()?.getArray?.();
+          if (Array.isArray(layers) && layers.includes(layer)) {
+            map.removeLayer(layer);
+          }
+        }
+        extentDrawLayer.value = null;
       }
 
       // 恢复被禁用的交互
