@@ -290,21 +290,16 @@ async def query_get(
                 result_data = cached_result
                 logger.info('result_data:\n'+str(result_data))
                 
-                # ✅ 修复：从正确的嵌套结构中提取数据
-                # 实际数据在 execution_result 字段中
-                execution_result = result_data.get("execution_result", {})
-                final_data = result_data.get("final_data", [])
+                # ✅ 修复：直接使用缓存数据中的字段
+                # 缓存数据直接包含 data、count、answer 等字段，不需要嵌套解析
+                actual_data = result_data.get("data", [])
                 
                 # ✅ 增强健壮性：确保数据不为 None
-                if final_data is None:
-                    final_data = []
-                
-                # 优先使用 execution_result 中的数据，如果没有则使用 final_data
-                actual_data = execution_result.get("data", final_data)
                 if actual_data is None:
                     actual_data = []
                 
-                actual_count = execution_result.get("count", len(final_data) if final_data is not None else 0)
+                # 直接使用缓存中的 count，如果没有则根据 data 长度计算
+                actual_count = result_data.get("count", len(actual_data) if actual_data else 0)
                 
                 # ✅ 修复：如果 answer 为空，根据数据自动生成回答
                 answer = result_data.get("answer", "")
@@ -414,7 +409,7 @@ async def query_get(
         logger.info(f"GET query completed in {execution_time:.2f}s, count={response.count}, conversation_id={actual_conversation_id}")
         return response
 
-    except Exception as e:
+    except json.JSONDecodeError as e:
         logger.error(f"Failed to parse Agent output: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -486,21 +481,16 @@ async def query_post(request: QueryRequest):
                 # 现在 cached_result 直接包含 data、answer、count 等字段
                 result_data = cached_result
                 
-                # ✅ 修复：从正确的嵌套结构中提取数据
-                # 实际数据在 execution_result 字段中
-                execution_result = result_data.get("execution_result", {})
-                final_data = result_data.get("final_data", [])
+                # ✅ 修复：直接使用缓存数据中的字段
+                # 缓存数据直接包含 data、count、answer 等字段，不需要嵌套解析
+                actual_data = result_data.get("data", [])
                 
                 # ✅ 增强健壮性：确保数据不为 None
-                if final_data is None:
-                    final_data = []
-                
-                # 优先使用 execution_result 中的数据，如果没有则使用 final_data
-                actual_data = execution_result.get("data", final_data)
                 if actual_data is None:
                     actual_data = []
                 
-                actual_count = execution_result.get("count", len(final_data) if final_data is not None else 0)
+                # 直接使用缓存中的 count，如果没有则根据 data 长度计算
+                actual_count = result_data.get("count", len(actual_data) if actual_data else 0)
                 
                 # ✅ 修复：如果 answer 为空，根据数据自动生成回答
                 answer = result_data.get("answer", "")
