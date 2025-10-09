@@ -8,9 +8,16 @@ import json
 import time
 import hashlib
 import logging
+import socket
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from decimal import Decimal
+
+# 配置默认值
+DEFAULT_EMBEDDING_MODEL_OFFLINE_MODE = False
+DEFAULT_EMBEDDING_MODEL_TIMEOUT = 30
+DEFAULT_EMBEDDING_MODEL_RETRY_COUNT = 2
+DEFAULT_EMBEDDING_MODEL_RETRY_DELAY = 5
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +109,15 @@ class QueryCacheManager:
 
             if SENTENCE_TRANSFORMERS_AVAILABLE and SentenceTransformer:
                 try:
-                    logger.info(f"Loading embedding model: {embedding_model}...")
-                    self.embedding_model = SentenceTransformer(
-                        embedding_model,
-                        cache_folder=os.path.join(cache_dir, "models")  # 模型缓存目录
-                    )
-                    logger.info(f"✓ Embedding model loaded successfully")
+                    # 使用改进的模型加载方法
+                    self.embedding_model = self._initialize_embedding_model_safely(embedding_model, cache_dir)
+                    
+                    if self.embedding_model:
+                        logger.info("✓ Embedding model loaded successfully")
+                    else:
+                        logger.warning("Embedding model not available, semantic search disabled")
+                        self.enable_semantic_search = False
+                        
                 except Exception as e:
                     logger.warning(f"Failed to load embedding model: {e}. Semantic search disabled.")
                     self.enable_semantic_search = False
@@ -123,6 +133,83 @@ class QueryCacheManager:
 
         semantic_status = "enabled" if self.enable_semantic_search else "disabled"
         logger.info(f"QueryCacheManager initialized: dir={cache_dir}, ttl={ttl}s, max_size={max_size}, semantic_search={semantic_status}")
+
+    def _check_network_connectivity(self) -> bool:
+        """检查网络连接状态"""
+        try:
+            socket.create_connection(("huggingface.co", 443), timeout=5)
+            return True
+        except:
+            return False
+
+    def _load_embedding_model_with_retry(self, embedding_model: str, cache_dir: str):
+        """带重试和超时的模型加载方法"""
+        import requests
+        
+        # 从环境变量获取配置
+        offline_mode = os.getenv("EMBEDDING_MODEL_OFFLINE_MODE", str(DEFAULT_EMBEDDING_MODEL_OFFLINE_MODE)).lower() == "true"
+        model_timeout = int(os.getenv("EMBEDDING_MODEL_TIMEOUT", DEFAULT_EMBEDDING_MODEL_TIMEOUT))
+        retry_count = int(os.getenv("EMBEDDING_MODEL_RETRY_COUNT", DEFAULT_EMBEDDING_MODEL_RETRY_COUNT))
+        retry_delay = int(os.getenv("EMBEDDING_MODEL_RETRY_DELAY", DEFAULT_EMBEDDING_MODEL_RETRY_DELAY))
+
+        # 设置环境变量强制离线模式
+        if offline_mode:
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            logger.info("✓ Offline mode enabled for embedding model")
+        
+        # 设置超时
+        socket.setdefaulttimeout(model_timeout)
+        
+        for attempt in range(retry_count + 1):
+            try:
+                logger.info(f"Loading embedding model (attempt {attempt + 1}/{retry_count + 1}): {embedding_model}")
+                
+                # 使用本地缓存目录
+                model_path = os.path.join(cache_dir, "models", embedding_model.replace("/", "_"))
+                
+                # 检查本地是否已有模型
+                if os.path.exists(model_path):
+                    logger.info(f"Using cached model from: {model_path}")
+                    return SentenceTransformer(model_path)
+                else:
+                    # 在线下载，但使用本地缓存
+                    return SentenceTransformer(
+                        embedding_model,
+                        cache_folder=os.path.join(cache_dir, "models")
+                    )
+                    
+            except (socket.timeout, requests.exceptions.Timeout) as e:
+                logger.warning(f"Model loading timeout (attempt {attempt + 1}): {e}")
+                if attempt < retry_count:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    raise Exception(f"Failed to load model after {retry_count + 1} attempts: {e}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to load embedding model: {e}")
+                raise
+
+    def _initialize_embedding_model_safely(self, embedding_model: str, cache_dir: str):
+        """安全的模型初始化"""
+        try:
+            # 检查网络连接
+            if not self._check_network_connectivity():
+                logger.warning("No network connectivity, forcing offline mode")
+                os.environ["TRANSFORMERS_OFFLINE"] = "1"
+                os.environ["HF_HUB_OFFLINE"] = "1"
+            
+            # 尝试加载模型
+            return self._load_embedding_model_with_retry(embedding_model, cache_dir)
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize embedding model: {e}")
+            
+            # 降级方案：禁用语义搜索
+            self.enable_semantic_search = False
+            logger.warning("Semantic search disabled due to model loading failure")
+            return None
 
     def _load_metadata(self) -> Dict[str, Any]:
         """加载缓存元数据"""

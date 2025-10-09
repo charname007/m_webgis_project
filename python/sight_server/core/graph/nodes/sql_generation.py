@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from ...schemas import AgentState
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class GenerateSqlNode(NodeBase):
@@ -12,6 +13,7 @@ class GenerateSqlNode(NodeBase):
     CACHE_FIELD = "cached_result"
     FAILURE_FIELD = "generation_failure_count"
 
+    @with_memory_tracking("sql_generation")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         try:
             cached_payload = self._maybe_load_cache(state)

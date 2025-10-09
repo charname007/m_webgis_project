@@ -58,6 +58,12 @@ class QueryRequest(BaseModel):
         default=False,
         description="是否在响应中包含执行的SQL语句"
     )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="会话ID，用于多轮对话上下文跟踪。如果不提供，将自动生成新的会话ID",
+        max_length=36,
+        examples=["session-12345678-1234-1234-1234-123456789abc"]
+    )
 
     @validator('query')
     def validate_query(cls, v):
@@ -114,6 +120,12 @@ class GeoJSONRequest(BaseModel):
         default=True,
         description="是否包含属性信息"
     )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="会话ID，用于多轮对话上下文跟踪。如果不提供，将自动生成新的会话ID",
+        max_length=36,
+        examples=["session-12345678-1234-1234-1234-123456789abc"]
+    )
 
     class Config:
         json_schema_extra = {
@@ -139,6 +151,12 @@ class ThoughtChainRequest(BaseModel):
     verbose: bool = Field(
         default=True,
         description="是否返回详细的思维链步骤"
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="会话ID，用于多轮对话上下文跟踪。如果不提供，将自动生成新的会话ID",
+        max_length=36,
+        examples=["session-12345678-1234-1234-1234-123456789abc"]
     )
 
     class Config:
@@ -211,6 +229,12 @@ class QueryResponse(BaseModel):
         default=None,
         description="验证信息（包含验证状态和重试次数）"
     )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="会话ID，用于多轮对话上下文跟踪",
+        max_length=55,
+        examples=["session-12345678-1234-1234-1234-123456789abc"]
+    )
 
     class Config:
         json_schema_extra = {
@@ -248,7 +272,8 @@ class QueryResponse(BaseModel):
                     "validated": True,
                     "retry_count": 0,
                     "validation_message": "结果符合用户需求"
-                }
+                },
+                "conversation_id": "session-12345678-1234-1234-1234-123456789abc"
             }
         }
 

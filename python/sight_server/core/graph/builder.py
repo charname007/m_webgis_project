@@ -40,9 +40,9 @@ class GraphBuilder:
           → generate_sql (生成SQL)
           → execute_sql (执行SQL)
           → [条件] should_retry_or_fail
-              ↘ handle_error (处理错误) 或 validate_results (结果验证)
+              ↘ handle_error (处理错误) 或 check_results (规则检查)
           → [条件] should_requery
-              ↘ generate_sql (验证失败时重试) 或 check_results (验证成功)
+              ↘ generate_sql (需要重新查询) 或 validate_results (结果验证)
           → [条件] should_continue_querying
               ↘ generate_sql (继续迭代) 或 generate_answer (生成答案)
               → END
@@ -88,9 +88,9 @@ class GraphBuilder:
         workflow.add_node("generate_answer", node_handlers["generate_answer"])
         workflow.add_node("final_validation", node_handlers["final_validation"])
 
-        logger.info("✓ Added 10 nodes to workflow (including fetch_schema, handle_error, validate_results, and final_validation)")
+        logger.info("✓ Added 10 nodes to workflow (including fetch_schema, handle_error, check_results, and validate_results)")
 
-        workflow.set_entry_point("fetch_schema")
+        workflow.set_entry_point(key="fetch_schema")
 
         workflow.add_edge("fetch_schema", "analyze_intent")
         workflow.add_edge("analyze_intent", "enhance_query")
@@ -104,7 +104,7 @@ class GraphBuilder:
             should_retry_or_fail,
             {
                 "handle_error": "handle_error",
-                "validate_results": "validate_results",
+                "check_results": "check_results",
             },
         )
 
@@ -114,18 +114,18 @@ class GraphBuilder:
         logger.info("✓ Added retry loop edge")
 
         workflow.add_conditional_edges(
-            "validate_results",
+            "check_results",
             should_requery,
             {
                 "generate_sql": "generate_sql",
-                "check_results": "check_results",
+                "validate_results": "validate_results",
             },
         )
 
         logger.info("✓ Added conditional edge for result validation")
 
         workflow.add_conditional_edges(
-            "check_results",
+            "validate_results",
             should_continue_querying,
             {
                 "generate_sql": "generate_sql",

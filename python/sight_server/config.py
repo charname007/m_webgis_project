@@ -188,6 +188,33 @@ class Settings(BaseSettings):
         description="允许的HTTP头"
     )
 
+    # ==================== Embedding模型配置 ====================
+    EMBEDDING_MODEL_OFFLINE_MODE: bool = Field(
+        default=False,
+        description="强制离线模式，避免网络连接问题"
+    )
+
+    EMBEDDING_MODEL_TIMEOUT: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="模型加载网络超时时间（秒）"
+    )
+
+    EMBEDDING_MODEL_RETRY_COUNT: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="模型加载重试次数"
+    )
+
+    EMBEDDING_MODEL_RETRY_DELAY: int = Field(
+        default=5,
+        ge=1,
+        le=30,
+        description="重试间隔时间（秒）"
+    )
+
     # ==================== Pydantic配置 ====================
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -27,6 +27,7 @@ from models import (
 )
 from utils import GeoJSONConverter, CoordinateConverter
 from utils.geojson_utils import CoordinateSystem
+from utils.session_utils import get_or_create_conversation_id
 
 # 配置日志
 logging.basicConfig(
@@ -91,7 +92,7 @@ def initialize_agent() -> bool:
             ttl=3600,  # 1小时
             max_size=1000,
             enable_semantic_search=True,  # ⚠️ 临时禁用语义搜索（torch/torchvision 冲突）
-            similarity_threshold=0.92,
+            similarity_threshold=0.95,
             embedding_model="paraphrase-multilingual-MiniLM-L12-v2"
         )
         logger.info("✓ Query Cache Manager initialized successfully")
@@ -216,7 +217,8 @@ async def health_check():
 async def query_get(
     q: str = Query(..., description="自然语言查询文本", examples=["查询浙江省的5A景区"]),
     limit: Optional[int] = Query(None, description="结果数量限制", ge=1, le=100),
-    include_sql: bool = Query(True, description="是否返回 SQL 语句")  # ✅ 改为默认True
+    include_sql: bool = Query(True, description="是否返回 SQL 语句"),  # ✅ 改为默认True
+    conversation_id: Optional[str] = Query(None, description="会话ID，用于多轮对话上下文跟踪。如果不提供，将自动生成新的会话ID", examples=["session-12345678-1234-1234-1234-123456789abc"])
 ):
 
     """
@@ -247,7 +249,9 @@ async def query_get(
             )
 
     try:
-        logger.info(f"Processing GET query: {q}")
+        # ✅ 处理会话ID
+        actual_conversation_id = get_or_create_conversation_id(conversation_id)
+        logger.info(f"Processing GET query: {q}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
         # ✅ 1. 尝试从缓存获取（语义相似度搜索）
@@ -256,7 +260,8 @@ async def query_get(
             cache_context = {
                 "enable_spatial": True,  # 从 agent 配置获取
                 "query_intent": None,    # 第一次查询时未知
-                "include_sql": include_sql
+                "include_sql": include_sql,
+                "conversation_id": actual_conversation_id  # ✅ 添加会话ID到缓存上下文
             }
 
             # 使用语义搜索获取缓存
@@ -278,13 +283,15 @@ async def query_get(
                     message=cached_result.get("message", "查询成功（缓存）"),
                     sql=cached_result.get("sql") if include_sql else None,
                     execution_time=round(cache_execution_time, 3),
-                    intent_info=cached_result.get("intent_info")
+                    intent_info=cached_result.get("intent_info"),
+                    conversation_id=actual_conversation_id  # ✅ 返回会话ID
                 )
                 return cached_response
 
         # ✅ 2. 缓存未命中，执行 Agent 查询
         logger.info(f"✗ Cache MISS: {q[:50]}... Executing Agent...")
-        result_json = sql_agent.run(q)
+        # ✅ 传递会话ID给Agent
+        result_json = sql_agent.run(q, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -302,7 +309,8 @@ async def query_get(
             message=result_dict.get("message", "查询成功"),
             sql=result_dict.get("sql") if include_sql else None,
             execution_time=round(execution_time, 2),
-            intent_info=result_dict.get("intent_info")  # ✅ 添加意图信息
+            intent_info=result_dict.get("intent_info"),  # ✅ 添加意图信息
+            conversation_id=actual_conversation_id  # ✅ 返回会话ID
         )
 
         # ✅ 3. 保存缓存（包含完整的 QueryResponse）
@@ -317,14 +325,15 @@ async def query_get(
                 "count": response.count,
                 "message": response.message,
                 "sql": response.sql,
-                "intent_info": response.intent_info
+                "intent_info": response.intent_info,
+                "conversation_id": actual_conversation_id  # ✅ 保存会话ID到缓存
             }
 
             cache_key = query_cache_manager.get_cache_key(q, cache_context)
             if query_cache_manager.set(cache_key, cache_data, q):
                 logger.info(f"✓ Cache SAVED: {q[:50]}...")
 
-        logger.info(f"GET query completed in {execution_time:.2f}s, count={response.count}")
+        logger.info(f"GET query completed in {execution_time:.2f}s, count={response.count}, conversation_id={actual_conversation_id}")
         return response
 
     except json.JSONDecodeError as e:
@@ -371,7 +380,9 @@ async def query_post(request: QueryRequest):
             )
 
     try:
-        logger.info(f"Processing POST query: {request.query}")
+        # ✅ 处理会话ID
+        actual_conversation_id = get_or_create_conversation_id(request.conversation_id)
+        logger.info(f"Processing POST query: {request.query}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
         # ✅ 1. 尝试从缓存获取（语义相似度搜索）
@@ -380,7 +391,8 @@ async def query_post(request: QueryRequest):
             cache_context = {
                 "enable_spatial": True,  # 从 agent 配置获取
                 "query_intent": None,    # 第一次查询时未知
-                "include_sql": request.include_sql
+                "include_sql": request.include_sql,
+                "conversation_id": actual_conversation_id  # ✅ 添加会话ID到缓存上下文
             }
 
             # 使用语义搜索获取缓存
@@ -402,13 +414,15 @@ async def query_post(request: QueryRequest):
                     message=cached_result.get("message", "查询成功（缓存）"),
                     sql=cached_result.get("sql") if request.include_sql else None,
                     execution_time=round(cache_execution_time, 3),
-                    intent_info=cached_result.get("intent_info")
+                    intent_info=cached_result.get("intent_info"),
+                    conversation_id=actual_conversation_id  # ✅ 返回会话ID
                 )
                 return cached_response
 
         # ✅ 2. 缓存未命中，执行 Agent 查询
         logger.info(f"✗ Cache MISS: {request.query[:50]}... Executing Agent...")
-        result_json = sql_agent.run(request.query)
+        # ✅ 传递会话ID给Agent
+        result_json = sql_agent.run(request.query, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -426,7 +440,8 @@ async def query_post(request: QueryRequest):
             message=result_dict.get("message", "查询成功"),
             sql=result_dict.get("sql") if request.include_sql else None,
             execution_time=round(execution_time, 2),
-            intent_info=result_dict.get("intent_info")  # ✅ 添加意图信息
+            intent_info=result_dict.get("intent_info"),  # ✅ 添加意图信息
+            conversation_id=actual_conversation_id  # ✅ 返回会话ID
         )
 
         # ✅ 3. 保存缓存（包含完整的 QueryResponse）
@@ -441,14 +456,15 @@ async def query_post(request: QueryRequest):
                 "count": response.count,
                 "message": response.message,
                 "sql": response.sql,
-                "intent_info": response.intent_info
+                "intent_info": response.intent_info,
+                "conversation_id": actual_conversation_id  # ✅ 保存会话ID到缓存
             }
 
             cache_key = query_cache_manager.get_cache_key(request.query, cache_context)
             if query_cache_manager.set(cache_key, cache_data, request.query):
                 logger.info(f"✓ Cache SAVED: {request.query[:50]}...")
 
-        logger.info(f"POST query completed in {execution_time:.2f}s, count={response.count}")
+        logger.info(f"POST query completed in {execution_time:.2f}s, count={response.count}, conversation_id={actual_conversation_id}")
         return response
 
     except json.JSONDecodeError as e:
@@ -496,11 +512,13 @@ async def query_geojson(request: GeoJSONRequest):
             )
 
     try:
-        logger.info(f"Processing GeoJSON query: {request.query}")
+        # ✅ 处理会话ID
+        actual_conversation_id = get_or_create_conversation_id(request.conversation_id)
+        logger.info(f"Processing GeoJSON query: {request.query}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
-        # 执行查询
-        result_json = sql_agent.run(request.query)
+        # ✅ 传递会话ID给Agent
+        result_json = sql_agent.run(request.query, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -614,11 +632,13 @@ async def query_thought_chain(request: ThoughtChainRequest):
             )
 
     try:
-        logger.info(f"Processing thought chain query: {request.query}")
+        # ✅ 处理会话ID
+        actual_conversation_id = get_or_create_conversation_id(request.conversation_id)
+        logger.info(f"Processing thought chain query: {request.query}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
-        # 执行带思维链的查询
-        result = sql_agent.run_with_thought_chain(request.query)
+        # ✅ 传递会话ID给Agent
+        result = sql_agent.run_with_thought_chain(request.query, conversation_id=actual_conversation_id)
 
         # 计算执行时间
         execution_time = time.time() - start_time

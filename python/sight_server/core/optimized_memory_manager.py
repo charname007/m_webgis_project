@@ -915,6 +915,133 @@ class OptimizedMemoryManager(MemoryManager):  # ✅ 继承自 MemoryManager
         self.logger.info(f"Cleared all {session_count} sessions")
         return session_count
 
+    def update_session_context(
+        self, 
+        session_id: str, 
+        context_updates: Dict[str, Any]
+    ) -> bool:
+        """
+        实时更新会话上下文
+        
+        Args:
+            session_id: 会话ID
+            context_updates: 上下文更新数据
+            
+        Returns:
+            是否更新成功
+        """
+        if session_id not in self.sessions:
+            self.logger.warning(f"Session not found: {session_id}")
+            return False
+        
+        session = self.sessions[session_id]
+        
+        # 确保 context 字段存在
+        if "context" not in session:
+            session["context"] = {}
+        
+        # 更新上下文
+        session["context"].update(context_updates)
+        session["last_accessed"] = datetime.now().isoformat()
+        
+        self.logger.debug(
+            f"Updated session context: {session_id} - "
+            f"Updates: {list(context_updates.keys())}"
+        )
+        return True
+
+    def get_session_context(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取会话上下文
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            会话上下文字典
+        """
+        if session_id not in self.sessions:
+            return {}
+        
+        return self.sessions[session_id].get("context", {})
+
+    def get_session_step_history(
+        self, 
+        session_id: str, 
+        step_type: str = None,
+        limit: int = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取会话的步骤历史
+        
+        Args:
+            session_id: 会话ID
+            step_type: 步骤类型过滤（可选）
+            limit: 返回记录数限制（可选）
+            
+        Returns:
+            步骤历史列表
+        """
+        if session_id not in self.sessions:
+            return []
+        
+        session = self.sessions[session_id]
+        steps = session.get("step_history", [])
+        
+        # 按步骤类型过滤
+        if step_type:
+            steps = [step for step in steps if step.get("step_type") == step_type]
+        
+        # 限制返回数量
+        if limit:
+            steps = steps[-limit:]  # 返回最新的记录
+        
+        return steps
+
+    def get_session_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取会话摘要信息
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            会话摘要字典
+        """
+        if session_id not in self.sessions:
+            return {}
+        
+        session = self.sessions[session_id]
+        query_history = session.get("query_history", [])
+        step_history = session.get("step_history", [])
+        performance = session.get("performance", {})
+        
+        # 计算统计信息
+        total_queries = len(query_history)
+        successful_queries = sum(1 for q in query_history if q.get("success"))
+        success_rate = (successful_queries / total_queries * 100) if total_queries > 0 else 0
+        
+        total_steps = len(step_history)
+        step_types = {}
+        for step in step_history:
+            step_type = step.get("step_type")
+            if step_type:
+                step_types[step_type] = step_types.get(step_type, 0) + 1
+        
+        return {
+            "session_id": session_id,
+            "start_time": session.get("start_time"),
+            "last_accessed": session.get("last_accessed"),
+            "total_queries": total_queries,
+            "successful_queries": successful_queries,
+            "success_rate": round(success_rate, 2),
+            "total_steps": total_steps,
+            "step_types": step_types,
+            "average_response_time": performance.get("average_response_time", 0),
+            "context_size": len(session.get("context", {})),
+            "memory_usage_mb": round(self._estimate_session_memory(session), 2)
+        }
+
 
 # 测试代码
 if __name__ == "__main__":

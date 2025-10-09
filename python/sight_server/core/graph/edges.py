@@ -13,21 +13,21 @@ logger = logging.getLogger(__name__)
 
 def should_retry_or_fail(
     state: AgentState
-) -> Literal["handle_error", "validate_results"]:
+) -> Literal["handle_error", "check_results"]:
     """
     条件边: 判断SQL执行后是否应该重试还是继续
 
     决策逻辑:
-    1. 如果没有错误 → 继续验证结果
+    1. 如果没有错误 → 继续到规则检查节点
     2. 如果有错误且可以重试 → 进入错误处理节点
-    3. 如果错误不可恢复 → 继续（在validate_results/check_results中会停止）
-    4. 如果SQL执行重试耗尽 → 继续到验证节点（避免无限循环）
+    3. 如果错误不可恢复 → 继续（在check_results中会停止）
+    4. 如果SQL执行重试耗尽 → 继续到规则检查节点（避免无限循环）
 
     Args:
         state: Agent状态
 
     Returns:
-        下一个节点名称: "handle_error" 或 "validate_results"
+        下一个节点名称: "handle_error" 或 "check_results"
     """
     error = state.get("error")
     retry_count = state.get("retry_count", 0)
@@ -37,26 +37,26 @@ def should_retry_or_fail(
     sql_execution_retries = state.get("sql_execution_retries", 0)
     max_sql_execution_retries = state.get("max_sql_execution_retries", 3)
 
-    # 没有错误，正常继续到验证节点
+    # 没有错误，正常继续到规则检查节点
     if not error:
-        logger.info("[Edge: should_retry_or_fail] No error, proceeding to validate_results")
-        return "validate_results"
+        logger.info("[Edge: should_retry_or_fail] No error, proceeding to check_results")
+        return "check_results"
 
     # 有错误但SQL执行重试已耗尽
     if sql_execution_retries >= max_sql_execution_retries:
         logger.warning(
             f"[Edge: should_retry_or_fail] SQL execution retries exhausted "
-            f"({sql_execution_retries}/{max_sql_execution_retries}), proceeding to validate_results"
+            f"({sql_execution_retries}/{max_sql_execution_retries}), proceeding to check_results"
         )
-        return "validate_results"
+        return "check_results"
 
     # 有错误但已达重试上限
     if retry_count >= max_retries:
         logger.warning(
             f"[Edge: should_retry_or_fail] Max retries reached "
-            f"({retry_count}/{max_retries}), proceeding to validate_results with error"
+            f"({retry_count}/{max_retries}), proceeding to check_results with error"
         )
-        return "validate_results"
+        return "check_results"
 
     # 有错误且可以重试
     logger.info(
@@ -117,56 +117,31 @@ def should_continue_querying(
 
 def should_requery(
     state: AgentState
-) -> Literal["generate_sql", "check_results"]:
+) -> Literal["generate_sql", "validate_results"]:
     """
-    条件边: 根据验证结果决定是否重新查询
+    条件边: 根据规则检查结果决定是否重新查询
 
     决策逻辑:
-    1. 获取最新的验证结果
-    2. 如果验证通过 → 继续到 check_results
-    3. 如果验证失败且未达重试上限 → 返回 generate_sql 重新查询
-    4. 如果验证失败但已达重试上限 → 继续到 check_results（停止重试）
+    1. 检查 should_continue 标志
+    2. 如果 should_continue=True → 返回 generate_sql 重新查询
+    3. 如果 should_continue=False → 继续到 validate_results 进行质量验证
 
     Args:
         state: Agent状态
 
     Returns:
-        下一个节点名称: "generate_sql" 或 "check_results"
+        下一个节点名称: "generate_sql" 或 "validate_results"
     """
-    # 获取验证历史
-    validation_history = state.get("validation_history", [])
+    # 检查是否需要继续查询
+    should_continue = state.get("should_continue", False)
 
-    # 如果没有验证历史，默认继续
-    if not validation_history:
-        logger.info("[Edge: should_requery] No validation history, proceeding to check_results")
-        return "check_results"
+    if should_continue:
+        logger.info("[Edge: should_requery] Rule-based check suggests requerying, going to generate_sql")
+        return "generate_sql"
 
-    # 获取最新验证结果
-    last_validation = validation_history[-1]
-    is_valid = last_validation.get("is_valid", True)
-
-    # 验证通过，继续正常流程
-    if is_valid:
-        logger.info("[Edge: should_requery] Validation passed, proceeding to check_results")
-        return "check_results"
-
-    # 验证失败，检查重试次数
-    validation_retry_count = state.get("validation_retry_count", 0)
-    max_validation_retries = state.get("max_validation_retries", 3)
-
-    if validation_retry_count >= max_validation_retries:
-        logger.warning(
-            f"[Edge: should_requery] Validation failed but max retries reached "
-            f"({validation_retry_count}/{max_validation_retries}), proceeding to check_results"
-        )
-        return "check_results"
-
-    # 验证失败且可以重试
-    logger.info(
-        f"[Edge: should_requery] Validation failed, requerying "
-        f"(attempt {validation_retry_count + 1}/{max_validation_retries})"
-    )
-    return "generate_sql"
+    # 不需要继续查询，进行结果质量验证
+    logger.info("[Edge: should_requery] Rule-based check passed, proceeding to validate_results")
+    return "validate_results"
 
 
 # 其他可能的条件边函数（未来扩展）

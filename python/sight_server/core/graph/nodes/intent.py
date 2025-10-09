@@ -5,11 +5,13 @@ from typing import Dict
 from ...schemas import AgentState
 from ...prompts import PromptManager
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class AnalyzeIntentNode(NodeBase):
     """Determine query intent via PromptManager (LLM first, fallback keywords)."""
 
+    @with_memory_tracking("intent_analysis")
     def __call__(self, state: AgentState) -> Dict[str, object]:
         try:
             query = state["query"]
@@ -71,6 +73,7 @@ class AnalyzeIntentNode(NodeBase):
 class EnhanceQueryNode(NodeBase):
     """Augment the query text with spatial hints when needed."""
 
+    @with_memory_tracking("enhance_query")
     def __call__(self, state: AgentState) -> Dict[str, object]:
         try:
             query = state["query"]

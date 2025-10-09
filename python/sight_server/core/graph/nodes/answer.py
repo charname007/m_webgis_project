@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional
 
 from ...schemas import AgentState
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class GenerateAnswerNode(NodeBase):
     """Generate the final answer with optional deep analysis support."""
 
+    @with_memory_tracking("generate_answer")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         query = state.get("query", "")
         final_data: Optional[List[Dict[str, Any]]] = state.get("final_data")

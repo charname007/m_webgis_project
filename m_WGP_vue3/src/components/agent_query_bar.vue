@@ -8,10 +8,20 @@
     <div class="panel-header">
       <div class="header-left" @click="toggleCollapse" style="cursor: pointer;">
         <span class="panel-icon">🤖</span>
-        <h3 class="panel-title">AI 智能查询助手</h3>
+        <h3 class="panel-title">LLM查询框</h3>
+        <span v-if="currentSessionId" class="session-badge" :title="'会话ID: ' + currentSessionId">
+          💬 会话中
+        </span>
       </div>
       <div class="header-right">
         <span v-if="executionTime" class="execution-time">{{ executionTime }}s</span>
+        <button
+          @click="showSessionInfo"
+          class="session-button"
+          title="会话信息"
+        >
+          💬
+        </button>
         <button
           @click="toggleCollapse"
           class="toggle-button"
@@ -104,9 +114,57 @@ export default {
     const executionTime = ref(null)     // 执行时间
     const isCollapsed = ref(false)      // 折叠状态
     const panelRef = ref(null)          // 面板引用
+    const currentSessionId = ref('')    // 当前会话ID
+    const sessionHistory = ref([])      // 会话历史记录
 
     // 注入设置查询结果的方法（由 OlMap 提供）
     const setAgentQueryResult = inject('setAgentQueryResult', null)
+
+    // ==================== 会话管理方法 ====================
+
+    /**
+     * 生成新的会话ID
+     */
+    const generateSessionId = () => {
+      const timestamp = Date.now().toString(36)
+      const random = Math.random().toString(36).substr(2, 5)
+      return `session_${timestamp}_${random}`
+    }
+
+    /**
+     * 开始新会话
+     */
+    const startNewSession = () => {
+      currentSessionId.value = generateSessionId()
+      sessionHistory.value = []
+      console.log('🆕 开始新会话:', currentSessionId.value)
+    }
+
+    /**
+     * 显示会话信息
+     */
+    const showSessionInfo = () => {
+      if (currentSessionId.value) {
+        alert(`当前会话ID: ${currentSessionId.value}\n查询历史: ${sessionHistory.value.length} 次`)
+      } else {
+        alert('当前没有活跃的会话')
+      }
+    }
+
+    /**
+     * 记录查询到会话历史
+     */
+    const addToSessionHistory = (query, result) => {
+      sessionHistory.value.push({
+        query,
+        timestamp: new Date().toISOString(),
+        result: {
+          count: result.count || 0,
+          status: result.status || 'unknown',
+          executionTime: result.execution_time || null
+        }
+      })
+    }
 
     // ==================== 核心方法 ====================
 
@@ -119,6 +177,11 @@ export default {
       if (!queryText.value.trim()) {
         error.value = '请输入查询内容'
         return
+      }
+
+      // 如果没有会话ID，开始新会话
+      if (!currentSessionId.value) {
+        startNewSession()
       }
 
       // 重置状态
@@ -134,12 +197,14 @@ export default {
 
         console.log('🤖 AI查询开始:', queryText.value)
         console.log('📡 请求URL:', queryUrl)
+        console.log('💬 会话ID:', currentSessionId.value)
 
-        // 发送 GET 请求到 sight_server
+        // 发送 GET 请求到 sight_server（包含会话ID）
         const response = await axios.get(queryUrl, {
           params: {
             q: queryText.value.trim(),
-            include_sql: true  // 请求包含 SQL 语句
+            include_sql: true,  // 请求包含 SQL 语句
+            conversation_id: currentSessionId.value  // 传递会话ID
           },
           timeout: 600000  // 30秒超时
         })
@@ -156,8 +221,12 @@ export default {
           queryInfo.value = {
             count: response.data.count || 0,
             intent_info: response.data.intent_info || null,
-            sql: response.data.sql || null
+            sql: response.data.sql || null,
+            conversation_id: response.data.conversation_id || currentSessionId.value
           }
+
+          // 记录到会话历史
+          addToSessionHistory(queryText.value, response.data)
 
           // 将数据传递给 TouristSpotSearch 组件（通过 OlMap 的 provide）
           if (setAgentQueryResult && response.data.data) {
@@ -165,8 +234,8 @@ export default {
             setAgentQueryResult({
               data: response.data.data,
               query: queryText.value,
-              count: response.data.count
-              
+              count: response.data.count,
+              session_id: currentSessionId.value
             })
           }
         } else {
@@ -220,10 +289,14 @@ export default {
       executionTime,
       isCollapsed,
       panelRef,
+      currentSessionId,
+      sessionHistory,
       // 方法
       handleQuery,
       toggleCollapse,
-      getIntentTypeName
+      getIntentTypeName,
+      showSessionInfo,
+      startNewSession
     }
   }
 }
@@ -301,6 +374,36 @@ export default {
   background: rgba(255, 255, 255, 0.2);
   padding: 4px 10px;
   border-radius: 12px;
+}
+
+.session-badge {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+}
+
+.session-button {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.2s ease;
+}
+
+.session-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
 }
 
 .toggle-button {

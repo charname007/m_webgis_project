@@ -6,11 +6,13 @@ from typing import Any, Dict, List, Optional
 
 from ...schemas import AgentState
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class HandleErrorNode(NodeBase):
     """Enhanced error handling node with retry and fallback strategies."""
 
+    @with_memory_tracking("error_handling")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         error = state.get("error") or state.get("last_error")
         retry_count = state.get("retry_count", 0)

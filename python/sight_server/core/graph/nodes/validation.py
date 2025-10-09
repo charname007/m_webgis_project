@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional
 
 from ...schemas import AgentState
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class ValidateResultsNode(NodeBase):
     """Validate query results using LLM feedback."""
 
+    @with_memory_tracking("result_validation")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         try:
             query = state["query"]
@@ -292,6 +294,7 @@ class ValidateResultsNode(NodeBase):
 class CheckResultsNode(NodeBase):
     """Decide whether further querying is required based on rule-based analysis."""
 
+    @with_memory_tracking("check_results")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         try:
             current_step = state.get("current_step", 0)
@@ -425,21 +428,21 @@ class CheckResultsNode(NodeBase):
                 "guidance": "尝试不同的查询条件或扩展查询范围"
             }
         
-        # 规则2: 查询意图为"query"且数据量较少时继续
-        if query_intent == "query" and data_count < 3:
-            return {
-                "should_continue": True,
-                "reason": f"返回结果仅 {data_count} 条，建议补充",
-                "guidance": "扩展查询范围获取更多样本"
-            }
+        # # 规则2: 查询意图为"query"且数据量较少时继续
+        # if query_intent == "query" and data_count < 3:
+        #     return {
+        #         "should_continue": True,
+        #         "reason": f"返回结果仅 {data_count} 条，建议补充",
+        #         "guidance": "扩展查询范围获取更多样本"
+        #     }
         
-        # 规则3: 查询意图为"summary"且数据量较少时继续
-        if query_intent == "summary" and data_count < 5:
-            return {
-                "should_continue": True,
-                "reason": f"统计查询结果仅 {data_count} 条，建议补充",
-                "guidance": "获取更多数据以支持统计分析"
-            }
+        # # 规则3: 查询意图为"summary"且数据量较少时继续
+        # if query_intent == "summary" and data_count < 5:
+        #     return {
+        #         "should_continue": True,
+        #         "reason": f"统计查询结果仅 {data_count} 条，建议补充",
+        #         "guidance": "获取更多数据以支持统计分析"
+        #     }
         
         # # 规则4: 数据质量检查 - 检查关键字段完整性
         # if final_data and self._has_missing_key_fields(final_data):

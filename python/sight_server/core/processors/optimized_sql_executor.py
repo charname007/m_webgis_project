@@ -38,7 +38,7 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
         max_rows: int = 1000,
         enable_optimization: bool = True,
         enable_timeout: bool = True,
-        max_retries: int = 3  # 添加最大重试次数
+        max_retries: int = 0  # 添加最大重试次数
     ):
         """
         初始化优化的SQL执行器
@@ -113,7 +113,7 @@ class OptimizedSQLExecutor(SQLExecutor):  # ✅ 继承自 SQLExecutor
                 current_sql = self._get_retry_sql(sql, retry_count)
                 
                 self.logger.info(f"执行 {retry_count}/{self.max_retries}: 超时={current_timeout}s, SQL={current_sql[:200]}...")
-                
+         
                 # 执行查询
                 result = self._execute_single_query(current_sql, current_timeout)
                 

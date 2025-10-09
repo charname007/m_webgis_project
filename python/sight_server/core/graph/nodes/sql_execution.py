@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from ...schemas import AgentState
 from .base import NodeBase
+from .memory_decorators import with_memory_tracking
 
 
 class ExecuteSqlNode(NodeBase):
@@ -14,6 +15,7 @@ class ExecuteSqlNode(NodeBase):
     CACHE_FIELD = "cached_result"
     FAILURE_FIELD = "generation_failure_count"
 
+    @with_memory_tracking("sql_execution")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         start_time = time.time()
         current_sql = state.get("current_sql")
