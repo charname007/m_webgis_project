@@ -1,6 +1,6 @@
 """
-缓存管理器模块 - Sight Server
-提供查询结果缓存功能，提升性能
+查询缓存管理器模块 - Sight Server
+使用分离存储方案，专门处理查询结果缓存
 """
 
 import os
@@ -8,8 +8,9 @@ import json
 import time
 import hashlib
 import logging
+import difflib
 import socket
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -44,14 +45,9 @@ def _lazy_import_sentence_transformers():
 class DecimalEncoder(json.JSONEncoder):
     """
     自定义 JSON 编码器 - 支持 Decimal 和 datetime 类型
-
-    处理数据库查询结果中的特殊类型:
-    - Decimal → float (保持数值精度)
-    - datetime → ISO格式字符串
     """
     def default(self, obj):
         if isinstance(obj, Decimal):
-            # 将 Decimal 转为 float（如果需要更高精度可以转为 str）
             return float(obj)
         if isinstance(obj, (datetime,)):
             return obj.isoformat()
@@ -60,14 +56,13 @@ class DecimalEncoder(json.JSONEncoder):
 
 class QueryCacheManager:
     """
-    查询缓存管理器（支持语义相似度搜索）
+    查询缓存管理器（使用分离存储方案）
 
     功能:
-    - 缓存查询结果，避免重复计算
-    - 支持TTL（生存时间）自动过期
-    - 缓存键基于查询内容和上下文生成
+    - 专门处理查询结果缓存
+    - 使用 query_cache 表进行数据库存储
+    - 支持文件系统缓存作为备份
     - 自动清理过期缓存
-    - ✅ 语义相似度匹配（基于 sentence-transformers）
     """
 
     def __init__(
@@ -75,20 +70,22 @@ class QueryCacheManager:
         cache_dir: str = "./cache",
         ttl: int = 3600,
         max_size: int = 1000,
+        # enable_database_persistence: bool = True,  # ✅ 新增：启用数据库持久化
+        database_connector=None,                 # ✅ 新增：数据库连接器实例
+        cache_strategy: str = "hybrid",
         enable_semantic_search: bool = True,
         similarity_threshold: float = 0.92,
         embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2",
-        enable_database_persistence: bool = True,  # ✅ 新增：启用数据库持久化
-        database_connector = None,                 # ✅ 新增：数据库连接器实例
-        cache_strategy: str = "hybrid"             # ✅ 新增：缓存策略 hybrid/db_only/file_only
     ):
         """
-        初始化缓存管理器
+        初始化查询缓存管理器（支持语义相似度搜索）
 
         Args:
             cache_dir: 缓存文件目录
             ttl: 缓存生存时间（秒），默认1小时
             max_size: 最大缓存条目数
+            database_connector: 数据库连接器实例
+            cache_strategy: 缓存策略 hybrid/db_only/file_only
             enable_semantic_search: 是否启用语义相似度搜索（✅ 新增）
             similarity_threshold: 语义相似度阈值（0-1），默认0.92（✅ 新增）
             embedding_model: Embedding模型名称（✅ 新增）
@@ -96,7 +93,9 @@ class QueryCacheManager:
         self.cache_dir = cache_dir
         self.ttl = ttl
         self.max_size = max_size
-        self.cache_metadata_file = os.path.join(cache_dir, "cache_metadata.json")
+        self.cache_metadata_file = os.path.join(cache_dir, "query_cache_metadata.json")
+        self.database_connector = database_connector
+        self.cache_strategy = cache_strategy
 
         # ✅ 语义搜索配置
         self.enable_semantic_search = enable_semantic_search
@@ -129,7 +128,7 @@ class QueryCacheManager:
                 self.enable_semantic_search = False
 
         # ✅ 新增：数据库持久化配置
-        self.enable_database_persistence = enable_database_persistence
+        # self.enable_database_persistence = enable_database_persistence
         self.database_connector = database_connector
         self.cache_strategy = cache_strategy
 
@@ -140,9 +139,9 @@ class QueryCacheManager:
             self.cache_strategy = "hybrid"
 
         # 检查数据库连接器
-        if self.enable_database_persistence and not self.database_connector:
-            logger.warning("Database persistence enabled but no database connector provided. Disabling database persistence.")
-            self.enable_database_persistence = False
+        if self.cache_strategy in ["db_only", "hybrid"] and not self.database_connector:
+            logger.warning("Database strategy selected but no database connector provided. Switching to file_only.")
+            self.cache_strategy = "file_only"
 
         # 创建缓存目录
         os.makedirs(cache_dir, exist_ok=True)
@@ -150,17 +149,15 @@ class QueryCacheManager:
         # 加载缓存元数据
         self.metadata = self._load_metadata()
 
-        # ✅ 新增：数据库缓存统计
-        self.metadata["database_stats"] = {
-            "db_hits": 0,
-            "db_misses": 0,
-            "db_errors": 0,
-            "last_db_sync": None
+        # ✅ 新增：语义搜索统计
+        self.metadata["semantic_stats"] = {
+            "semantic_hits": 0,
+            "semantic_misses": 0,
+            "last_semantic_search": None
         }
 
         semantic_status = "enabled" if self.enable_semantic_search else "disabled"
-        db_status = "enabled" if self.enable_database_persistence else "disabled"
-        logger.info(f"QueryCacheManager initialized: dir={cache_dir}, ttl={ttl}s, max_size={max_size}, semantic_search={semantic_status}, db_persistence={db_status}, strategy={self.cache_strategy}")
+        logger.info(f"QueryCacheManager initialized: dir={cache_dir}, ttl={ttl}s, max_size={max_size}, strategy={self.cache_strategy}, semantic_search={semantic_status}")
 
     def _check_network_connectivity(self) -> bool:
         """检查网络连接状态"""
@@ -266,115 +263,73 @@ class QueryCacheManager:
 
     def get_cache_key(self, query: str, context: Dict[str, Any]) -> str:
         """
-        生成缓存键（优化版）
+        生成查询缓存键（简化版本，只基于查询文本）
 
         Args:
             query: 查询文本
-            context: 上下文信息
+            context: 上下文信息（不再用于生成缓存键）
 
         Returns:
             缓存键（MD5哈希）
-
-        优化点：
-        - 标准化查询文本（去除多余空格、统一小写）
-        - 添加 query_intent 到缓存键（区分 summary/query）
-        - 移除 conversation_id（跨会话共享缓存）
         """
-        # ✅ 标准化查询文本（去除多余空格、统一小写）
+        # 标准化查询文本
         normalized_query = " ".join(query.lower().strip().split())
+        
+        # 只基于查询文本生成缓存键，忽略上下文参数
+        return hashlib.md5(normalized_query.encode('utf-8')).hexdigest()
 
-        # ✅ 选择关键上下文字段
-        key_context = {
-            "query": normalized_query,                                   # 标准化查询
-            "enable_spatial": context.get("enable_spatial", True),
-            "query_intent": context.get("query_intent", "query"),       # ✅ 新增：区分 summary/query
-            "include_sql": context.get("include_sql", False)             # ✅ 新增：是否包含 SQL
-            # ❌ 移除 conversation_id（跨会话共享）
-            # ❌ 移除 prompt_type（由 query_intent 代替）
-        }
-
-        # 排序确保一致性
-        key_data = json.dumps(key_context, sort_keys=True, ensure_ascii=False)
-
-        return hashlib.md5(key_data.encode('utf-8')).hexdigest()
-
-    def _get_from_database(self, cache_key: str) -> Optional[Dict[str, Any]]:
+    def save_query_cache(
+        self,
+        query_text: str,
+        result_data: Dict[str, Any],
+        response_time: Optional[float] = None,
+        ttl_seconds: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> int:
         """
-        从数据库获取缓存结果
+        保存查询结果缓存到 query_cache 表
 
         Args:
-            cache_key: 缓存键
+            query_text: 查询文本
+            result_data: 结果数据
+            response_time: 响应时间
+            ttl_seconds: 生存时间（秒）
+            context: 上下文信息（可选）
 
         Returns:
-            缓存结果，如果不存在或已过期则返回None
+            缓存记录ID
         """
-        if not self.enable_database_persistence or not self.database_connector:
-            return None
+        cache_context = context or {}
+        cache_key = self.get_cache_key(query_text, cache_context)
 
         try:
-            db_result = self.database_connector.get_cache_data(cache_key)
-            if db_result:
-                # 解析缓存值
-                cache_value = json.loads(db_result.get("cache_value", "{}"))
-                self.metadata["database_stats"]["db_hits"] += 1
-                self.metadata["database_stats"]["last_db_sync"] = datetime.now().isoformat()
-                logger.debug(f"Database cache hit for key: {cache_key}")
-                return cache_value
-            else:
-                self.metadata["database_stats"]["db_misses"] += 1
-                return None
+            record_id = 0
+
+            # 保存到数据库
+            if self.cache_strategy in ["db_only", "hybrid"]:
+                record_id = self.database_connector.save_query_cache(
+                    cache_key=cache_key,
+                    query_text=query_text,
+                    result_data=result_data,
+                    response_time=response_time,
+                    ttl_seconds=ttl_seconds or self.ttl
+                )
+                logger.debug(f"查询结果缓存已保存到数据库，键: {cache_key}")
+
+            # 保存到文件系统
+            if self.cache_strategy in ["file_only", "hybrid"]:
+                self._save_to_filesystem(cache_key, result_data, query_text)
+                logger.debug(f"查询结果缓存已保存到文件系统，键: {cache_key}")
+
+            return record_id
 
         except Exception as e:
-            self.metadata["database_stats"]["db_errors"] += 1
-            logger.warning(f"Failed to get cache from database for key {cache_key}: {e}")
-            return None
+            logger.error(f"保存查询结果缓存失败: {e}")
+            raise
 
-    def _save_to_database(self, cache_key: str, result: Dict[str, Any], query: str = "") -> bool:
+    def get_query_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """
-        保存缓存结果到数据库
-
-        Args:
-            cache_key: 缓存键
-            result: 要缓存的结果
-            query: 原始查询
-
-        Returns:
-            是否成功
-        """
-        if not self.enable_database_persistence or not self.database_connector:
-            return False
-
-        try:
-            cache_data = {
-                "result": result,
-                "query": query,
-                "cache_key": cache_key,
-                "created_at": datetime.now().isoformat()
-            }
-
-            success = self.database_connector.save_cache_data(
-                cache_key=cache_key,
-                cache_value=cache_data,
-                cache_type="query_result",  # ✅ 明确标识为查询结果缓存
-                ttl_seconds=self.ttl
-            )
-
-            if success:
-                self.metadata["database_stats"]["last_db_sync"] = datetime.now().isoformat()
-                logger.debug(f"Database cache set for key: {cache_key} (type: query_result)")
-                return True
-            else:
-                logger.warning(f"Failed to save cache to database for key: {cache_key}")
-                return False
-
-        except Exception as e:
-            self.metadata["database_stats"]["db_errors"] += 1
-            logger.warning(f"Failed to save cache to database for key {cache_key}: {e}")
-            return False
-
-    def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """
-        获取缓存结果（支持双存储策略）
+        获取查询结果缓存
 
         Args:
             cache_key: 缓存键
@@ -419,9 +374,82 @@ class QueryCacheManager:
             self.metadata["total_misses"] += 1
             return None
 
+    def _get_from_database(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """
+        从数据库获取查询结果缓存
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            缓存结果，如果不存在或已过期则返回None
+        """
+        if not self.database_connector:
+            return None
+
+        try:
+            db_result = self.database_connector.get_query_cache(cache_key)
+            if db_result:
+                logger.debug(f"数据库查询缓存命中，键: {cache_key}")
+                
+                # ✅ 修复：正确处理 result_data 字段
+                result_data = db_result.get("result_data", {})
+                if isinstance(result_data, str):
+                    try:
+                        result_data = json.loads(result_data)
+                    except json.JSONDecodeError:
+                        result_data = {}
+                elif not isinstance(result_data, dict):
+                    result_data = {}
+                
+                # ✅ 修复：直接返回 result_data，而不是包装在 result_data 字段中
+                # 这样 main.py 可以直接使用 data、answer、count 等字段
+                if result_data:
+                    # 添加查询文本和响应时间到结果中
+                    result_data["query_text"] = db_result.get("query_text", "")
+                    result_data["response_time"] = db_result.get("response_time")
+                    result_data["hit_count"] = db_result.get("hit_count", 0)
+                    return result_data
+                else:
+                    return None
+            else:
+                return None
+
+        except Exception as e:
+            logger.warning(f"从数据库获取查询缓存失败，键 {cache_key}: {e}")
+            return None
+
+    def _save_to_database(self, cache_key: str, result: Dict[str, Any]) -> bool:
+        """
+        保存查询结果缓存到数据库
+
+        Args:
+            cache_key: 缓存键
+            result: 要缓存的结果
+
+        Returns:
+            是否成功
+        """
+        if not self.database_connector:
+            return False
+
+        try:
+            self.database_connector.save_query_cache(
+                cache_key=cache_key,
+                query_text=result.get("query_text", ""),
+                result_data=result.get("result_data", {}),
+                response_time=result.get("response_time"),
+                ttl_seconds=self.ttl
+            )
+            return True
+
+        except Exception as e:
+            logger.warning(f"保存查询缓存到数据库失败，键 {cache_key}: {e}")
+            return False
+
     def _get_from_filesystem(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """
-        从文件系统获取缓存结果
+        从文件系统获取查询结果缓存
 
         Args:
             cache_key: 缓存键
@@ -438,7 +466,7 @@ class QueryCacheManager:
             # 检查是否过期
             file_mtime = os.path.getmtime(cache_file)
             if time.time() - file_mtime > self.ttl:
-                logger.debug(f"File cache expired for key: {cache_key}")
+                logger.debug(f"文件缓存已过期，键: {cache_key}")
                 self._remove_cache_file(cache_key)
                 return None
 
@@ -453,16 +481,16 @@ class QueryCacheManager:
                 self.metadata["cache_entries"][cache_key]["last_accessed"] = datetime.now().isoformat()
             
             self._save_metadata()
-            logger.debug(f"File cache hit for key: {cache_key}")
+            logger.debug(f"文件查询缓存命中，键: {cache_key}")
             return result
 
         except Exception as e:
-            logger.error(f"Failed to read cache file {cache_file}: {e}")
+            logger.error(f"读取查询缓存文件失败 {cache_file}: {e}")
             return None
 
     def _save_to_filesystem(self, cache_key: str, result: Dict[str, Any], query: str = "") -> bool:
         """
-        保存缓存结果到文件系统
+        保存查询结果缓存到文件系统
 
         Args:
             cache_key: 缓存键
@@ -475,65 +503,29 @@ class QueryCacheManager:
         try:
             cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
             
-            # 保存缓存文件（使用自定义编码器处理 Decimal 类型）
+            # 在结果中添加查询文本，确保语义搜索能正常工作
+            enhanced_result = result.copy()
+            enhanced_result["query_text"] = query
+            
+            # 保存缓存文件
             with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(result, f, ensure_ascii=False, indent=2, cls=DecimalEncoder)
+                json.dump(enhanced_result, f, ensure_ascii=False, indent=2, cls=DecimalEncoder)
 
-            # 更新元数据
+            # 更新元数据 - 确保存储原始查询文本而不是哈希值
             self.metadata["cache_entries"][cache_key] = {
-                "query": query,
+                "query": query,  # 存储原始查询文本
                 "created_at": datetime.now().isoformat(),
                 "last_accessed": datetime.now().isoformat(),
                 "hit_count": 1,
-                "size": len(json.dumps(result, ensure_ascii=False, cls=DecimalEncoder))
+                "size": len(json.dumps(enhanced_result, ensure_ascii=False, cls=DecimalEncoder))
             }
 
             self._save_metadata()
-            logger.debug(f"File cache set for key: {cache_key}")
+            logger.debug(f"文件查询缓存已保存，键: {cache_key}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to set file cache for key {cache_key}: {e}")
-            return False
-
-    def set(self, cache_key: str, result: Dict[str, Any], query: str = "") -> bool:
-        """
-        设置缓存结果（支持双存储策略）
-
-        Args:
-            cache_key: 缓存键
-            result: 要缓存的结果
-            query: 原始查询（用于元数据）
-
-        Returns:
-            是否成功
-        """
-        try:
-            # 检查缓存大小，如果超过限制则清理
-            self._cleanup_if_needed()
-
-            success = True
-
-            # 根据缓存策略决定存储方式
-            if self.cache_strategy in ["file_only", "hybrid"]:
-                # 保存到文件系统
-                file_success = self._save_to_filesystem(cache_key, result, query)
-                success = success and file_success
-
-            if self.cache_strategy in ["db_only", "hybrid"]:
-                # 保存到数据库
-                db_success = self._save_to_database(cache_key, result, query)
-                success = success and db_success
-
-            if success:
-                logger.debug(f"Cache set for key: {cache_key} (strategy: {self.cache_strategy})")
-            else:
-                logger.warning(f"Partial cache set for key: {cache_key} (strategy: {self.cache_strategy})")
-
-            return success
-
-        except Exception as e:
-            logger.error(f"Failed to set cache for key {cache_key}: {e}")
+            logger.error(f"保存查询缓存到文件系统失败，键 {cache_key}: {e}")
             return False
 
     def _remove_cache_file(self, cache_key: str):
@@ -547,19 +539,7 @@ class QueryCacheManager:
             if cache_key in self.metadata["cache_entries"]:
                 del self.metadata["cache_entries"][cache_key]
         except Exception as e:
-            logger.error(f"Failed to remove cache file for key {cache_key}: {e}")
-
-    def _cleanup_if_needed(self):
-        """如果需要则清理缓存"""
-        current_size = len(self.metadata["cache_entries"])
-        
-        if current_size >= self.max_size:
-            logger.info(f"Cache size ({current_size}) exceeds limit ({self.max_size}), cleaning up...")
-            self.cleanup_old_entries(keep_count=int(self.max_size * 0.8))  # 保留80%
-
-        # 定期清理过期缓存（每100次操作清理一次）
-        if self.metadata["total_hits"] + self.metadata["total_misses"] % 100 == 0:
-            self.cleanup_expired_entries()
+            logger.error(f"删除查询缓存文件失败，键 {cache_key}: {e}")
 
     def cleanup_expired_entries(self) -> int:
         """
@@ -568,7 +548,7 @@ class QueryCacheManager:
         Returns:
             清理的数量
         """
-        logger.info("Cleaning up expired cache entries...")
+        logger.info("Cleaning up expired query cache entries...")
         removed_count = 0
         current_time = time.time()
 
@@ -589,42 +569,12 @@ class QueryCacheManager:
         self.metadata["last_cleanup"] = datetime.now().isoformat()
         self._save_metadata()
         
-        logger.info(f"Cleaned up {removed_count} expired cache entries")
-        return removed_count
-
-    def cleanup_old_entries(self, keep_count: int = 800) -> int:
-        """
-        清理旧的缓存条目（基于最近访问时间）
-
-        Args:
-            keep_count: 要保留的条目数量
-
-        Returns:
-            清理的数量
-        """
-        current_size = len(self.metadata["cache_entries"])
-        if current_size <= keep_count:
-            return 0
-
-        logger.info(f"Cleaning up old cache entries (keeping {keep_count} of {current_size})...")
-
-        # 按最后访问时间排序
-        entries = list(self.metadata["cache_entries"].items())
-        entries.sort(key=lambda x: x[1].get("last_accessed", "2000-01-01"))
-
-        # 删除最旧的条目
-        removed_count = 0
-        for cache_key, _ in entries[:current_size - keep_count]:
-            self._remove_cache_file(cache_key)
-            removed_count += 1
-
-        self._save_metadata()
-        logger.info(f"Cleaned up {removed_count} old cache entries")
+        logger.info(f"Cleaned up {removed_count} expired query cache entries")
         return removed_count
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """
-        获取缓存统计信息（包含数据库缓存统计）
+        获取缓存统计信息（包含语义搜索统计）
 
         Returns:
             缓存统计信息
@@ -645,40 +595,13 @@ class QueryCacheManager:
             "max_size": self.max_size,
             "created_at": self.metadata["created_at"],
             "last_cleanup": self.metadata["last_cleanup"],
-            "cache_strategy": self.cache_strategy,
-            "enable_database_persistence": self.enable_database_persistence
+            "cache_strategy": self.cache_strategy
         }
-
-        # ✅ 新增：数据库缓存统计
-        if self.enable_database_persistence:
-            db_stats = self.metadata["database_stats"]
-            db_hits = db_stats["db_hits"]
-            db_misses = db_stats["db_misses"]
-            db_errors = db_stats["db_errors"]
-            db_total = db_hits + db_misses
-            
-            db_hit_rate = (db_hits / db_total * 100) if db_total > 0 else 0
-            
-            stats["database_stats"] = {
-                "db_hits": db_hits,
-                "db_misses": db_misses,
-                "db_errors": db_errors,
-                "db_hit_rate_percent": round(db_hit_rate, 2),
-                "last_db_sync": db_stats["last_db_sync"]
-            }
 
         # ✅ 新增：语义搜索统计
         if self.enable_semantic_search:
-            semantic_hits = self.metadata.get("semantic_hits", 0)
-            stats["semantic_search"] = {
-                "enabled": True,
-                "semantic_hits": semantic_hits,
-                "similarity_threshold": self.similarity_threshold
-            }
-        else:
-            stats["semantic_search"] = {
-                "enabled": False
-            }
+            semantic_stats = self.get_semantic_search_stats()
+            stats["semantic_search"] = semantic_stats
 
         return stats
 
@@ -689,7 +612,7 @@ class QueryCacheManager:
         Returns:
             清除的条目数量
         """
-        logger.info("Clearing all cache entries...")
+        logger.info("Clearing all query cache entries...")
         removed_count = 0
 
         for cache_key in list(self.metadata["cache_entries"].keys()):
@@ -706,8 +629,176 @@ class QueryCacheManager:
         self.query_embeddings.clear()
 
         self._save_metadata()
-        logger.info(f"Cleared all {removed_count} cache entries")
+        logger.info(f"Cleared all {removed_count} query cache entries")
         return removed_count
+
+    def get_with_similarity_search(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        similarity_threshold: float = 0.8,
+        max_results: int = 5
+    ) -> Optional[Dict[str, Any]]:
+        """
+        基于查询相似度搜索缓存
+
+        Args:
+            query: 查询文本
+            context: 上下文信息
+            similarity_threshold: 相似度阈值 (0.0-1.0)
+            max_results: 最大返回结果数
+
+        Returns:
+            最相似的缓存结果，如果相似度超过阈值则返回
+        """
+        # 首先尝试精确匹配
+        cache_key = self.get_cache_key(query, context)
+        exact_match = self.get_query_cache(cache_key)
+        if exact_match:
+            logger.debug(f"精确匹配缓存命中，键: {cache_key}")
+            return exact_match
+
+        # 如果没有精确匹配，进行相似度搜索
+        logger.debug(f"精确匹配未命中，开始相似度搜索，阈值: {similarity_threshold}")
+        
+        # 获取所有缓存的查询
+        cached_queries = self._get_all_cached_queries()
+        if not cached_queries:
+            return None
+
+        # 计算相似度
+        similarities = []
+        for cached_query, cache_data in cached_queries.items():
+            similarity = self._calculate_similarity(query, cached_query)
+            if similarity >= similarity_threshold:
+                similarities.append((similarity, cached_query, cache_data))
+
+        # 按相似度排序
+        similarities.sort(key=lambda x: x[0], reverse=True)
+        
+        if similarities:
+            best_match = similarities[0]
+            similarity_score, matched_query, cache_data = best_match
+            
+            logger.info(f"相似度搜索命中: '{query}' -> '{matched_query}' (相似度: {similarity_score:.2f})")
+            
+            # 返回最相似的结果
+            return cache_data
+        else:
+            logger.debug(f"相似度搜索未找到匹配，最高相似度: {similarities[0][0] if similarities else 0}")
+            return None
+
+    def _get_all_cached_queries(self) -> Dict[str, Dict[str, Any]]:
+        """
+        获取所有缓存的查询
+
+        Returns:
+            查询文本到缓存数据的映射
+        """
+        cached_queries = {}
+
+        # 从文件系统获取
+        for cache_key, metadata in self.metadata["cache_entries"].items():
+            cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        cache_data = json.load(f)
+                    cached_queries[metadata["query"]] = cache_data
+                except Exception as e:
+                    logger.warning(f"读取缓存文件失败 {cache_file}: {e}")
+
+        # 从数据库获取（如果支持）
+        if self.database_connector and self.cache_strategy in ["db_only", "hybrid"]:
+            try:
+                db_caches = self.database_connector.get_all_query_caches()
+                for db_cache in db_caches:
+                    query_text = db_cache.get("query_text", "")
+                    if query_text:
+                        # 处理 result_data - 检查数据类型
+                        result_data = db_cache.get("result_data", "{}")
+                        if isinstance(result_data, str):
+                            try:
+                                result_data = json.loads(result_data)
+                            except json.JSONDecodeError:
+                                result_data = {}
+                        elif not isinstance(result_data, dict):
+                            result_data = {}
+                        
+                        cached_queries[query_text] = {
+                            "result_data": result_data,
+                            "query_text": query_text,
+                            "response_time": db_cache.get("response_time"),
+                            "hit_count": db_cache.get("hit_count", 0)
+                        }
+            except Exception as e:
+                logger.warning(f"从数据库获取所有缓存失败: {e}")
+
+        return cached_queries
+
+    def _calculate_similarity(self, query1: str, query2: str) -> float:
+        """
+        计算两个查询的相似度
+
+        Args:
+            query1: 查询1
+            query2: 查询2
+
+        Returns:
+            相似度分数 (0.0-1.0)
+        """
+        # 标准化查询
+        normalized1 = " ".join(query1.lower().strip().split())
+        normalized2 = " ".join(query2.lower().strip().split())
+
+        # 使用 difflib 计算相似度
+        similarity = difflib.SequenceMatcher(None, normalized1, normalized2).ratio()
+        
+        # 添加基于关键词的相似度
+        words1 = set(normalized1.split())
+        words2 = set(normalized2.split())
+        
+        if words1 and words2:
+            jaccard_similarity = len(words1.intersection(words2)) / len(words1.union(words2))
+            # 结合两种相似度
+            combined_similarity = (similarity + jaccard_similarity) / 2
+            return combined_similarity
+        else:
+            return similarity
+
+    def get_similar_cache_stats(self, query: str, similarity_threshold: float = 0.8) -> Dict[str, Any]:
+        """
+        获取相似度缓存统计信息
+
+        Args:
+            query: 查询文本
+            similarity_threshold: 相似度阈值
+
+        Returns:
+            相似度缓存统计
+        """
+        cached_queries = self._get_all_cached_queries()
+        similarities = []
+
+        for cached_query in cached_queries.keys():
+            similarity = self._calculate_similarity(query, cached_query)
+            if similarity >= similarity_threshold:
+                similarities.append({
+                    "query": cached_query,
+                    "similarity": round(similarity, 3),
+                    "cache_key": self.get_cache_key(cached_query, {})
+                })
+
+        # 按相似度排序
+        similarities.sort(key=lambda x: x["similarity"], reverse=True)
+
+        return {
+            "query": query,
+            "similarity_threshold": similarity_threshold,
+            "total_similar": len(similarities),
+            "similar_queries": similarities[:10],  # 返回前10个最相似的
+            "max_similarity": similarities[0]["similarity"] if similarities else 0.0
+        }
 
     # ✅ 新增：语义相似度搜索方法
 
@@ -798,7 +889,7 @@ class QueryCacheManager:
         """
         # 1. 尝试精确匹配
         exact_key = self.get_cache_key(query, context)
-        cached_result = self.get(cache_key=exact_key)
+        cached_result = self.get_query_cache(cache_key=exact_key)
 
         if cached_result:
             logger.debug(f"✓ Cache HIT (exact match): {query[:50]}...")
@@ -809,49 +900,85 @@ class QueryCacheManager:
             similar_result = self.find_similar_query(query, context)
             if similar_result:
                 similar_key, similarity = similar_result
-                cached_result = self.get(similar_key)
+                cached_result = self.get_query_cache(similar_key)
                 if cached_result:
                     logger.info(f"✓ Cache HIT (semantic match, {similarity:.2%}): {query[:50]}...")
                     # ✅ 记录语义匹配统计
-                    if "semantic_hits" not in self.metadata:
-                        self.metadata["semantic_hits"] = 0
-                    self.metadata["semantic_hits"] += 1
+                    self.metadata["semantic_stats"]["semantic_hits"] += 1
+                    self.metadata["semantic_stats"]["last_semantic_search"] = datetime.now().isoformat()
                     self._save_metadata()
                     return cached_result
 
         # 3. 缓存未命中
         logger.debug(f"✗ Cache MISS: {query[:50]}...")
+        self.metadata["semantic_stats"]["semantic_misses"] += 1
+        self._save_metadata()
         return None
+
+    def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """
+        兼容性方法：调用 get_query_cache 方法
+        确保与 cache_manager.py 的接口一致性
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            缓存结果，如果不存在或已过期则返回None
+        """
+        return self.get_query_cache(cache_key)
+
+    def get_semantic_search_stats(self) -> Dict[str, Any]:
+        """
+        获取语义搜索统计信息
+
+        Returns:
+            语义搜索统计信息
+        """
+        semantic_stats = self.metadata["semantic_stats"]
+        total_searches = semantic_stats["semantic_hits"] + semantic_stats["semantic_misses"]
+        
+        semantic_hit_rate = (semantic_stats["semantic_hits"] / total_searches * 100) if total_searches > 0 else 0
+
+        return {
+            "enabled": self.enable_semantic_search,
+            "semantic_hits": semantic_stats["semantic_hits"],
+            "semantic_misses": semantic_stats["semantic_misses"],
+            "semantic_hit_rate_percent": round(semantic_hit_rate, 2),
+            "similarity_threshold": self.similarity_threshold,
+            "last_semantic_search": semantic_stats["last_semantic_search"],
+            "embedding_model_loaded": self.embedding_model is not None
+        }
 
 
 # 测试代码
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
-    print("=== 测试缓存管理器 ===\n")
+    print("=== 测试查询缓存管理器 ===\n")
     
     # 创建缓存管理器
-    cache_manager = QueryCacheManager(cache_dir="./test_cache", ttl=60, max_size=10)
+    cache_manager = QueryCacheManager(cache_dir="./test_query_cache", ttl=60, max_size=10)
     
     # 测试1: 设置缓存
     print("--- 测试1: 设置缓存 ---")
     test_result = {"data": [1, 2, 3], "count": 3, "status": "success"}
-    cache_key = cache_manager.get_cache_key("测试查询", {"enable_spatial": True})
     
-    success = cache_manager.set(cache_key, test_result, "测试查询")
-    print(f"设置缓存: {'成功' if success else '失败'}")
+    success = cache_manager.save_query_cache("测试查询", test_result)
+    print(f"设置查询缓存: {'成功' if success else '失败'}")
     
     # 测试2: 获取缓存
     print("\n--- 测试2: 获取缓存 ---")
-    cached_result = cache_manager.get(cache_key)
-    print(f"获取缓存: {cached_result}")
+    cache_key = cache_manager.get_cache_key("测试查询", {})
+    cached_result = cache_manager.get_query_cache(cache_key)
+    print(f"获取查询缓存: {cached_result}")
     
     # 测试3: 获取统计信息
     print("\n--- 测试3: 缓存统计 ---")
     stats = cache_manager.get_cache_stats()
-    print(f"缓存统计: {stats}")
+    print(f"查询缓存统计: {stats}")
     
     # 测试4: 清理缓存
     print("\n--- 测试4: 清理缓存 ---")
     cleared_count = cache_manager.clear_all()
-    print(f"清理了 {cleared_count} 个缓存条目")
+    print(f"清理了 {cleared_count} 个查询缓存条目")

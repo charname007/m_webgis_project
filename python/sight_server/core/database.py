@@ -63,7 +63,8 @@ class DatabaseConnector:
             self._connect()
             self.logger.info("✓ DatabaseConnector initialized successfully")
         except Exception as e:
-            self.logger.error(f"✗ DatabaseConnector initialization failed: {e}")
+            self.logger.error(
+                f"✗ DatabaseConnector initialization failed: {e}")
             raise
 
     def _connect(self) -> None:
@@ -87,7 +88,8 @@ class DatabaseConnector:
                 self.connection_string,
                 engine_args=engine_args
             )
-            self.logger.info(f"✓ SQLDatabase connected (dialect: {self.db.dialect})")
+            self.logger.info(
+                f"✓ SQLDatabase connected (dialect: {self.db.dialect})")
 
             # 建立原始psycopg2连接（用于空间查询）
             self.raw_connection = psycopg2.connect(
@@ -96,7 +98,8 @@ class DatabaseConnector:
             )
             # ✅ 设置为autocommit模式，避免事务被阻塞
             self.raw_connection.autocommit = True
-            self.logger.info("✓ Raw psycopg2 connection established (autocommit mode)")
+            self.logger.info(
+                "✓ Raw psycopg2 connection established (autocommit mode)")
 
             # 检查PostGIS扩展
             if self._check_postgis_extension():
@@ -237,7 +240,8 @@ class DatabaseConnector:
         force_refresh: bool = False,
     ) -> Sequence[Dict[str, Any]]:
         """获取空间表信息（支持缓存）。"""
-        snapshot = self.get_detailed_schema(use_cache=use_cache, force_refresh=force_refresh)
+        snapshot = self.get_detailed_schema(
+            use_cache=use_cache, force_refresh=force_refresh)
         spatial_map = snapshot.get("spatial_tables", {})
         return list(spatial_map.values())
 
@@ -273,7 +277,8 @@ class DatabaseConnector:
         )
 
         if normalized_names is None:
-            cached = self._get_cached_schema_snapshot(use_cache=use_cache, force_refresh=force_refresh)
+            cached = self._get_cached_schema_snapshot(
+                use_cache=use_cache, force_refresh=force_refresh)
             if cached is not None:
                 return cached
 
@@ -281,12 +286,14 @@ class DatabaseConnector:
             if self.schema_cache_enabled:
                 self._save_schema_cache_to_disk(snapshot)
                 self._schema_cache_data = snapshot
-                self._schema_cache_timestamp = snapshot.get("cached_at", time.time())
+                self._schema_cache_timestamp = snapshot.get(
+                    "cached_at", time.time())
             return snapshot
 
         # 请求指定表
         if use_cache and not force_refresh:
-            base_snapshot = self._get_cached_schema_snapshot(use_cache=True, force_refresh=False)
+            base_snapshot = self._get_cached_schema_snapshot(
+                use_cache=True, force_refresh=False)
             if base_snapshot is not None:
                 return self._filter_schema_snapshot(base_snapshot, normalized_names)
 
@@ -298,7 +305,8 @@ class DatabaseConnector:
         if table_names is None and self.schema_cache_enabled:
             self._save_schema_cache_to_disk(snapshot)
             self._schema_cache_data = snapshot
-            self._schema_cache_timestamp = snapshot.get("cached_at", time.time())
+            self._schema_cache_timestamp = snapshot.get(
+                "cached_at", time.time())
         return snapshot
 
     def clear_schema_cache(self) -> None:
@@ -308,9 +316,11 @@ class DatabaseConnector:
         if self.schema_cache_path.exists():
             try:
                 self.schema_cache_path.unlink()
-                self.logger.info(f"Schema cache file removed: {self.schema_cache_path}")
+                self.logger.info(
+                    f"Schema cache file removed: {self.schema_cache_path}")
             except Exception as exc:
-                self.logger.warning(f"Failed to remove schema cache file: {exc}")
+                self.logger.warning(
+                    f"Failed to remove schema cache file: {exc}")
 
     def _get_cached_schema_snapshot(
         self,
@@ -519,9 +529,11 @@ class DatabaseConnector:
         for name in table_names:
             table = self._normalize_table_name(name)
             if table in snapshot.get("tables", {}):
-                filtered_tables[table] = copy.deepcopy(snapshot["tables"][table])
+                filtered_tables[table] = copy.deepcopy(
+                    snapshot["tables"][table])
             if table in snapshot.get("spatial_tables", {}):
-                filtered_spatial[table] = copy.deepcopy(snapshot["spatial_tables"][table])
+                filtered_spatial[table] = copy.deepcopy(
+                    snapshot["spatial_tables"][table])
 
         return {
             "tables": filtered_tables,
@@ -543,6 +555,7 @@ class DatabaseConnector:
         if self.schema_cache_ttl <= 0:
             return False
         return (time.time() - cached_at) > self.schema_cache_ttl
+
     def check_spatial_function_availability(self) -> Dict[str, bool]:
         """
         检查常用空间函数的可用性
@@ -570,7 +583,8 @@ class DatabaseConnector:
                         availability[func] = False
 
         except Exception as e:
-            self.logger.error(f"Failed to check spatial function availability: {e}")
+            self.logger.error(
+                f"Failed to check spatial function availability: {e}")
             availability = {func: False for func in spatial_functions}
 
         return availability
@@ -591,7 +605,8 @@ class DatabaseConnector:
                 # PostGIS版本
                 postgis_version = None
                 try:
-                    cursor.execute("SELECT PostGIS_Version() as postgis_version")
+                    cursor.execute(
+                        "SELECT PostGIS_Version() as postgis_version")
                     postgis_version = cursor.fetchone()
                 except:
                     pass
@@ -669,7 +684,8 @@ class DatabaseConnector:
                 """, (table_name,))
                 return cursor.fetchall()
         except Exception as e:
-            self.logger.error(f"Failed to get columns for table {table_name}: {e}")
+            self.logger.error(
+                f"Failed to get columns for table {table_name}: {e}")
             return []
 
     def get_primary_keys(self, table_name: str) -> List[str]:
@@ -695,7 +711,8 @@ class DatabaseConnector:
                 results = cursor.fetchall()
                 return [row['column_name'] for row in results]
         except Exception as e:
-            self.logger.error(f"Failed to get primary keys for table {table_name}: {e}")
+            self.logger.error(
+                f"Failed to get primary keys for table {table_name}: {e}")
             return []
 
     def get_foreign_keys(self, table_name: str) -> Sequence[Dict[str, Any]]:
@@ -729,7 +746,8 @@ class DatabaseConnector:
                 """, (table_name,))
                 return cursor.fetchall()
         except Exception as e:
-            self.logger.error(f"Failed to get foreign keys for table {table_name}: {e}")
+            self.logger.error(
+                f"Failed to get foreign keys for table {table_name}: {e}")
             return []
 
     def get_table_constraints(self, table_name: str) -> Sequence[Dict[str, Any]]:
@@ -755,10 +773,10 @@ class DatabaseConnector:
                 """, (table_name,))
                 return cursor.fetchall()
         except Exception as e:
-            self.logger.error(f"Failed to get constraints for table {table_name}: {e}")
+            self.logger.error(
+                f"Failed to get constraints for table {table_name}: {e}")
             return []
 
-    
     def close(self) -> None:
         """关闭数据库连接，释放资源"""
         # 关闭原始psycopg2连接
@@ -790,12 +808,653 @@ class DatabaseConnector:
         """退出上下文管理器时关闭连接"""
         self.close()
 
+    # ==================== Memory和Cache管理方法 ====================
+
+    def save_conversation_history(
+        self,
+        session_id: str,
+        query_text: str,
+        query_intent: Optional[Dict[str, Any]] = None,
+        sql_query: Optional[str] = None,
+        result_data: Optional[Dict[str, Any]] = None,
+        execution_time: Optional[float] = None,
+        status: str = "success"
+    ) -> int:
+        """
+        保存会话历史记录
+
+        Args:
+            session_id: 会话ID
+            query_text: 查询文本
+            query_intent: 查询意图信息
+            sql_query: 执行的SQL查询
+            result_data: 结果数据
+            execution_time: 执行时间
+            status: 状态（success/error）
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO conversation_history
+                    (session_id, query_text, query_intent,
+                     sql_query, result_data, execution_time, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (
+                    session_id,
+                    query_text,
+                    json.dumps(query_intent) if query_intent else None,
+                    sql_query,
+                    json.dumps(result_data) if result_data else None,
+                    execution_time,
+                    status
+                ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"会话历史记录已保存，ID: {record_id}")
+                return record_id
+        except Exception as e:
+            self.logger.error(f"保存会话历史记录失败: {e}")
+            raise
+
+    def get_conversation_history(
+        self,
+        session_id: str,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Sequence[Dict[str, Any]]:
+        """
+        获取会话历史记录
+
+        Args:
+            session_id: 会话ID
+            limit: 返回记录数量
+            offset: 偏移量
+
+        Returns:
+            会话历史记录列表
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT
+                        id, session_id, query_text, query_intent, sql_query,
+                        result_data, execution_time, status, created_at, updated_at
+                    FROM conversation_history
+                    WHERE session_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """, (session_id, limit, offset))
+                return cursor.fetchall()
+        except Exception as e:
+            self.logger.error(f"获取会话历史记录失败: {e}")
+            return []
+
+    def save_ai_context(
+        self,
+        session_id: str,
+        context_data: Dict[str, Any],
+        context_type: str = "conversation"
+    ) -> int:
+        """
+        保存AI上下文数据
+
+        Args:
+            session_id: 会话ID
+            context_data: 上下文数据
+            context_type: 上下文类型
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO ai_context
+                    (session_id, context_data, context_type)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (
+                    session_id,
+                    json.dumps(context_data),
+                    context_type
+                ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"AI上下文已保存，ID: {record_id}")
+                return record_id
+        except Exception as e:
+            self.logger.error(f"保存AI上下文失败: {e}")
+            raise
+
+    def get_ai_context(
+        self,
+        session_id: str,
+        context_type: Optional[str] = None
+    ) -> Sequence[Dict[str, Any]]:
+        """
+        获取AI上下文数据
+
+        Args:
+            session_id: 会话ID
+            context_type: 上下文类型（可选）
+
+        Returns:
+            AI上下文记录列表
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                if context_type:
+                    cursor.execute("""
+                        SELECT id, session_id, context_data, context_type, created_at, updated_at
+                        FROM ai_context
+                        WHERE session_id = %s AND context_type = %s
+                        ORDER BY created_at DESC
+                    """, (session_id, context_type))
+                else:
+                    cursor.execute("""
+                        SELECT id, session_id, context_data, context_type, created_at, updated_at
+                        FROM ai_context
+                        WHERE session_id = %s
+                        ORDER BY created_at DESC
+                    """, (session_id,))
+                return cursor.fetchall()
+        except Exception as e:
+            self.logger.error(f"获取AI上下文失败: {e}")
+            return []
+
+    def save_cache_data(
+        self,
+        cache_key: str,
+        cache_value: Dict[str, Any],
+        cache_type: str = "general",
+        ttl_seconds: Optional[int] = None
+    ) -> int:
+        """
+        保存缓存数据
+
+        Args:
+            cache_key: 缓存键
+            cache_value: 缓存值
+            cache_type: 缓存类型
+            ttl_seconds: 生存时间（秒）
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            expires_at = None
+            if ttl_seconds:
+                from datetime import datetime, timedelta
+                expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO cache_data
+                    (cache_key, cache_value, cache_type, expires_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (cache_key)
+                    DO UPDATE SET
+                        cache_value = EXCLUDED.cache_value,
+                        cache_type = EXCLUDED.cache_type,
+                        expires_at = EXCLUDED.expires_at,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id
+                """, (
+                    cache_key,
+                    json.dumps(cache_value),
+                    cache_type,
+                    expires_at
+                ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"缓存数据已保存，键: {cache_key}")
+                return record_id
+        except Exception as e:
+            self.logger.error(f"保存缓存数据失败: {e}")
+            raise
+
+    def get_cache_data(
+        self,
+        cache_key: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取缓存数据
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            缓存数据，如果不存在或已过期则返回None
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, cache_key, cache_value, cache_type, expires_at, created_at, updated_at
+                    FROM cache_data
+                    WHERE cache_key = %s AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                """, (cache_key,))
+                result = cursor.fetchone()
+                if result:
+                    return dict(result)
+                return None
+        except Exception as e:
+            self.logger.error(f"获取缓存数据失败: {e}")
+            return None
+
+    def delete_cache_data(self, cache_key: str) -> bool:
+        """
+        删除缓存数据
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM cache_data WHERE cache_key = %s", (cache_key,))
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    self.logger.debug(f"缓存数据已删除，键: {cache_key}")
+                return deleted
+        except Exception as e:
+            self.logger.error(f"删除缓存数据失败: {e}")
+            return False
+
+    def cleanup_expired_cache(self) -> int:
+        """
+        清理过期的缓存数据
+
+        Returns:
+            删除的记录数量
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM cache_data WHERE expires_at <= CURRENT_TIMESTAMP")
+                deleted_count = cursor.rowcount
+                if deleted_count > 0:
+                    self.logger.info(f"已清理 {deleted_count} 条过期缓存记录")
+                return deleted_count
+        except Exception as e:
+            self.logger.error(f"清理过期缓存失败: {e}")
+            return 0
+
+    def get_session_statistics(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取会话统计信息
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            会话统计信息
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                # 查询历史记录统计
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total_queries,
+                        COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_queries,
+                        COUNT(CASE WHEN status = 'error' THEN 1 END) as failed_queries,
+                        AVG(execution_time) as avg_execution_time,
+                        MIN(created_at) as first_query_time,
+                        MAX(created_at) as last_query_time
+                    FROM conversation_history
+                    WHERE session_id = %s
+                """, (session_id,))
+                stats = cursor.fetchone()
+
+                # 查询上下文统计
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as context_count,
+                        COUNT(DISTINCT context_type) as context_types
+                    FROM ai_context
+                    WHERE session_id = %s
+                """, (session_id,))
+                context_stats = cursor.fetchone()
+
+                return {
+                    "session_id": session_id,
+                    "query_statistics": dict(stats) if stats else {},
+                    "context_statistics": dict(context_stats) if context_stats else {}
+                }
+        except Exception as e:
+            self.logger.error(f"获取会话统计信息失败: {e}")
+            return {"session_id": session_id, "error": str(e)}
+
     def __del__(self):
         """析构函数中关闭连接"""
         try:
             self.close()
         except Exception:
             pass
+
+    def get_all_query_caches(self) -> Sequence[Dict[str, Any]]:
+        """
+        获取所有查询结果缓存
+        
+        Returns:
+            所有查询缓存数据列表
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, cache_key, query_text, result_data, response_time,
+                           hit_count, expires_at, created_at, updated_at
+                    FROM query_cache
+                    WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+                    ORDER BY hit_count DESC, created_at DESC
+                """)
+                return cursor.fetchall()
+        except Exception as e:
+            self.logger.error(f"获取所有查询缓存失败: {e}")
+            return []
+
+    # ==================== 分离缓存存储方法 ====================
+    def save_query_cache(
+        self,
+        cache_key: str,
+        query_text: str,
+        result_data: Dict[str, Any],
+        response_time: Optional[float] = None,
+        ttl_seconds: Optional[int] = None
+    ) -> int:
+        """
+        保存查询结果缓存到 query_cache 表
+
+        Args:
+            cache_key: 缓存键
+            query_text: 查询文本
+            result_data: 结果数据
+            response_time: 响应时间
+            ttl_seconds: 生存时间（秒）
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            expires_at = None
+            if ttl_seconds:
+                from datetime import datetime, timedelta
+                expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+
+            # ✅ 验证和转换 response_time 参数
+            validated_response_time = None
+            if response_time is not None:
+                try:
+                    # 确保 response_time 是浮点数
+                    if isinstance(response_time, str):
+                        validated_response_time = float(response_time)
+                    else:
+                        validated_response_time = float(response_time)
+                except (ValueError, TypeError) as e:
+                    self.logger.warning(
+                        f"Invalid response_time value: {response_time}, type: {type(response_time)}. Setting to None.")
+                    validated_response_time = None
+
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO query_cache 
+                    (cache_key, query_text, result_data, response_time, expires_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (cache_key) 
+                    DO UPDATE SET 
+                        query_text = EXCLUDED.query_text,
+                        result_data = EXCLUDED.result_data,
+                        response_time = EXCLUDED.response_time,
+                        expires_at = EXCLUDED.expires_at,
+                        hit_count = query_cache.hit_count + 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id
+                """, (
+                    cache_key,
+                    query_text,
+                    json.dumps(result_data, ensure_ascii=False),
+                    validated_response_time,
+                    expires_at
+                ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"查询结果缓存已保存，键: {cache_key}")
+                return record_id
+        except Exception as e:
+            self.logger.error(f"保存查询结果缓存失败: {e}")
+            raise
+
+    def get_query_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """
+        从 query_cache 表获取查询结果缓存
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            缓存数据，如果不存在或已过期则返回None
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, cache_key, query_text, result_data, response_time, 
+                           hit_count, expires_at, created_at, updated_at
+                    FROM query_cache 
+                    WHERE cache_key = %s AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                """, (cache_key,))
+                result = cursor.fetchone()
+                if result:
+                    # 更新命中次数
+                    cursor.execute("""
+                        UPDATE query_cache 
+                        SET hit_count = hit_count + 1, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                    """, (result['id'],))
+                    return dict(result)
+                return None
+        except Exception as e:
+            self.logger.error(f"获取查询结果缓存失败: {e}")
+            return None
+
+    def delete_query_cache(self, cache_key: str) -> bool:
+        """
+        删除查询结果缓存
+
+        Args:
+            cache_key: 缓存键
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM query_cache WHERE cache_key = %s", (cache_key,))
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    self.logger.debug(f"查询结果缓存已删除，键: {cache_key}")
+                return deleted
+        except Exception as e:
+            self.logger.error(f"删除查询结果缓存失败: {e}")
+            return False
+
+    def save_pattern_cache(
+        self,
+        pattern_key: str,
+        query_template: str,
+        sql_template: str,
+        response_time: Optional[float] = None,
+        result_count: int = 1
+    ) -> int:
+        """
+        保存模式学习缓存到 pattern_cache 表
+
+        Args:
+            pattern_key: 模式键
+            query_template: 查询模板
+            sql_template: SQL模板
+            response_time: 响应时间
+            result_count: 结果数量
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO pattern_cache 
+                    (pattern_key, query_template, sql_template, success_count, 
+                     total_response_time, avg_response_time, last_used)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (pattern_key) 
+                    DO UPDATE SET 
+                        query_template = EXCLUDED.query_template,
+                        sql_template = EXCLUDED.sql_template,
+                        success_count = pattern_cache.success_count + 1,
+                        total_response_time = pattern_cache.total_response_time + EXCLUDED.total_response_time,
+                        avg_response_time = (pattern_cache.total_response_time + EXCLUDED.total_response_time) / (pattern_cache.success_count + 1),
+                        last_used = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id
+                """, (
+                    pattern_key,
+                    query_template,
+                    sql_template,
+                    result_count,
+                    response_time or 0,
+                    response_time or 0
+                ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"模式学习缓存已保存，键: {pattern_key}")
+                return record_id
+        except Exception as e:
+            self.logger.error(f"保存模式学习缓存失败: {e}")
+            raise
+
+    def get_pattern_cache(self, pattern_key: str) -> Optional[Dict[str, Any]]:
+        """
+        从 pattern_cache 表获取模式学习缓存
+
+        Args:
+            pattern_key: 模式键
+
+        Returns:
+            模式缓存数据，如果不存在则返回None
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, pattern_key, query_template, sql_template, 
+                           success_count, total_response_time, avg_response_time,
+                           last_used, created_at, updated_at
+                    FROM pattern_cache 
+                    WHERE pattern_key = %s
+                """, (pattern_key,))
+                result = cursor.fetchone()
+                if result:
+                    # 更新最后使用时间
+                    cursor.execute("""
+                        UPDATE pattern_cache 
+                        SET last_used = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                    """, (result['id'],))
+                    return dict(result)
+                return None
+        except Exception as e:
+            self.logger.error(f"获取模式学习缓存失败: {e}")
+            return None
+
+    def get_all_patterns(self) -> Sequence[Dict[str, Any]]:
+        """
+        获取所有模式学习缓存
+
+        Returns:
+            所有模式缓存数据列表
+        """
+        try:
+            with self.raw_connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, pattern_key, query_template, sql_template, 
+                           success_count, total_response_time, avg_response_time,
+                           last_used, created_at, updated_at
+                    FROM pattern_cache 
+                    ORDER BY success_count DESC, last_used DESC
+                """)
+                return cursor.fetchall()
+        except Exception as e:
+            self.logger.error(f"获取所有模式缓存失败: {e}")
+            return []
+
+    def delete_pattern_cache(self, pattern_key: str) -> bool:
+        """
+        删除模式学习缓存
+
+        Args:
+            pattern_key: 模式键
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM pattern_cache WHERE pattern_key = %s", (pattern_key,))
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    self.logger.debug(f"模式学习缓存已删除，键: {pattern_key}")
+                return deleted
+        except Exception as e:
+            self.logger.error(f"删除模式学习缓存失败: {e}")
+            return False
+
+    def cleanup_expired_query_cache(self) -> int:
+        """
+        清理过期的查询结果缓存
+
+        Returns:
+            删除的记录数量
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM query_cache WHERE expires_at <= CURRENT_TIMESTAMP")
+                deleted_count = cursor.rowcount
+                if deleted_count > 0:
+                    self.logger.info(f"已清理 {deleted_count} 条过期查询结果缓存")
+                return deleted_count
+        except Exception as e:
+            self.logger.error(f"清理过期查询结果缓存失败: {e}")
+            return 0
+
+    def cleanup_old_patterns(self, keep_count: int = 100) -> int:
+        """
+        清理旧的模式学习缓存
+
+        Args:
+            keep_count: 要保留的模式数量
+
+        Returns:
+            删除的记录数量
+        """
+        try:
+            with self.raw_connection.cursor() as cursor:
+                cursor.execute("""
+                    DELETE FROM pattern_cache 
+                    WHERE id NOT IN (
+                        SELECT id FROM pattern_cache 
+                        ORDER BY success_count DESC, last_used DESC 
+                        LIMIT %s
+                    )
+                """, (keep_count,))
+                deleted_count = cursor.rowcount
+                if deleted_count > 0:
+                    self.logger.info(f"已清理 {deleted_count} 条旧模式缓存")
+                return deleted_count
+        except Exception as e:
+            self.logger.error(f"清理旧模式缓存失败: {e}")
+            return 0
 
 
 # 测试代码
@@ -835,6 +1494,3 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"Error: {e}")
-
-
-

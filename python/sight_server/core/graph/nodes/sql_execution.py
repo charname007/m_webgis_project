@@ -182,7 +182,16 @@ class ExecuteSqlNode(NodeBase):
         }
 
         try:
-            self.cache_manager.set(cache_key, payload, query=query)
+            # 使用 save_query_cache 方法而不是 set 方法
+            self.cache_manager.save_query_cache(
+                query_text=query,
+                result_data=payload,
+                context={
+                    "enable_spatial": state.get("requires_spatial", False),
+                    "query_intent": state.get("query_intent", "query"),
+                    "include_sql": True
+                }
+            )
         except Exception as exc:
             self.logger.warning('[Node: execute_sql] Failed to cache result: %s', exc)
 

@@ -1,0 +1,21 @@
+{
+  "status": "success",
+  "answer": "浙江省有多个5A景区，包括西湖、千岛湖等",
+  "data": [
+    {
+      "name": "西湖",
+      "level": "5A"
+    },
+    {
+      "name": "千岛湖",
+      "level": "5A"
+    }
+  ],
+  "count": 2,
+  "message": "查询成功",
+  "sql": "SELECT * FROM scenic_spots WHERE province = '浙江省' AND level = '5A'",
+  "intent_info": {
+    "intent_type": "query"
+  },
+  "conversation_id": "test-session-123"
+}

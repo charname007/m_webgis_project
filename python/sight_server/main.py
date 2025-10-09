@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from config import settings
-from core import SQLQueryAgent
+from core import SQLQueryAgent, DatabaseConnector
 from models import (
     QueryRequest,
     QueryResponse,
@@ -42,7 +42,7 @@ sql_agent: Optional[SQLQueryAgent] = None
 agent_initialized = False
 
 # ✅ 新增：全局查询缓存管理器
-from core.cache_manager import QueryCacheManager
+from core.query_cache_manager import QueryCacheManager
 query_cache_manager: Optional[QueryCacheManager] = None
 
 
@@ -85,25 +85,27 @@ def initialize_agent() -> bool:
         return True
 
     try:
-        # ✅ 初始化查询缓存管理器
+        # ✅ 首先初始化查询缓存管理器
         logger.info("Initializing Query Cache Manager...")
         query_cache_manager = QueryCacheManager(
             cache_dir="./cache",
             ttl=3600,  # 1小时
             max_size=1000,
-            enable_semantic_search=True,  # ⚠️ 临时禁用语义搜索（torch/torchvision 冲突）
-            similarity_threshold=0.95,
-            embedding_model="paraphrase-multilingual-MiniLM-L12-v2"
+            cache_strategy="hybrid",   # 混合策略：数据库 + 文件系统
+            database_connector=DatabaseConnector()
         )
         logger.info("✓ Query Cache Manager initialized successfully")
 
-        # 初始化 SQL Query Agent
+        # ✅ 然后初始化 SQL Query Agent，传入统一的缓存管理器
         logger.info("Initializing SQL Query Agent...")
         sql_agent = SQLQueryAgent(
-            enable_spatial=True
+            enable_spatial=True,
+            cache_manager=query_cache_manager,  # ✅ 传入统一的缓存管理器
+            enable_cache=True  # ✅ 确保启用缓存
         )
         agent_initialized = True
         logger.info("✓ SQL Query Agent initialized successfully")
+
         return True
 
     except Exception as e:
@@ -254,7 +256,7 @@ async def query_get(
         logger.info(f"Processing GET query: {q}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
-        # ✅ 1. 尝试从缓存获取（语义相似度搜索）
+        # ✅ 1. 尝试从缓存获取（精确匹配 + 相似度搜索）
         cached_response = None
         if query_cache_manager:
             cache_context = {
@@ -264,26 +266,63 @@ async def query_get(
                 "conversation_id": actual_conversation_id  # ✅ 添加会话ID到缓存上下文
             }
 
-            # 使用语义搜索获取缓存
-            cached_result = query_cache_manager.get_with_semantic_search(
-                q,
-                cache_context
-            )
+            # 首先尝试精确匹配
+            cache_key = query_cache_manager.get_cache_key(q, cache_context)
+            cached_result = query_cache_manager.get_query_cache(cache_key)
+
+            if not cached_result:
+                # 精确匹配未命中，尝试相似度搜索
+                cached_result = query_cache_manager.get_with_similarity_search(
+                    q, 
+                    cache_context,
+                    similarity_threshold=95,  # 80% 相似度阈值
+                    max_results=1
+                )
 
             if cached_result:
                 # 缓存命中，直接构建响应
                 cache_execution_time = time.time() - start_time
-                logger.info(f"✓ Cache HIT: {q[:50]}... (time={cache_execution_time:.3f}s)")
+                cache_type = "精确匹配" if cache_key == query_cache_manager.get_cache_key(q, cache_context) else "相似度匹配"
+                logger.info(f"✓ Cache HIT ({cache_type}): {q[:50]}... (time={cache_execution_time:.3f}s)")
+
+                # ✅ 修复：直接使用缓存结果，不再尝试获取 result_data 字段
+                # 现在 cached_result 直接包含 data、answer、count 等字段
+                result_data = cached_result
+                logger.info('result_data:\n'+str(result_data))
+                
+                # ✅ 修复：从正确的嵌套结构中提取数据
+                # 实际数据在 execution_result 字段中
+                execution_result = result_data.get("execution_result", {})
+                final_data = result_data.get("final_data", [])
+                
+                # ✅ 增强健壮性：确保数据不为 None
+                if final_data is None:
+                    final_data = []
+                
+                # 优先使用 execution_result 中的数据，如果没有则使用 final_data
+                actual_data = execution_result.get("data", final_data)
+                if actual_data is None:
+                    actual_data = []
+                
+                actual_count = execution_result.get("count", len(final_data) if final_data is not None else 0)
+                
+                # ✅ 修复：如果 answer 为空，根据数据自动生成回答
+                answer = result_data.get("answer", "")
+                if not answer:
+                    if actual_count > 0 or (actual_data and len(actual_data) > 0):
+                        answer = f"查询成功，找到 {actual_count} 条相关记录"
+                    else:
+                        answer = "查询成功，但未找到相关记录"
 
                 cached_response = QueryResponse(
-                    status=QueryStatus(cached_result.get("status", "success")),
-                    answer=cached_result.get("answer", ""),
-                    data=cached_result.get("data"),
-                    count=cached_result.get("count", 0),
-                    message=cached_result.get("message", "查询成功（缓存）"),
-                    sql=cached_result.get("sql") if include_sql else None,
+                    status=QueryStatus(result_data.get("status", "success")),
+                    answer=answer,
+                    data=actual_data,
+                    count=actual_count,
+                    message=result_data.get("message", f"查询成功（{cache_type}缓存）"),
+                    sql=result_data.get("sql") if include_sql else None,
                     execution_time=round(cache_execution_time, 3),
-                    intent_info=cached_result.get("intent_info"),
+                    intent_info=result_data.get("intent_info"),
                     conversation_id=actual_conversation_id  # ✅ 返回会话ID
                 )
                 return cached_response
@@ -330,13 +369,52 @@ async def query_get(
             }
 
             cache_key = query_cache_manager.get_cache_key(q, cache_context)
-            if query_cache_manager.set(cache_key, cache_data, q):
+            if query_cache_manager.save_query_cache(q, cache_data, execution_time, context=cache_context):
                 logger.info(f"✓ Cache SAVED: {q[:50]}...")
+
+        # ✅ 4. 保存会话历史记录
+        if sql_agent and sql_agent.db_connector and result_dict.get("status") == "success":
+            try:
+                # 保存到 conversation_history 表
+                history_id = sql_agent.db_connector.save_conversation_history(
+                    session_id=actual_conversation_id,
+                    query_text=q,
+                    query_intent=result_dict.get("intent_info"),
+                    sql_query=result_dict.get("sql"),
+                    result_data={
+                        "data": result_dict.get("data"),
+                        "count": result_dict.get("count", 0),
+                        "answer": result_dict.get("answer", "")
+                    },
+                    execution_time=execution_time,
+                    status="success"
+                )
+                logger.info(f"✓ Conversation history saved: ID={history_id}")
+
+                # 保存到 ai_context 表
+                context_id = sql_agent.db_connector.save_ai_context(
+                    session_id=actual_conversation_id,
+                    context_data={
+                        "query": q,
+                        "intent_info": result_dict.get("intent_info"),
+                        "sql_query": result_dict.get("sql"),
+                        "result_summary": {
+                            "count": result_dict.get("count", 0),
+                            "status": result_dict.get("status", "success")
+                        },
+                        "execution_time": execution_time
+                    },
+                    context_type="query_result"
+                )
+                logger.info(f"✓ AI context saved: ID={context_id}")
+
+            except Exception as e:
+                logger.warning(f"Failed to save history/context: {e}")
 
         logger.info(f"GET query completed in {execution_time:.2f}s, count={response.count}, conversation_id={actual_conversation_id}")
         return response
 
-    except json.JSONDecodeError as e:
+    except Exception as e:
         logger.error(f"Failed to parse Agent output: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -385,7 +463,7 @@ async def query_post(request: QueryRequest):
         logger.info(f"Processing POST query: {request.query}, conversation_id: {actual_conversation_id}")
         start_time = time.time()
 
-        # ✅ 1. 尝试从缓存获取（语义相似度搜索）
+        # ✅ 1. 尝试从缓存获取
         cached_response = None
         if query_cache_manager:
             cache_context = {
@@ -395,26 +473,52 @@ async def query_post(request: QueryRequest):
                 "conversation_id": actual_conversation_id  # ✅ 添加会话ID到缓存上下文
             }
 
-            # 使用语义搜索获取缓存
-            cached_result = query_cache_manager.get_with_semantic_search(
-                request.query,
-                cache_context
-            )
+            # 生成缓存键并获取缓存
+            cache_key = query_cache_manager.get_cache_key(request.query, cache_context)
+            cached_result = query_cache_manager.get_query_cache(cache_key)
 
             if cached_result:
                 # 缓存命中，直接构建响应
                 cache_execution_time = time.time() - start_time
                 logger.info(f"✓ Cache HIT: {request.query[:50]}... (time={cache_execution_time:.3f}s)")
 
+                # ✅ 修复：直接使用缓存结果，不再尝试获取 result_data 字段
+                # 现在 cached_result 直接包含 data、answer、count 等字段
+                result_data = cached_result
+                
+                # ✅ 修复：从正确的嵌套结构中提取数据
+                # 实际数据在 execution_result 字段中
+                execution_result = result_data.get("execution_result", {})
+                final_data = result_data.get("final_data", [])
+                
+                # ✅ 增强健壮性：确保数据不为 None
+                if final_data is None:
+                    final_data = []
+                
+                # 优先使用 execution_result 中的数据，如果没有则使用 final_data
+                actual_data = execution_result.get("data", final_data)
+                if actual_data is None:
+                    actual_data = []
+                
+                actual_count = execution_result.get("count", len(final_data) if final_data is not None else 0)
+                
+                # ✅ 修复：如果 answer 为空，根据数据自动生成回答
+                answer = result_data.get("answer", "")
+                if not answer:
+                    if actual_count > 0 or (actual_data and len(actual_data) > 0):
+                        answer = f"查询成功，找到 {actual_count} 条相关记录"
+                    else:
+                        answer = "查询成功，但未找到相关记录"
+
                 cached_response = QueryResponse(
-                    status=QueryStatus(cached_result.get("status", "success")),
-                    answer=cached_result.get("answer", ""),
-                    data=cached_result.get("data"),
-                    count=cached_result.get("count", 0),
-                    message=cached_result.get("message", "查询成功（缓存）"),
-                    sql=cached_result.get("sql") if request.include_sql else None,
+                    status=QueryStatus(result_data.get("status", "success")),
+                    answer=answer,
+                    data=actual_data,
+                    count=actual_count,
+                    message=result_data.get("message", "查询成功（缓存）"),
+                    sql=result_data.get("sql") if request.include_sql else None,
                     execution_time=round(cache_execution_time, 3),
-                    intent_info=cached_result.get("intent_info"),
+                    intent_info=result_data.get("intent_info"),
                     conversation_id=actual_conversation_id  # ✅ 返回会话ID
                 )
                 return cached_response
@@ -461,8 +565,47 @@ async def query_post(request: QueryRequest):
             }
 
             cache_key = query_cache_manager.get_cache_key(request.query, cache_context)
-            if query_cache_manager.set(cache_key, cache_data, request.query):
+            if query_cache_manager.save_query_cache(request.query, cache_data, execution_time, context=cache_context):
                 logger.info(f"✓ Cache SAVED: {request.query[:50]}...")
+
+        # ✅ 4. 保存会话历史记录
+        if sql_agent and sql_agent.db_connector and result_dict.get("status") == "success":
+            try:
+                # 保存到 conversation_history 表
+                history_id = sql_agent.db_connector.save_conversation_history(
+                    session_id=actual_conversation_id,
+                    query_text=request.query,
+                    query_intent=result_dict.get("intent_info"),
+                    sql_query=result_dict.get("sql"),
+                    result_data={
+                        "data": result_dict.get("data"),
+                        "count": result_dict.get("count", 0),
+                        "answer": result_dict.get("answer", "")
+                    },
+                    execution_time=execution_time,
+                    status="success"
+                )
+                logger.info(f"✓ Conversation history saved: ID={history_id}")
+
+                # 保存到 ai_context 表
+                context_id = sql_agent.db_connector.save_ai_context(
+                    session_id=actual_conversation_id,
+                    context_data={
+                        "query": request.query,
+                        "intent_info": result_dict.get("intent_info"),
+                        "sql_query": result_dict.get("sql"),
+                        "result_summary": {
+                            "count": result_dict.get("count", 0),
+                            "status": result_dict.get("status", "success")
+                        },
+                        "execution_time": execution_time
+                    },
+                    context_type="query_result"
+                )
+                logger.info(f"✓ AI context saved: ID={context_id}")
+
+            except Exception as e:
+                logger.warning(f"Failed to save history/context: {e}")
 
         logger.info(f"POST query completed in {execution_time:.2f}s, count={response.count}, conversation_id={actual_conversation_id}")
         return response
@@ -752,17 +895,9 @@ async def get_cache_stats():
     try:
         stats = query_cache_manager.get_cache_stats()
         
-        # 添加语义搜索统计（如果可用）
-        if hasattr(query_cache_manager, 'enable_semantic_search') and query_cache_manager.enable_semantic_search:
-            stats["semantic_search_enabled"] = True
-            stats["similarity_threshold"] = query_cache_manager.similarity_threshold
-            stats["embedding_model"] = query_cache_manager.embedding_model
-        else:
-            stats["semantic_search_enabled"] = False
-
-        # 添加语义命中统计
-        if "semantic_hits" in query_cache_manager.metadata:
-            stats["semantic_hits"] = query_cache_manager.metadata["semantic_hits"]
+        # 新的缓存管理器不再支持语义搜索，只返回基础统计
+        stats["semantic_search_enabled"] = False
+        stats["cache_strategy"] = query_cache_manager.cache_strategy
 
         return {
             "status": "success",

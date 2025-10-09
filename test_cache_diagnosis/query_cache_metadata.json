@@ -1,0 +1,27 @@
+{
+  "cache_entries": {
+    "580315e94b267edebb7b9208bf63a153": {
+      "query": "测试查询：浙江省的5A景区",
+      "created_at": "2025-10-09T14:01:42.170413",
+      "last_accessed": "2025-10-09T14:01:42.170413",
+      "hit_count": 1,
+      "size": 316
+    },
+    "6160816f8e4227a61bcf538edee4fa65": {
+      "query": "测试查询：浙江省的5A景区",
+      "created_at": "2025-10-09T14:08:41.650030",
+      "last_accessed": "2025-10-09T14:08:41.650030",
+      "hit_count": 1,
+      "size": 316
+    }
+  },
+  "total_hits": 0,
+  "total_misses": 0,
+  "created_at": "2025-10-09T14:01:42.160820",
+  "last_cleanup": "2025-10-09T14:01:42.160820",
+  "semantic_stats": {
+    "semantic_hits": 0,
+    "semantic_misses": 0,
+    "last_semantic_search": null
+  }
+}

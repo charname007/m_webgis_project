@@ -61,8 +61,9 @@ class SQLQueryAgent:
         checkpoint_interval: int = 3,
         enable_error_handler: bool = True,  # ✅ 新增：是否启用增强错误处理器
         enable_cache: bool = True,  # ✅ 新增：是否启用查询缓存
-        cache_ttl: int = 3600,  # ? ��������������ʱ�䣨�룩
-        max_retries: int = 5,  # ? ������������Դ���
+        cache_manager: Optional[QueryCacheManager] = None,  # ✅ 新增：外部传入缓存管理器
+        cache_ttl: int = 3600,  # ? ʱ䣨룩
+        max_retries: int = 5,  # ? Դ
         graph_recursion_limit: int = 40,
     ):
         """
@@ -146,7 +147,11 @@ class SQLQueryAgent:
         else:
             self.error_handler = None
 
-        if self.enable_cache:
+        # 缓存管理器初始化
+        if cache_manager:
+            self.cache_manager = cache_manager  # ✅ 使用外部传入的缓存管理器
+            self.logger.info("✓ Using external cache manager")
+        elif self.enable_cache:
             try:
                 self.cache_manager = QueryCacheManager(ttl=cache_ttl)
                 self.logger.info("✓ QueryCacheManager initialized")
