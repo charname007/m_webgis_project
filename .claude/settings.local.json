@@ -7,7 +7,8 @@
       "mcp__serena__read_file",
       "mcp__serena__write_memory",
       "mcp__serena__think_about_collected_information",
-      "mcp__serena__think_about_whether_you_are_done"
+      "mcp__serena__think_about_whether_you_are_done",
+      "Bash(gh pr list:*)"
     ],
     "deny": [],
     "ask": []

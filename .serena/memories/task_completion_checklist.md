@@ -1,95 +1,10 @@
-# 任务完成检查清单
-
-## 代码质量检查
-
-### 1. 代码格式化
-- [ ] 运行 `black .` 格式化Python代码
-- [ ] 检查代码是否符合PEP 8规范
-- [ ] 确保类型提示完整且正确
-
-### 2. 代码检查
-- [ ] 运行 `flake8 .` 检查代码质量
-- [ ] 修复所有警告和错误
-- [ ] 检查未使用的导入
-
-### 3. 文档和注释
-- [ ] 确保所有函数和类都有适当的docstring
-- [ ] 添加必要的内联注释
-- [ ] 更新相关的README或文档
-
-## 功能验证
-
-### 4. 后端测试
-- [ ] 运行相关测试文件：`pytest` 或特定测试文件
-- [ ] 验证API端点正常工作
-- [ ] 测试错误处理机制
-
-### 5. 前端测试
-- [ ] 启动前端开发服务器：`npm run dev`
-- [ ] 验证组件功能正常
-- [ ] 测试与后端的集成
-
-### 6. 集成测试
-- [ ] 测试完整的查询流程
-- [ ] 验证缓存机制
-- [ ] 测试会话管理功能
-
-## 部署准备
-
-### 7. 构建检查
-- [ ] 运行 `npm run build` 构建前端
-- [ ] 验证生产构建无错误
-- [ ] 测试生产环境API
-
-### 8. 配置检查
-- [ ] 验证环境变量配置正确
-- [ ] 检查数据库连接
-- [ ] 验证缓存配置
-
-## 代码审查
-
-### 9. 架构一致性
-- [ ] 确保代码遵循项目架构模式
-- [ ] 检查是否使用了适当的错误处理
-- [ ] 验证缓存策略的一致性
-
-### 10. 性能考虑
-- [ ] 检查是否有性能瓶颈
-- [ ] 验证查询优化
-- [ ] 测试缓存命中率
-
-## 最终验证
-
-### 11. Git操作
-- [ ] 运行 `git status` 检查更改
-- [ ] 添加相关文件：`git add .`
-- [ ] 提交更改：`git commit -m "描述性提交信息"`
-
-### 12. 系统测试
-- [ ] 重启开发服务器验证功能
-- [ ] 测试端到端流程
-- [ ] 验证错误恢复机制
-
-## 特定任务检查点
-
-### 对于AI组件修改
-- [ ] 测试LangGraph工作流
-- [ ] 验证记忆机制
-- [ ] 测试检查点功能
-
-### 对于缓存修改
-- [ ] 测试缓存命中/未命中行为
-- [ ] 验证缓存失效机制
-- [ ] 测试语义相似性搜索
-
-### 对于数据库修改
-- [ ] 测试空间查询功能
-- [ ] 验证PostGIS扩展
-- [ ] 测试SQL生成准确性
-
-## 完成标准
-- 所有测试通过
-- 代码符合项目规范
-- 功能按预期工作
-- 文档已更新
-- 无已知错误或警告
+1. **Project Overview**: A sophisticated WebGIS application combining AI-powered natural language querying with spatial data visualization.
+2. **Directory Structure**: Includes frontend (m_WGP_vue3), backend (python/sight_server), and AI integration (core/agent.py).
+3. **Development Commands**: Standard commands for frontend (npm) and backend (pip, uvicorn).
+4. **Technical Architecture**: AI-powered query system, session management, caching, and database integration.
+5. **Configuration**: Key files include config.py, main.py, and agent.py.
+6. **Core Components**: SQL Query Agent, Graph Builder, and Query Cache Manager.
+7. **Development Patterns**: Follows FastAPI conventions and includes comprehensive testing strategies.
+8. **Common Tasks**: Adding new query types, modifying cache strategy, and extending frontend components.
+9. **Important Notes**: Addresses performance, security, and error handling.
+10. **Troubleshooting**: Common issues and debugging tips.
