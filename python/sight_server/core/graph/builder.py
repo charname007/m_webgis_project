@@ -26,8 +26,22 @@ class GraphBuilder:
     - 支持 Fallback 重试策略
     """
 
-    @staticmethod
-    def build(node_handlers: Dict[str, Callable[[AgentState], Dict[str, Any]]]):
+    def __init__(self, db_connector, db_schema, sql_validator, visualizer):
+        """
+        初始化 GraphBuilder
+
+        Args:
+            db_connector: 数据库连接器
+            db_schema: 数据库 schema
+            sql_validator: SQL 验证器
+            visualizer: 可视化器
+        """
+        self.db_connector = db_connector
+        self.db_schema = db_schema
+        self.sql_validator = sql_validator
+        self.visualizer = visualizer
+
+    def build_graph(self, node_handlers: Dict[str, Callable[[AgentState], Dict[str, Any]]]):
         """
         构建LangGraph工作流
 
@@ -145,8 +159,7 @@ class GraphBuilder:
 
         return compiled_graph
 
-    @staticmethod
-    def visualize(graph):
+    def visualize(self, graph):
         """
         可视化当前工作流（可选功能）
 

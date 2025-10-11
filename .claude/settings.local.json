@@ -10,7 +10,11 @@
       "mcp__serena__think_about_whether_you_are_done",
       "Bash(gh pr list:*)",
       "mcp__serena__activate_project",
-      "mcp__serena__create_text_file"
+      "mcp__serena__create_text_file",
+      "mcp__sequentialthinking__sequentialthinking",
+      "Bash(python:*)",
+      "Bash(timeout:*)",
+      "Bash(uvicorn:*)"
     ],
     "deny": [],
     "ask": []

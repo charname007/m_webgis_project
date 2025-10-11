@@ -8,7 +8,7 @@ from core.database import DatabaseConnector
 from core.agent_v17 import SQLQueryAgentV17
 from core.query_cache_manager import QueryCacheManager # ✅ 导入 QueryCacheManager
 from core.schemas import QueryResult
-from config import get_settings
+from config import settings
 
 # --- FastAPI 应用设置 ---
 app = FastAPI(
@@ -22,12 +22,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 全局变量与初始化 ---
-settings = get_settings()
+# settings is already imported from config
 
 db_connector = DatabaseConnector(settings.DATABASE_URL)
 
 try:
-    db_schema = db_connector.get_schema_representation()
+    db_schema = db_connector.get_detailed_schema()
     logger.info("✓ 成功获取并缓存数据库 Schema。")
 except Exception as e:
     logger.error(f"✗ 启动时无法获取数据库 Schema: {e}", exc_info=True)
@@ -74,12 +74,13 @@ def run_agent_query_with_cache_guard(request: QueryRequest):
             logger.info(f"[V17] 缓存命中！直接返回结果。查询: '{request.query}'")
             # 确保返回格式与 QueryResult 匹配
             return QueryResult(
-                success=True,
+                status="success",
+                answer="查询成功 (来自缓存)。",
+                data=cached_result.get("data"),
+                count=len(cached_result.get("data", [])) if cached_result.get("data") else 0,
                 message="查询成功 (来自缓存)。",
                 sql=cached_result.get("sql", "N/A from cache"),
-                data=cached_result.get("data"),
-                # 可选: 从缓存中提取可视化信息
-                visualization=cached_result.get("visualization")
+                intent_info=None
             )
     else:
         logger.info("[V17] 'force_rerun' 为 True, 跳过缓存检查。")
@@ -108,11 +109,13 @@ def run_agent_query_with_cache_guard(request: QueryRequest):
             )
 
             return QueryResult(
-                success=True,
+                status="success",
+                answer="查询成功 (由 Agent 执行)。",
+                data=final_result_data.get("data"),
+                count=len(final_result_data.get("data", [])) if final_result_data.get("data") else 0,
                 message="查询成功 (由 Agent 执行)。",
                 sql=final_result_data.get("sql"),
-                data=final_result_data.get("data"),
-                visualization=agent_result.get("visualization")
+                intent_info=None
             )
         else:
             logger.error(f"[V17] Agent 执行失败: {agent_result.get('error')}")
@@ -123,7 +126,15 @@ def run_agent_query_with_cache_guard(request: QueryRequest):
                 result={"error": agent_result.get("error")},
                 success=False
             )
-            raise HTTPException(status_code=500, detail=agent_result.get("error"))
+            return QueryResult(
+                status="error",
+                answer="",
+                data=None,
+                count=0,
+                message=agent_result.get("error", "Agent execution failed"),
+                sql=None,
+                intent_info=None
+            )
 
     except Exception as e:
         logger.error(f"[V17] 处理查询时发生严重错误: {e}", exc_info=True)

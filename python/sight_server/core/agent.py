@@ -188,7 +188,12 @@ class SQLQueryAgent:
         self.logger.info("? Node handlers registered")
 
         # 构建图
-        self.graph = GraphBuilder.build(self.node_handlers)
+        self.graph = GraphBuilder(
+            db_connector=self.db_connector,
+            db_schema=None,  # 将在运行时获取
+            sql_validator=None,  # 将在运行时获取
+            visualizer=None  # 将在运行时获取
+        ).build_graph(self.node_handlers)
         self.logger.info("✓ LangGraph workflow compiled")
 
         # ==================== 初始化Memory和Checkpoint ====================
