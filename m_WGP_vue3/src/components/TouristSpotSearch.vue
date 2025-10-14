@@ -351,13 +351,20 @@ export default {
 
         // 处理 tourist_spot 表结果
         const touristSpots = touristSpotResponse.data || []
+        console.log(`tourist_spot 表查询结果: ${touristSpots.length} 个景区`)
 
         // 处理 a_sight 表结果，转换为Map方便查找
         const sightMap = new Map()
         if (sightResponse.data && sightResponse.data.features) {
+          console.log(`a_sight 表查询结果: ${sightResponse.data.features.length} 个景区`)
           sightResponse.data.features.forEach(feature => {
             const name = feature.properties?.name
             if (name) {
+              const hasCoordinates = !!feature.geometry?.coordinates
+              console.log(`景区 ${name}: 坐标存在 = ${hasCoordinates}`, { 
+                geometry: feature.geometry,
+                coordinates: feature.geometry?.coordinates 
+              })
               sightMap.set(name, {
                 coordinates: feature.geometry?.coordinates,
                 level: feature.properties?.level,
@@ -377,17 +384,32 @@ export default {
 
           // 查找匹配的关键词
           if (cleanedSpotName.includes(cleanedKeyword) || spot.name.includes(keyword)) {
-            // 尝试在 a_sight 中找到匹配的景区
-            const sightInfo = sightMap.get(cleanedSpotName)
+            // 尝试在 a_sight 中找到匹配的景区 - 使用多种匹配策略
+            let sightInfo = sightMap.get(cleanedSpotName)
+            if (!sightInfo) {
+              // 尝试使用原始名称匹配
+              sightInfo = sightMap.get(spot.name)
+            }
+            if (!sightInfo) {
+              // 尝试使用包含匹配
+              for (const [sightName, sightData] of sightMap.entries()) {
+                if (sightName.includes(cleanedSpotName) || cleanedSpotName.includes(sightName)) {
+                  sightInfo = sightData
+                  break
+                }
+              }
+            }
 
             if (sightInfo) {
               // 两个表都有数据，合并
+              const hasCoordinates = !!sightInfo.coordinates
+              console.log(`两个表都有数据 ${cleanedSpotName}: 坐标存在 = ${hasCoordinates}`, sightInfo)
               mergedResults.push({
                 ...spot,
                 coordinates: sightInfo.coordinates, // 添加坐标
                 level: spot.level || sightInfo.level, // 优先使用tourist_spot的等级
                 地址: spot.地址 || sightInfo.address,
-                _hasCoordinates: true
+                _hasCoordinates: hasCoordinates  // 动态判断是否有坐标
               })
               processedNames.add(cleanedSpotName)
             } else {
@@ -403,8 +425,31 @@ export default {
 
         // 2. 处理 a_sight 表中有但 tourist_spot 表中没有的景区
         // 即使没有坐标信息，也包含该景区的基本信息
+        console.log('sightMap 所有景区名称:', Array.from(sightMap.keys()))
+        console.log('processedNames 已处理景区:', Array.from(processedNames))
+        console.log('搜索关键词 - 原始:', keyword, '清洗后:', cleanedKeyword)
+        console.log('处理 a_sight 表中独有的景区:', Array.from(sightMap.keys()).filter(name => {
+          const cleanedSightName = extractChineseName(name)
+          const shouldInclude = 
+            name.includes(cleanedKeyword) || 
+            cleanedSightName.includes(cleanedKeyword) ||
+            name.includes(keyword) ||
+            cleanedSightName.includes(keyword)
+          return shouldInclude && !processedNames.has(name) && !processedNames.has(cleanedSightName)
+        }))
+        
         sightMap.forEach((sightInfo, name) => {
-          if (name.includes(cleanedKeyword) && !processedNames.has(name)) {
+          // 使用更宽松的匹配策略
+          const cleanedSightName = extractChineseName(name)
+          const shouldInclude = 
+            name.includes(cleanedKeyword) || 
+            cleanedSightName.includes(cleanedKeyword) ||
+            name.includes(keyword) ||
+            cleanedSightName.includes(keyword)
+          
+          if (shouldInclude && !processedNames.has(name) && !processedNames.has(cleanedSightName)) {
+            const hasCoordinates = !!sightInfo.coordinates
+            console.log(`添加景区 ${name}: 坐标存在 = ${hasCoordinates}`, sightInfo)
             mergedResults.push({
               name: name,
               level: sightInfo.level || '未知',
@@ -412,7 +457,7 @@ export default {
               介绍: `${sightInfo.level || ''}级景区`,
               coordinates: sightInfo.coordinates,
               _isBasicInfo: true,
-              _hasCoordinates: !!sightInfo.coordinates  // 根据是否有坐标设置标记
+              _hasCoordinates: hasCoordinates  // 根据是否有坐标设置标记
             })
           }
         })
@@ -422,7 +467,8 @@ export default {
         totalCount.value = mergedResults.length
         totalPages.value = Math.ceil(totalCount.value / pageSize.value)
 
-        console.log(`搜索完成: 共找到 ${mergedResults.length} 个景区 (${mergedResults.filter(r => r._hasCoordinates).length} 个有坐标)`)
+        console.log('最终搜索结果:', mergedResults)
+        console.log(`搜索完成: 共找到 ${mergedResults.length} 个景区 (${mergedResults.filter(r => r._hasCoordinates).length} 个有坐标, ${mergedResults.filter(r => !r._hasCoordinates).length} 个无坐标)`)
 
         // 应用分页
         applyPagination()
