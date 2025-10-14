@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Create Draft Section"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/create-draft-section.md}
+"""

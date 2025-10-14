@@ -83,7 +83,7 @@ class PromptManager:
 
 ### 数据表结构（供你参考）：
 - **a_sight**：基础景区信息（含坐标，纯中文名称）
-- **tourist_spot**：详细旅游信息（含评分、门票、介绍，中英文名称）
+- **tourist_spot**：详细旅游信息（含评分(类型为text，所以在查询时需要使用正则表达式)、门票、介绍，中英文名称）
 - **关键关系**：两表通过名称模糊匹配（a_sight.name ≈ tourist_spot.name的中文部分）
 - **注意**：两表数据只有一部分重合，若没有特别指明需要详细数据或设计坐标，空间，则两个表都要查询记录
 
@@ -99,10 +99,18 @@ class PromptManager:
    - **Summary 类型**（统计、汇总、数量）：
      * 直接使用 COUNT、SUM、AVG 等聚合函数
      * 返回数值结果：`SELECT COUNT(*) as count FROM ...`
-     * **不要使用 json_agg**
 
    - **Query 类型**（列表、查询、详情）：
-     * 使用 `SELECT json_agg(json_build_object(...)) as result FROM ...`
+     * 使用 `SELECT json_agg(json_build_object(...)) as result FROM ...
+       例如：
+    SELECT json_agg(
+     json_build_object(
+    'name', a.name,
+    'level', a.level,
+    'province', a."所属省份"
+      )
+      ) AS result
+     FROM a_sight a;`
      * 返回完整的 JSON 数组
 
 2. **数据完整性考虑**
@@ -121,7 +129,9 @@ class PromptManager:
 
 ### 技术约束提醒：
 - 必须包含完整的FROM子句定义表别名
-- 使用模糊匹配：`t.name LIKE a.name || '%' OR TRIM(SPLIT_PART(t.name, ' ', 1)) = a.name`
+- 优先使用精确匹配，若非指出精确地名且没有得到返回结果，则改为模糊匹配：例如`FROM a_sight a
+  LEFT JOIN tourist_spot t
+  t.name LIKE a.name || '%' OR TRIM(SPLIT_PART(t.name, ' ', 1)) = a.name`
 - 评分字段需要安全处理（CASE语句处理无效值）
 - 坐标使用WGS84标准：`ARRAY[lng_wgs84, lat_wgs84]` 或 `ARRAY[ST_X(ST_Transform(geom, 4326)), ST_Y(ST_Transform(geom, 4326))]`
 
@@ -188,7 +198,6 @@ class PromptManager:
    - 必要时使用简单的JOIN获取必要字段
 
 4. **输出格式要求**
-   - **绝对禁止使用 json_agg** - 统计查询直接返回数值结果
    - 使用有意义的列名：COUNT(*) as count, AVG(score) as avg_score
    - 考虑使用GROUP BY进行分组统计
 
@@ -235,10 +244,9 @@ SELECT
         WHEN t."评分" ~ '^[0-9.]+$' THEN t."评分"::numeric 
         ELSE NULL 
     END) as avg_rating
-FROM a_sight a
+FROM a_sight as  a
 LEFT JOIN tourist_spot t ON t.name LIKE a.name || '%'
 GROUP BY a."所属省份"
-HAVING COUNT(*) > 0
 ORDER BY avg_rating DESC NULLS LAST
 ```
 
@@ -429,10 +437,12 @@ ORDER BY avg_rating DESC NULLS LAST
                 from .processors.intent_analyzer import IntentAnalyzer
                 analyzer = IntentAnalyzer(llm)
                 result = analyzer.analyze_intent(query)
-                logger.info(f"LLM intent analysis succeeded: {result['intent_type']}")
+                logger.info(
+                    f"LLM intent analysis succeeded: {result['intent_type']}")
                 return result
             except Exception as e:
-                logger.warning(f"LLM analysis failed, fallback to keywords: {e}")
+                logger.warning(
+                    f"LLM analysis failed, fallback to keywords: {e}")
 
         # ✅ Fallback: 使用原有的关键词分析
         logger.info("Using keyword-based intent analysis")
@@ -474,7 +484,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for keyword in strong_summary_keywords:
             if keyword in query_lower:
                 summary_score += 0.4
-                analysis_details["matched_patterns"].append(f"强统计关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"强统计关键词: {keyword}")
 
         # 中等统计关键词（权重 0.25）
         medium_summary_keywords = [
@@ -484,7 +495,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for keyword in medium_summary_keywords:
             if keyword in query_lower:
                 summary_score += 0.25
-                analysis_details["matched_patterns"].append(f"中等统计关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"中等统计关键词: {keyword}")
 
         # 弱统计关键词（权重 0.15）
         weak_summary_keywords = [
@@ -493,7 +505,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for keyword in weak_summary_keywords:
             if keyword in query_lower:
                 summary_score += 0.15
-                analysis_details["matched_patterns"].append(f"弱统计关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"弱统计关键词: {keyword}")
 
         # ✅ 统计模式识别（优化正则）
         summary_patterns = [
@@ -501,7 +514,7 @@ ORDER BY avg_rating DESC NULLS LAST
             (r'一共.*?多少', 0.5),         # "一共有多少"
             (r'总共.*?多少', 0.5),         # "总共有多少"
             (r'多少.*?个', 0.4),           # "多少个景区"
-            (r'(多少|几).{0,5}?个', 0.35), # "多少/几XX个"
+            (r'(多少|几).{0,5}?个', 0.35),  # "多少/几XX个"
             (r'排名', 0.25),
             (r'分布情况', 0.3)
         ]
@@ -516,14 +529,16 @@ ORDER BY avg_rating DESC NULLS LAST
         ]
 
         # 检查排除模式
-        has_exclusion = any(re.search(pattern, query_lower) for pattern in exclusion_patterns)
+        has_exclusion = any(re.search(pattern, query_lower)
+                            for pattern in exclusion_patterns)
 
         if not has_exclusion:
             # 只有在没有排除模式时才进行统计模式匹配
             for pattern, weight in summary_patterns:
                 if re.search(pattern, query_lower):
                     summary_score += weight
-                    analysis_details["matched_patterns"].append(f"统计模式: {pattern}")
+                    analysis_details["matched_patterns"].append(
+                        f"统计模式: {pattern}")
 
         # ✅ 意图动词检测 - Summary 加成
         summary_verbs = ['统计', '计算', '汇总', '总结']
@@ -540,12 +555,13 @@ ORDER BY avg_rating DESC NULLS LAST
 
         # 强空间关键词（权重 0.3）
         strong_spatial_keywords = [
-            '距离', '附近', '周围', '范围内', '最近', '周边', '临近', '靠近', '邻近','分布'
+            '距离', '附近', '周围', '范围内', '最近', '周边', '临近', '靠近', '邻近', '分布'
         ]
         for keyword in strong_spatial_keywords:
             if keyword in query_lower:
                 spatial_score += 0.3
-                analysis_details["matched_patterns"].append(f"强空间关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"强空间关键词: {keyword}")
 
         # 中等空间关键词（权重 0.2）
         medium_spatial_keywords = [
@@ -555,7 +571,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for keyword in medium_spatial_keywords:
             if keyword in query_lower:
                 spatial_score += 0.2
-                analysis_details["matched_patterns"].append(f"中等空间关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"中等空间关键词: {keyword}")
 
         # 弱空间关键词（权重 0.1）
         weak_spatial_keywords = [
@@ -564,7 +581,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for keyword in weak_spatial_keywords:
             if keyword in query_lower:
                 spatial_score += 0.1
-                analysis_details["matched_patterns"].append(f"弱空间关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"弱空间关键词: {keyword}")
 
         # ✅ 空间模式识别（优化正则）
         spatial_patterns = [
@@ -587,11 +605,13 @@ ORDER BY avg_rating DESC NULLS LAST
         scenic_score = 0.0
 
         # 景区相关关键词
-        scenic_keywords = ['景区', '景点', '旅游', '5a', '4a', '3a', '2a', '1a', 'scenic', 'tourist', 'spot']
+        scenic_keywords = ['景区', '景点', '旅游', '5a', '4a',
+                           '3a', '2a', '1a', 'scenic', 'tourist', 'spot']
         for keyword in scenic_keywords:
             if keyword in query_lower:
                 scenic_score += 0.1
-                analysis_details["matched_patterns"].append(f"景区关键词: {keyword}")
+                analysis_details["matched_patterns"].append(
+                    f"景区关键词: {keyword}")
 
         # 景区等级模式
         level_patterns = [
@@ -603,7 +623,8 @@ ORDER BY avg_rating DESC NULLS LAST
         for pattern, weight in level_patterns:
             if re.search(pattern, query_lower):
                 scenic_score += weight
-                analysis_details["matched_patterns"].append(f"景区等级模式: {pattern}")
+                analysis_details["matched_patterns"].append(
+                    f"景区等级模式: {pattern}")
 
         analysis_details["scenic_score"] = min(scenic_score, 1.0)
 
@@ -616,7 +637,8 @@ ORDER BY avg_rating DESC NULLS LAST
             # ✅ 更强的折扣：如果有明确的查询动词，打更大折扣
             original_score = summary_score
             summary_score *= 0.4  # 0.6 → 0.4（更强的折扣）
-            analysis_details["matched_patterns"].append(f"Query动词折扣: {original_score:.2f} → {summary_score:.2f}")
+            analysis_details["matched_patterns"].append(
+                f"Query动词折扣: {original_score:.2f} → {summary_score:.2f}")
             # 更新到 analysis_details
             analysis_details["summary_score"] = summary_score
 
@@ -634,24 +656,29 @@ ORDER BY avg_rating DESC NULLS LAST
 
         # ✅ 优化置信度计算（加权平均）
         if is_summary:
-            confidence = analysis_details["summary_score"] * 0.7 + analysis_details["scenic_score"] * 0.3
+            confidence = analysis_details["summary_score"] * \
+                0.7 + analysis_details["scenic_score"] * 0.3
         elif is_spatial:
-            confidence = analysis_details["spatial_score"] * 0.7 + analysis_details["scenic_score"] * 0.3
+            confidence = analysis_details["spatial_score"] * \
+                0.7 + analysis_details["scenic_score"] * 0.3
         else:
             confidence = analysis_details["scenic_score"] if analysis_details["scenic_score"] > 0 else 0.5
 
         # 构建描述
         description_parts = []
         if is_summary:
-            description_parts.append(f"统计汇总查询(置信度:{analysis_details['summary_score']:.2f})")
+            description_parts.append(
+                f"统计汇总查询(置信度:{analysis_details['summary_score']:.2f})")
         else:
             description_parts.append(f"数据查询")
 
         if is_spatial:
-            description_parts.append(f"空间查询(置信度:{analysis_details['spatial_score']:.2f})")
+            description_parts.append(
+                f"空间查询(置信度:{analysis_details['spatial_score']:.2f})")
 
         if scenic_score > 0.2:
-            description_parts.append(f"景区查询(置信度:{analysis_details['scenic_score']:.2f})")
+            description_parts.append(
+                f"景区查询(置信度:{analysis_details['scenic_score']:.2f})")
 
         description = " - ".join(description_parts)
 
@@ -668,9 +695,12 @@ ORDER BY avg_rating DESC NULLS LAST
             # 低置信度或模糊查询时使用语义增强
             needs_enhancement = (
                 confidence < 0.3 or  # 置信度低
-                (intent_type == "query" and not any(keyword in query_lower for keyword in ['查询', '查找', '列出'])) or  # 无明确查询动词
-                (intent_type == "summary" and not any(keyword in query_lower for keyword in ['统计', '计数', '多少'])) or  # 无明确统计动词
-                (is_spatial and not any(keyword in query_lower for keyword in ['距离', '附近', '周边']))  # 无明确空间关键词
+                # 无明确查询动词
+                (intent_type == "query" and not any(keyword in query_lower for keyword in ['查询', '查找', '列出'])) or
+                # 无明确统计动词
+                (intent_type == "summary" and not any(keyword in query_lower for keyword in ['统计', '计数', '多少'])) or
+                (is_spatial and not any(
+                    keyword in query_lower for keyword in ['距离', '附近', '周边']))  # 无明确空间关键词
             )
 
             if needs_enhancement:

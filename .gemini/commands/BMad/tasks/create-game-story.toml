@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Create Game Story"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-godot-game-dev/tasks/create-game-story.md}
+"""

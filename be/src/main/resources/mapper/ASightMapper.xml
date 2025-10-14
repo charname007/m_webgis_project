@@ -29,4 +29,32 @@
     ) AS sub
 </select>
 
+<update id="updateByName" parameterType="com.backend.be.model.ASight">
+    UPDATE a_sight SET
+        name = #{name},
+        level = #{level},
+        address = #{address},
+        lng_gcj02 = #{lngGcj02},
+        lat_gcj02 = #{latGcj02},
+        lng_bd09 = #{lngBd09},
+        lat_bd09 = #{latBd09},
+        lng_wgs84 = #{lngWgs84},
+        lat_wgs84 = #{latWgs84},
+        geom = ST_SetSRID(ST_MakePoint(#{lngWgs84}, #{latWgs84}), 4326)
+    WHERE name = #{name}
+</update>
+
+<insert id="insert" parameterType="com.backend.be.model.ASight">
+    INSERT INTO a_sight (
+        name, level, address,
+        lng_gcj02, lat_gcj02, lng_bd09, lat_bd09,
+        lng_wgs84, lat_wgs84, geom
+    ) VALUES (
+        #{name}, #{level}, #{address},
+        #{lngGcj02}, #{latGcj02}, #{lngBd09}, #{latBd09},
+        #{lngWgs84}, #{latWgs84},
+        ST_SetSRID(ST_MakePoint(#{lngWgs84}, #{latWgs84}), 4326)
+    )
+</insert>
+
 </mapper>

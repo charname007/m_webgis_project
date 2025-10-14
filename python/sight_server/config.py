@@ -86,7 +86,7 @@ class Settings(BaseSettings):
 
     # ✅ 新增：结果验证配置
     ENABLE_RESULT_VALIDATION: bool = Field(
-        default=True,
+        default=False,
         description="是否启用结果验证功能"
     )
 
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
 
     # ✅ 新增：深度分析配置
     ENABLE_ANSWER_ANALYSIS: bool = Field(
-        default=True,
+        default=False,
         description="是否启用答案深度分析功能"
     )
 

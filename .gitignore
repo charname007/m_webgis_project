@@ -55,3 +55,4 @@ models/
 *.map
 *.exe
 *.snapshot
+# BMAD (local only)

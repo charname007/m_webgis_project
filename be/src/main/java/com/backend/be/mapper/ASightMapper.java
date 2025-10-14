@@ -15,4 +15,18 @@ public interface ASightMapper {
      * @return GeoJSON 格式的景区要素集合
      */
     String getSightGeojsonByExtentAndLevel(com.backend.be.model.SightQueryRequest request);
+
+    /**
+     * 根据名称更新景区信息
+     * @param aSight 景区实体对象
+     * @return 更新影响的行数
+     */
+    int updateByName(com.backend.be.model.ASight aSight);
+
+    /**
+     * 插入景区信息
+     * @param aSight 景区实体对象
+     * @return 插入影响的行数
+     */
+    int insert(com.backend.be.model.ASight aSight);
 }

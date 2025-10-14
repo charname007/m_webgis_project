@@ -24,4 +24,64 @@ public class ASightServiceImpl implements ASightService {
             throw new RuntimeException("景区查询失败: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    public boolean updateByName(com.backend.be.model.ASight aSight) {
+        try {
+            int result = sightMapper.updateByName(aSight);
+            System.out.println("景区更新成功 - 名称: " + aSight.getName() + ", 影响行数: " + result);
+            return result > 0;
+        } catch (Exception e) {
+            System.err.println("景区更新失败 - 名称: " + aSight.getName() + ", 错误详情: " + e.getMessage());
+            e.printStackTrace(); // 打印完整的堆栈跟踪
+            return false;
+        }
+    }
+
+    @Override
+    public boolean upsertByName(com.backend.be.model.ASight aSight) {
+        try {
+            // 先尝试更新，如果更新失败则插入
+            System.out.println("开始upsert操作 - 名称: " + aSight.getName() + ", 数据: " + aSight.toString());
+            System.out.println("坐标信息 - lngWgs84: " + aSight.getLngWgs84() + ", latWgs84: " + aSight.getLatWgs84());
+            
+            int updateResult = sightMapper.updateByName(aSight);
+            System.out.println("更新操作结果 - 影响行数: " + updateResult);
+            
+            if (updateResult > 0) {
+                System.out.println("景区upsert成功 - 名称: " + aSight.getName() + ", 更新影响行数: " + updateResult);
+                return true;
+            } else {
+                // 更新失败，尝试插入
+                System.out.println("更新失败，尝试插入 - 名称: " + aSight.getName());
+                int insertResult = sightMapper.insert(aSight);
+                System.out.println("插入操作结果 - 影响行数: " + insertResult);
+                
+                if (insertResult > 0) {
+                    System.out.println("景区upsert成功 - 名称: " + aSight.getName() + ", 插入影响行数: " + insertResult);
+                    return true;
+                } else {
+                    System.err.println("景区upsert失败 - 名称: " + aSight.getName() + ", 插入失败，可能原因：名称冲突、数据约束等");
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("景区upsert失败 - 名称: " + aSight.getName() + ", 错误详情: " + e.getMessage());
+            e.printStackTrace(); // 打印完整的堆栈跟踪
+            return false;
+        }
+    }
+
+    @Override
+    public boolean insert(com.backend.be.model.ASight aSight) {
+        try {
+            int result = sightMapper.insert(aSight);
+            System.out.println("景区插入成功 - 名称: " + aSight.getName() + ", 影响行数: " + result);
+            return result > 0;
+        } catch (Exception e) {
+            System.err.println("景区插入失败 - 名称: " + aSight.getName() + ", 错误详情: " + e.getMessage());
+            e.printStackTrace(); // 打印完整的堆栈跟踪
+            return false;
+        }
+    }
 }

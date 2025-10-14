@@ -148,6 +148,11 @@ class AgentState(TypedDict):
     # 短期记忆：当前会话的查询历史
     session_history: Annotated[List[Dict[str, Any]], add]  # 会话历史
     conversation_id: Optional[str]  # 会话ID（用于关联多轮对话）
+    
+    # ✅ 新增：对话总结机制
+    conversation_summary: str  # 对话历史总结
+    summary_trigger_count: int  # 触发总结的消息数量阈值
+    last_summary_step: int  # 上次总结的步骤数
 
     # 长期记忆：跨会话的知识积累
     knowledge_base: Optional[Dict[str, Any]]  # 知识库（常见查询模式、优化建议等）

@@ -67,6 +67,32 @@ class DatabaseConnector:
                 f"✗ DatabaseConnector initialization failed: {e}")
             raise
 
+    def _json_serializer(self, obj):
+        """
+        JSON序列化辅助函数，用于处理无法直接序列化的对象
+        
+        Args:
+            obj: 需要序列化的对象
+            
+        Returns:
+            可序列化的对象表示
+        """
+        try:
+            # 尝试直接序列化
+            return json.dumps(obj, ensure_ascii=False)
+        except (TypeError, ValueError):
+            # 如果无法直接序列化，转换为字符串
+            return str(obj)
+
+    def get_connection_string(self) -> str:
+        """
+        获取数据库连接字符串
+        
+        Returns:
+            数据库连接字符串
+        """
+        return self.connection_string
+
     def _connect(self) -> None:
         """建立数据库连接，使用配置文件中的连接池参数"""
         try:
@@ -846,9 +872,9 @@ class DatabaseConnector:
                 """, (
                     session_id,
                     query_text,
-                    json.dumps(query_intent) if query_intent else None,
+                    json.dumps(query_intent, default=self._json_serializer) if query_intent else None,
                     sql_query,
-                    json.dumps(result_data) if result_data else None,
+                    json.dumps(result_data, default=self._json_serializer) if result_data else None,
                     execution_time,
                     status
                 ))
@@ -918,7 +944,7 @@ class DatabaseConnector:
                     RETURNING id
                 """, (
                     session_id,
-                    json.dumps(context_data),
+                    json.dumps(context_data, default=self._json_serializer),
                     context_type
                 ))
                 record_id = cursor.fetchone()[0]
@@ -1003,7 +1029,7 @@ class DatabaseConnector:
                     RETURNING id
                 """, (
                     cache_key,
-                    json.dumps(cache_value),
+                    json.dumps(cache_value, default=self._json_serializer),
                     cache_type,
                     expires_at
                 ))
@@ -1215,10 +1241,13 @@ class DatabaseConnector:
                 """, (
                     cache_key,
                     query_text,
-                    json.dumps(result_data, ensure_ascii=False),
+                    json.dumps(result_data, ensure_ascii=False, default=self._json_serializer),
                     validated_response_time,
                     expires_at
                 ))
+                record_id = cursor.fetchone()[0]
+                self.logger.debug(f"查询结果缓存已保存，键: {cache_key}")
+                return record_id
                 record_id = cursor.fetchone()[0]
                 self.logger.debug(f"查询结果缓存已保存，键: {cache_key}")
                 return record_id

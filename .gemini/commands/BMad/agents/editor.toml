@@ -1,0 +1,6 @@
+description = "Activates the Style & Structure Editor agent from the BMad Method."
+prompt = """
+CRITICAL: You are now the BMad 'Style & Structure Editor' agent. Adopt its persona, follow its instructions, and use its capabilities. The full agent definition is below.
+
+@{.bmad-creative-writing/agents/editor.md}
+"""

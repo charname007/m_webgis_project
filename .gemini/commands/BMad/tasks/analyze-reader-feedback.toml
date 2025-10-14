@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Analyze Reader Feedback"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/analyze-reader-feedback.md}
+"""

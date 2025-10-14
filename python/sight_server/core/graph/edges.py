@@ -144,6 +144,48 @@ def should_requery(
     return "validate_results"
 
 
+def should_summarize_conversation(state: AgentState) -> Literal["summarize_conversation", "continue"]:
+    """
+    条件边: 判断是否需要总结对话
+    
+    触发条件：
+    - session_history 超过阈值（例如5条）
+    - 距离上次总结有一定步数间隔
+    - 在查询开始时触发，为当前查询提供上下文
+    
+    Args:
+        state: Agent状态
+        
+    Returns:
+        下一个节点名称: "summarize_conversation" 或 "continue"
+    """
+    session_history = state.get("session_history", [])
+    history_length = len(session_history)
+    last_summary_step = state.get("last_summary_step", 0)
+    current_step = state.get("current_step", 0)
+    
+    # 计算距离上次总结的步数
+    steps_since_summary = current_step - last_summary_step
+    
+    # 触发条件 - 降低阈值，在查询开始时触发
+    summary_threshold = state.get("summary_trigger_count", 5)  # 从30降低到5
+    summary_interval = state.get("summary_interval", 3)       # 从10降低到3
+    
+    # 检查是否需要总结
+    if history_length > summary_threshold and steps_since_summary > summary_interval:
+        logger.info(
+            f"[Edge: should_summarize_conversation] Triggering summary at query start: "
+            f"history={history_length}, steps_since_summary={steps_since_summary}"
+        )
+        return "summarize_conversation"
+    
+    logger.debug(
+        f"[Edge: should_summarize_conversation] No summary needed at query start: "
+        f"history={history_length}, steps_since_summary={steps_since_summary}"
+    )
+    return "continue"
+
+
 # 其他可能的条件边函数（未来扩展）
 
 def should_use_spatial_query(state: AgentState) -> Literal["spatial_node", "regular_node"]:

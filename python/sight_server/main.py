@@ -325,7 +325,7 @@ async def query_get(
         # ✅ 2. 缓存未命中，执行 Agent 查询
         logger.info(f"✗ Cache MISS: {q[:50]}... Executing Agent...")
         # ✅ 传递会话ID给Agent
-        result_json = sql_agent.run(q, conversation_id=actual_conversation_id)
+        result_json =  sql_agent.run(q, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -516,7 +516,7 @@ async def query_post(request: QueryRequest):
         # ✅ 2. 缓存未命中，执行 Agent 查询
         logger.info(f"✗ Cache MISS: {request.query[:50]}... Executing Agent...")
         # ✅ 传递会话ID给Agent
-        result_json = sql_agent.run(request.query, conversation_id=actual_conversation_id)
+        result_json =  sql_agent.run(request.query, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -651,7 +651,7 @@ async def query_geojson(request: GeoJSONRequest):
         start_time = time.time()
 
         # ✅ 传递会话ID给Agent
-        result_json = sql_agent.run(request.query, conversation_id=actual_conversation_id)
+        result_json =  sql_agent.run(request.query, conversation_id=actual_conversation_id)
 
         # 解析结果
         import json
@@ -939,6 +939,7 @@ if __name__ == "__main__":
 
     logger.info(f"Starting server on {settings.SERVER_HOST}:{settings.SERVER_PORT}")
 
+    
     uvicorn.run(
         "main:app",
         host=settings.SERVER_HOST,

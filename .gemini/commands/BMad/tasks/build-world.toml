@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Build World"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/build-world.md}
+"""

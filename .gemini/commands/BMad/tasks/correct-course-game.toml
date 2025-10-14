@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Correct Course Game"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-godot-game-dev/tasks/correct-course-game.md}
+"""

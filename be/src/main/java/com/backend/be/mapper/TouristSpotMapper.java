@@ -77,6 +77,26 @@ public interface TouristSpotMapper {
     int deleteById(@Param("id") Integer id);
 
     /**
+     * 根据名称更新旅游景点
+     */
+    @Update("UPDATE tourist_spot SET " +
+            "name = #{name}, " +
+            "链接 = #{链接}, " +
+            "地址 = #{地址}, " +
+            "介绍 = #{介绍}, " +
+            "开放时间 = #{开放时间}, " +
+            "图片链接 = #{图片链接}, " +
+            "评分 = #{评分}, " +
+            "建议游玩时间 = #{建议游玩时间}, " +
+            "建议季节 = #{建议季节}, " +
+            "门票 = #{门票}, " +
+            "小贴士 = #{小贴士}, " +
+            "page = #{page}, " +
+            "城市 = #{城市} " +
+            "WHERE name = #{name}")
+    int updateByName(TouristSpot touristSpot);
+
+    /**
      * 统计旅游景点数量
      */
     @Select("SELECT COUNT(*) FROM tourist_spot")

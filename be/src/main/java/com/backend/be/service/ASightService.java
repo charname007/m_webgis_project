@@ -12,4 +12,26 @@ public interface ASightService {
      * @return GeoJSON 格式的景区要素集合
      */
     String getSightGeojsonByExtentAndLevel(com.backend.be.model.SightQueryRequest request);
+
+    /**
+     * 根据名称更新景区信息
+     * @param aSight 景区实体对象
+     * @return 更新是否成功
+     */
+    boolean updateByName(com.backend.be.model.ASight aSight);
+
+    /**
+     * 插入景区信息
+     * @param aSight 景区实体对象
+     * @return 插入是否成功
+     */
+    boolean insert(com.backend.be.model.ASight aSight);
+
+    /**
+     * 根据名称更新或插入景区信息（upsert操作）
+     * 如果记录存在则更新，不存在则插入
+     * @param aSight 景区实体对象
+     * @return 操作是否成功
+     */
+    boolean upsertByName(com.backend.be.model.ASight aSight);
 }

@@ -40,6 +40,20 @@ public interface TouristSpotService {
     TouristSpot updateTouristSpot(TouristSpot touristSpot);
 
     /**
+     * 更新旅游景点和关联的景区信息
+     * @param updateRequest 包含两个表数据的更新请求
+     * @return 更新后的旅游景点信息
+     */
+    TouristSpot updateTouristSpotWithSight(com.backend.be.model.TouristSpotUpdateRequest updateRequest);
+
+    /**
+     * 通过名称更新旅游景点和关联的景区信息
+     * @param updateRequest 包含两个表数据的更新请求
+     * @return 更新后的旅游景点信息
+     */
+    TouristSpot updateTouristSpotByNameWithSight(com.backend.be.model.TouristSpotUpdateRequest updateRequest);
+
+    /**
      * 删除旅游景点
      */
     boolean deleteTouristSpot(Integer id);

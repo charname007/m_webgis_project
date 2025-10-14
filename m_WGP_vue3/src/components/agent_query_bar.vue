@@ -4,34 +4,6 @@
     class="agent-query-bar"
     :class="{ 'collapsed': isCollapsed }"
   >
-    <!-- 面板标题栏 -->
-    <div class="panel-header">
-      <div class="header-left" @click="toggleCollapse" style="cursor: pointer;">
-        <span class="panel-icon">🤖</span>
-        <h3 class="panel-title">LLM查询框</h3>
-        <span v-if="currentSessionId" class="session-badge" :title="'会话ID: ' + currentSessionId">
-          💬 会话中
-        </span>
-      </div>
-      <div class="header-right">
-        <span v-if="executionTime" class="execution-time">{{ executionTime }}s</span>
-        <button
-          @click="showSessionInfo"
-          class="session-button"
-          title="会话信息"
-        >
-          💬
-        </button>
-        <button
-          @click="toggleCollapse"
-          class="toggle-button"
-          :title="isCollapsed ? '展开' : '折叠'"
-        >
-          {{ isCollapsed ? '▲' : '▼' }}
-        </button>
-      </div>
-    </div>
-
     <!-- 查询输入区域（始终显示） -->
     <div class="query-box-wrapper">
       <div class="query-box">
@@ -47,6 +19,17 @@
           <span v-if="!loading">🔍 查询</span>
           <span v-else>⏳ 查询中...</span>
         </button>
+        <button
+          @click="toggleCollapse"
+          class="fold-button"
+          :title="isCollapsed ? '展开' : '折叠'"
+        >
+          {{ isCollapsed ? '▲' : '▼' }}
+        </button>
+      </div>
+      <!-- 会话状态指示 -->
+      <div v-if="currentSessionId" class="session-indicator" :title="'会话ID: ' + currentSessionId">
+        💬 会话中
       </div>
     </div>
 
@@ -112,7 +95,7 @@ export default {
     const loading = ref(false)          // 加载状态
     const queryInfo = ref(null)         // 查询信息（count、intent_info等）
     const executionTime = ref(null)     // 执行时间
-    const isCollapsed = ref(false)      // 折叠状态
+    const isCollapsed = ref(true)      // 折叠状态
     const panelRef = ref(null)          // 面板引用
     const currentSessionId = ref('')    // 当前会话ID
     const sessionHistory = ref([])      // 会话历史记录
@@ -140,16 +123,6 @@ export default {
       console.log('🆕 开始新会话:', currentSessionId.value)
     }
 
-    /**
-     * 显示会话信息
-     */
-    const showSessionInfo = () => {
-      if (currentSessionId.value) {
-        alert(`当前会话ID: ${currentSessionId.value}\n查询历史: ${sessionHistory.value.length} 次`)
-      } else {
-        alert('当前没有活跃的会话')
-      }
-    }
 
     /**
      * 记录查询到会话历史
@@ -295,7 +268,6 @@ export default {
       handleQuery,
       toggleCollapse,
       getIntentTypeName,
-      showSessionInfo,
       startNewSession
     }
   }
@@ -303,354 +275,280 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 主面板样式 ==================== */
+/* ==================== 简约风格主面板 ==================== */
 .agent-query-bar {
   position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  width: 800px;
+  width: 600px;
   max-width: 90vw;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1);
   z-index: 1500;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
+  border: 1px solid #f0f0f0;
 }
 
 .agent-query-bar:hover {
-  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
 }
 
 .agent-query-bar.collapsed {
-  max-height: 120px; /* 调整折叠状态高度，容纳标题栏和输入框 */
+  max-height: 80px;
 }
 
-/* ==================== 面板头部 ==================== */
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  user-select: none;
-}
-
-.panel-header:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.panel-icon {
-  font-size: 20px;
-}
-
-.panel-title {
-  margin: 0;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.execution-time {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-
-.session-badge {
-  background: rgba(255, 255, 255, 0.3);
-  color: white;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  font-weight: 500;
-}
-
-.session-button {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: all 0.2s ease;
-}
-
-.session-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
-}
-
-.toggle-button {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: all 0.2s ease;
-}
-
-.toggle-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
-}
-
-/* ==================== 查询输入框包装器（始终显示） ==================== */
+/* ==================== 查询输入框包装器 ==================== */
 .query-box-wrapper {
-  padding: 16px;
+  padding: 12px 16px;
   background: white;
-  border-bottom: 1px solid #e0e0e0;
+  position: relative;
 }
 
-/* ==================== 面板内容 ==================== */
+.session-indicator {
+  font-size: 11px;
+  color: #666;
+  background: #f5f5f5;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 400;
+  margin-top: 6px;
+  display: inline-block;
+}
+
+/* ==================== 简化面板内容 ==================== */
 .panel-content {
-  padding: 16px;
+  padding: 0 16px 16px 16px;
   background: white;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 350px; /* 限制最大高度 */
-  overflow-y: auto; /* 启用垂直滚动 */
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
-/* ==================== 查询输入框 ==================== */
+/* ==================== 简化查询输入框 ==================== */
 .query-box {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .query-input {
   flex: 1;
-  padding: 10px 14px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease;
+  background: #ffffff;
 }
 
 .query-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #666;
 }
 
 .query-input:disabled {
-  background: #f5f5f5;
+  background: #fafafa;
   cursor: not-allowed;
 }
 
 .query-button {
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 8px 16px;
+  background: #333;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
+  font-size: 13px;
+  font-weight: 400;
+  transition: background-color 0.2s ease;
   white-space: nowrap;
-  min-width: 100px;
+  min-width: 80px;
 }
 
 .query-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.query-button:active:not(:disabled) {
-  transform: translateY(0);
+  background: #555;
 }
 
 .query-button:disabled {
-  background: #ccc;
+  background: #ddd;
   cursor: not-allowed;
-  transform: none;
 }
 
-/* ==================== 答案显示区域 ==================== */
+.fold-button {
+  background: transparent;
+  color: #888;
+  border: none;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.fold-button:hover {
+  color: #333;
+}
+
+/* ==================== 简化答案显示区域 ==================== */
 .answer-section {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .answer-content {
-  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-  border-left: 4px solid #4caf50;
-  border-radius: 8px;
+  background: #f9f9f9;
+  border-radius: 6px;
   padding: 12px;
+  border: 1px solid #e5e5e5;
 }
 
 .answer-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .answer-icon {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .answer-label {
-  font-weight: 600;
-  color: #2e7d32;
-  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  font-size: 13px;
 }
 
 .answer-text {
-  margin: 8px 0;
-  color: #1b5e20;
-  font-size: 14px;
-  line-height: 1.6;
-  max-height: 120px; /* 限制答案文本最大高度 */
-  overflow-y: auto; /* 答案过长时可滚动 */
-  padding-right: 8px; /* 为滚动条留出空间 */
+  margin: 6px 0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 100px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .query-info {
   display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(76, 175, 80, 0.3);
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e5e5;
 }
 
 .info-item {
-  font-size: 12px;
-  color: #2e7d32;
+  font-size: 11px;
+  color: #666;
 }
 
 .info-item strong {
-  font-weight: 600;
-  margin-right: 4px;
+  font-weight: 500;
+  margin-right: 2px;
 }
 
 .info-item.spatial {
-  background: rgba(33, 150, 243, 0.2);
-  padding: 4px 10px;
-  border-radius: 12px;
-  color: #1565c0;
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #555;
 }
 
-/* ==================== 错误显示区域 ==================== */
+/* ==================== 简化错误显示区域 ==================== */
 .error-content {
-  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
-  border-left: 4px solid #f44336;
-  border-radius: 8px;
+  background: #fafafa;
+  border-radius: 6px;
   padding: 12px;
+  border: 1px solid #e5e5e5;
 }
 
 .error-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .error-icon {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .error-label {
-  font-weight: 600;
-  color: #c62828;
-  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  font-size: 13px;
 }
 
 .error-text {
-  margin: 8px 0 0 0;
-  color: #b71c1c;
-  font-size: 14px;
-  line-height: 1.6;
+  margin: 6px 0 0 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-/* ==================== 初始提示 ==================== */
+/* ==================== 简化初始提示 ==================== */
 .initial-prompt {
   text-align: center;
-  padding: 16px;
-  color: #666;
+  padding: 12px;
+  color: #888;
 }
 
 .initial-prompt p {
-  margin: 0 0 16px 0;
-  font-size: 14px;
+  margin: 0 0 12px 0;
+  font-size: 13px;
 }
 
 .example-queries {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .example-btn {
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  border: 1px solid #e0e0e0;
+  padding: 6px 10px;
+  background: #f9f9f9;
+  border: 1px solid #e5e5e5;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  color: #555;
+  font-size: 12px;
+  color: #666;
   transition: all 0.2s ease;
 }
 
 .example-btn:hover {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #333;
   color: white;
-  border-color: #667eea;
-  transform: translateX(4px);
+  border-color: #333;
 }
 
-/* ==================== 滚动条样式 ==================== */
+/* ==================== 简化滚动条样式 ==================== */
 .panel-content::-webkit-scrollbar,
 .answer-text::-webkit-scrollbar {
-  width: 8px;
+  width: 4px;
 }
 
 .panel-content::-webkit-scrollbar-track,
 .answer-text::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+  background: transparent;
 }
 
 .panel-content::-webkit-scrollbar-thumb,
 .answer-text::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 4px;
+  background: #ddd;
+  border-radius: 2px;
 }
 
 .panel-content::-webkit-scrollbar-thumb:hover,
 .answer-text::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  background: #ccc;
 }
 </style>

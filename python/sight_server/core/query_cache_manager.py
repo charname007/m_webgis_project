@@ -76,6 +76,7 @@ class QueryCacheManager:
         enable_semantic_search: bool = True,
         similarity_threshold: float = 0.92,
         embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        lazy_load_embedding: bool = True,        # ✅ 新增：懒加载模型
     ):
         """
         初始化查询缓存管理器（支持语义相似度搜索）
@@ -104,28 +105,15 @@ class QueryCacheManager:
         # ✅ 初始化 Embedding 模型（仅在启用语义搜索时，延迟导入）
         self.embedding_model = None
         self.query_embeddings = {}  # 缓存查询向量，避免重复计算
+        self.lazy_load_embedding = lazy_load_embedding
+        self.embedding_model_name = embedding_model
+        self.model_cache_dir = os.path.join(cache_dir, "models")
 
-        if self.enable_semantic_search:
-            # 延迟导入 sentence-transformers
-            _lazy_import_sentence_transformers()
-
-            if SENTENCE_TRANSFORMERS_AVAILABLE and SentenceTransformer:
-                try:
-                    # 使用改进的模型加载方法
-                    self.embedding_model = self._initialize_embedding_model_safely(embedding_model, cache_dir)
-                    
-                    if self.embedding_model:
-                        logger.info("✓ Embedding model loaded successfully")
-                    else:
-                        logger.warning("Embedding model not available, semantic search disabled")
-                        self.enable_semantic_search = False
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to load embedding model: {e}. Semantic search disabled.")
-                    self.enable_semantic_search = False
-            else:
-                logger.warning("sentence-transformers not available. Semantic search disabled. Install with: pip install sentence-transformers")
-                self.enable_semantic_search = False
+        if self.enable_semantic_search and not self.lazy_load_embedding:
+            # 如果启用语义搜索且不懒加载，则立即加载模型
+            self._load_embedding_model()
+        elif self.enable_semantic_search:
+            logger.info("✓ Embedding model will be loaded lazily when needed")
 
         # ✅ 新增：数据库持久化配置
         # self.enable_database_persistence = enable_database_persistence
@@ -157,12 +145,13 @@ class QueryCacheManager:
         }
 
         semantic_status = "enabled" if self.enable_semantic_search else "disabled"
-        logger.info(f"QueryCacheManager initialized: dir={cache_dir}, ttl={ttl}s, max_size={max_size}, strategy={self.cache_strategy}, semantic_search={semantic_status}")
+        lazy_status = "lazy" if self.lazy_load_embedding else "eager"
+        logger.info(f"QueryCacheManager initialized: dir={cache_dir}, ttl={ttl}s, max_size={max_size}, strategy={self.cache_strategy}, semantic_search={semantic_status}, loading={lazy_status}")
 
     def _check_network_connectivity(self) -> bool:
         """检查网络连接状态"""
         try:
-            socket.create_connection(("huggingface.co", 443), timeout=5)
+            socket.create_connection(("huggingface.co", 443), timeout=3)  # 减少超时时间
             return True
         except:
             return False
@@ -186,6 +175,9 @@ class QueryCacheManager:
         # 设置超时
         socket.setdefaulttimeout(model_timeout)
         
+        # 创建模型缓存目录
+        os.makedirs(os.path.join(cache_dir, "models"), exist_ok=True)
+        
         for attempt in range(retry_count + 1):
             try:
                 logger.info(f"Loading embedding model (attempt {attempt + 1}/{retry_count + 1}): {embedding_model}")
@@ -193,12 +185,25 @@ class QueryCacheManager:
                 # 使用本地缓存目录
                 model_path = os.path.join(cache_dir, "models", embedding_model.replace("/", "_"))
                 
-                # 检查本地是否已有模型
+                # 检查本地是否已有模型（优先使用本地缓存）
                 if os.path.exists(model_path):
                     logger.info(f"Using cached model from: {model_path}")
                     return SentenceTransformer(model_path)
                 else:
+                    # 检查网络连接，如果无网络且不是离线模式，则使用更小的模型
+                    if not self._check_network_connectivity() and not offline_mode:
+                        logger.warning("No network connectivity and offline mode not enabled, using fallback model")
+                        # 尝试使用更小的本地模型作为降级方案
+                        fallback_model = "all-MiniLM-L6-v2"  # 更小的模型
+                        fallback_path = os.path.join(cache_dir, "models", fallback_model)
+                        if os.path.exists(fallback_path):
+                            logger.info(f"Using fallback model: {fallback_model}")
+                            return SentenceTransformer(fallback_path)
+                        else:
+                            raise Exception("No network connectivity and no cached model available")
+                    
                     # 在线下载，但使用本地缓存
+                    logger.info(f"Downloading model to cache: {model_path}")
                     return SentenceTransformer(
                         embedding_model,
                         cache_folder=os.path.join(cache_dir, "models")
@@ -235,6 +240,37 @@ class QueryCacheManager:
             self.enable_semantic_search = False
             logger.warning("Semantic search disabled due to model loading failure")
             return None
+
+    def _load_embedding_model(self):
+        """加载embedding模型（懒加载或立即加载）"""
+        if self.embedding_model is not None:
+            return  # 模型已加载
+            
+        if not self.enable_semantic_search:
+            return  # 语义搜索已禁用
+            
+        # 延迟导入 sentence-transformers
+        _lazy_import_sentence_transformers()
+
+        if SENTENCE_TRANSFORMERS_AVAILABLE and SentenceTransformer:
+            try:
+                # 使用改进的模型加载方法
+                self.embedding_model = self._initialize_embedding_model_safely(
+                    self.embedding_model_name, self.model_cache_dir
+                )
+                
+                if self.embedding_model:
+                    logger.info("✓ Embedding model loaded successfully")
+                else:
+                    logger.warning("Embedding model not available, semantic search disabled")
+                    self.enable_semantic_search = False
+                    
+            except Exception as e:
+                logger.warning(f"Failed to load embedding model: {e}. Semantic search disabled.")
+                self.enable_semantic_search = False
+        else:
+            logger.warning("sentence-transformers not available. Semantic search disabled. Install with: pip install sentence-transformers")
+            self.enable_semantic_search = False
 
     def _load_metadata(self) -> Dict[str, Any]:
         """加载缓存元数据"""
@@ -818,7 +854,14 @@ class QueryCacheManager:
         2. 遍历已缓存查询，计算相似度
         3. 返回最相似且超过阈值的缓存键
         """
-        if not self.enable_semantic_search or not self.embedding_model:
+        if not self.enable_semantic_search:
+            return None
+            
+        # 懒加载模型
+        if self.embedding_model is None:
+            self._load_embedding_model()
+            
+        if not self.embedding_model:
             return None
 
         try:

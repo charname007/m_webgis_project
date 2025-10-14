@@ -1,6 +1,6 @@
 // API 配置模块
 const API_CONFIG = {
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8082',
   
   // Sight Server 配置
   sightServer: {
@@ -58,7 +58,9 @@ const API_CONFIG = {
       byCity: (city) => `/api/tourist-spots/city/${city}`,
       search: '/api/tourist-spots/search',
       byName: (name) => `/api/tourist-spots/name/${name}`,
-      count: '/api/tourist-spots/count'
+      count: '/api/tourist-spots/count',
+      update: (id) => `/api/tourist-spots/${id}/with-sight`,
+      updateByName: (name) => `/api/tourist-spots/by-name/${name}/with-sight`
     }
   },
   

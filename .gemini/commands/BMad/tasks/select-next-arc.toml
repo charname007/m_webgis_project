@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Select Next Arc"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/select-next-arc.md}
+"""

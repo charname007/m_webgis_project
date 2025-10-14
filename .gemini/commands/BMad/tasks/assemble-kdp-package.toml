@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Assemble Kdp Package"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/assemble-kdp-package.md}
+"""

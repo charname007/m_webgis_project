@@ -201,16 +201,17 @@ with gr.Blocks() as demo:
     msg = gr.Textbox(label="输入您的问题", placeholder="请输入...")
     clear = gr.ClearButton([msg, chatbot])
 
-    def respond(message, chat_history):
-        # 同步调用异步函数
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    async def respond(message, chat_history):
+        # 异步调用异步函数，避免事件循环冲突
         try:
-            result = loop.run_until_complete(
-                chat_with_timeout(message, chat_history))
+            result = await chat_with_timeout(message, chat_history)
             return result
-        finally:
-            loop.close()
+        except Exception as e:
+            logger.error(f"Error in respond function: {e}")
+            error_msg = "抱歉，处理您的请求时出现了问题"
+            chat_history.append({"role": "user", "content": message})
+            chat_history.append({"role": "assistant", "content": error_msg})
+            return chat_history
 
     msg.submit(respond, [msg, chatbot], [chatbot])
     msg.submit(lambda: "", None, [msg])  # 清空输入框

@@ -9,8 +9,11 @@ from typing import Any, Callable, Dict
 from langgraph.graph import StateGraph, END
 
 from ..schemas import AgentState
-from .edges import should_continue_querying, should_retry_or_fail, should_requery
-
+from .edges import should_continue_querying, should_retry_or_fail, should_requery, should_summarize_conversation
+from .summarization import summarize_conversation
+from .context_schemas import AgentContextSchema
+from langgraph.checkpoint.memory import InMemorySaver
+from config import settings
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +30,7 @@ class GraphBuilder:
     """
 
     @staticmethod
-    def build(node_handlers: Dict[str, Callable[[AgentState], Dict[str, Any]]]):
+    def build(node_handlers: Dict[str, Callable[[AgentState], Dict[str, Any]]], checkpointer=None, store=None, enable_final_validation: bool = False):
         """
         构建LangGraph工作流
 
@@ -66,15 +69,18 @@ class GraphBuilder:
             "check_results",
             "generate_answer",
             "handle_error",
-            "final_validation",
         }
+
+        # ✅ 新增：final_validation节点可选
+        if enable_final_validation:
+            required.add("final_validation")
 
         missing = required - set(node_handlers)
         if missing:
             missing_list = ", ".join(sorted(missing))
             raise ValueError(f"Missing node handlers: {missing_list}")
 
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(AgentState, context_schema=AgentContextSchema)
 
         workflow.add_node("fetch_schema", node_handlers["fetch_schema"])
 
@@ -86,13 +92,33 @@ class GraphBuilder:
         workflow.add_node("check_results", node_handlers["check_results"])
         workflow.add_node("validate_results", node_handlers["validate_results"])
         workflow.add_node("generate_answer", node_handlers["generate_answer"])
-        workflow.add_node("final_validation", node_handlers["final_validation"])
 
-        logger.info("✓ Added 10 nodes to workflow (including fetch_schema, handle_error, check_results, and validate_results)")
+        # ✅ 新增：final_validation节点可选
+        if enable_final_validation:
+            workflow.add_node("final_validation", node_handlers["final_validation"])
+            logger.info("✓ Added final_validation node (enabled)")
+
+        # ✅ 新增：对话总结节点
+        workflow.add_node("summarize_conversation", summarize_conversation)
+        logger.info("✓ Added summarize_conversation node for memory optimization")
+
+        node_count = 10 if not enable_final_validation else 11
+        logger.info(f"✓ Added {node_count} nodes to workflow (including fetch_schema, handle_error, check_results, and validate_results)")
 
         workflow.set_entry_point(key="fetch_schema")
 
-        workflow.add_edge("fetch_schema", "analyze_intent")
+        # 在查询开始前添加总结检查
+        workflow.add_conditional_edges(
+            "fetch_schema",
+            should_summarize_conversation,
+            {
+                "summarize_conversation": "summarize_conversation",
+                "continue": "analyze_intent",
+            },
+        )
+
+        workflow.add_edge("summarize_conversation", "analyze_intent")
+        logger.info("✓ Added summary check at workflow start")
         workflow.add_edge("analyze_intent", "enhance_query")
         workflow.add_edge("enhance_query", "generate_sql")
         workflow.add_edge("generate_sql", "execute_sql")
@@ -124,6 +150,8 @@ class GraphBuilder:
 
         logger.info("✓ Added conditional edge for result validation")
 
+        # 移除validate_results后的总结检查，因为现在在查询开始时检查
+
         workflow.add_conditional_edges(
             "validate_results",
             should_continue_querying,
@@ -135,11 +163,16 @@ class GraphBuilder:
 
         logger.info("✓ Added conditional edge for iteration control")
 
-        workflow.add_edge("generate_answer", "final_validation")
-        workflow.add_edge("final_validation", END)
-        logger.info("✓ Added final validation edge and end edge")
+        # ✅ 新增：final_validation节点可选
+        if enable_final_validation:
+            workflow.add_edge("generate_answer", "final_validation")
+            workflow.add_edge("final_validation", END)
+            logger.info("✓ Added final validation edge and end edge")
+        else:
+            workflow.add_edge("generate_answer", END)
+            logger.info("✓ Added direct edge from generate_answer to END (final_validation disabled)")
 
-        compiled_graph = workflow.compile()
+        compiled_graph = workflow.compile(checkpointer=checkpointer,store=store)
 
         logger.info("✓ LangGraph workflow built and compiled successfully with Fallback support")
 

@@ -5,28 +5,11 @@
     :class="{ 'collapsed': isCollapsed }"
     :style="{ left: position.x + 'px', top: position.y + 'px' }"
   >
-    <!-- 面板标题栏（可拖拽） -->
-    <div
-      class="panel-header"
-      @mousedown="startDrag"
-    >
-      <div class="header-left">
-        <span class="panel-icon">🔍</span>
-        <h3 class="panel-title">景区搜索</h3>
-      </div>
-      <div class="header-right">
-        <button
-          @click.stop="toggleCollapse"
-          class="toggle-button"
-          :title="isCollapsed ? '展开' : '折叠'"
-        >
-          {{ isCollapsed ? '▼' : '▲' }}
-        </button>
-      </div>
-    </div>
-
     <!-- 搜索框区域（始终显示） -->
-    <div class="search-box-wrapper">
+    <div
+      class="search-box-wrapper"
+      @mousedown="handleDragStart"
+    >
       <div class="search-box">
         <input
           v-model="searchKeyword"
@@ -43,6 +26,13 @@
           :title="isExtentSearchActive ? '取消范围选择' : '框选范围搜索'"
         >
           {{ isExtentSearchActive ? '取消框选' : '📦 框选' }}
+        </button>
+        <button
+          @click.stop="toggleCollapse"
+          class="fold-button"
+          :title="isCollapsed ? '展开' : '折叠'"
+        >
+          {{ isCollapsed ? '▼' : '▲' }}
         </button>
       </div>
     </div>
@@ -110,6 +100,14 @@
             <h4 class="spot-name">
               {{ spot.name }}
               <span v-if="spot._isBasicInfo" class="basic-info-badge">基本信息</span>
+              <!-- 修改按钮 -->
+              <button 
+                @click.stop="handleEditSpot(spot)"
+                class="edit-button"
+                title="修改景点信息"
+              >
+                ✏️
+              </button>
             </h4>
             <div class="spot-details">
               <p v-if="spot.level" class="spot-level">
@@ -155,6 +153,15 @@
       <p>搜索中...</p>
     </div>
     </div>
+
+    <!-- 修改弹窗 -->
+    <TouristSpotEditModal
+      v-if="editModalVisible"
+      :spot="editingSpot"
+      :visible="editModalVisible"
+      @close="() => editModalVisible = false"
+      @save="handleSpotSave"
+    />
   </div>
 </template>
 
@@ -162,9 +169,14 @@
 import { ref, inject, onMounted, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 import API_CONFIG from '../config/api.js'
+import TouristSpotEditModal from './TouristSpotEditModal.vue'
+import { TRUE } from 'ol/functions.js'
 
 export default {
   name: 'TouristSpotSearch',
+  components: {
+    TouristSpotEditModal
+  },
   setup() {
     const searchKeyword = ref('')
     const searchResults = ref([])
@@ -198,6 +210,10 @@ export default {
     const selectedSpotInfo = inject('selectedSpotInfo')
     const setSelectedSpotInfo = inject('setSelectedSpotInfo')
     const registerSpotClickCallback = inject('registerSpotClickCallback')
+
+    // 修改弹窗相关状态
+    const editModalVisible = ref(false)
+    const editingSpot = ref(null)
 
     // 注入范围选择功能
     const activateExtentDraw = inject('activateExtentDraw', null)
@@ -351,7 +367,7 @@ export default {
           })
         }
 
-        // 合并结果
+        // 合并结果 - 新的搜索策略：允许无坐标的景区显示
         const mergedResults = []
         const processedNames = new Set()
 
@@ -386,6 +402,7 @@ export default {
         })
 
         // 2. 处理 a_sight 表中有但 tourist_spot 表中没有的景区
+        // 即使没有坐标信息，也包含该景区的基本信息
         sightMap.forEach((sightInfo, name) => {
           if (name.includes(cleanedKeyword) && !processedNames.has(name)) {
             mergedResults.push({
@@ -395,7 +412,7 @@ export default {
               介绍: `${sightInfo.level || ''}级景区`,
               coordinates: sightInfo.coordinates,
               _isBasicInfo: true,
-              _hasCoordinates: true
+              _hasCoordinates: !!sightInfo.coordinates  // 根据是否有坐标设置标记
             })
           }
         })
@@ -838,7 +855,7 @@ export default {
               return response.data.map(spot => ({
                 ...spot,
                 coordinates: sightFeature.coordinates, // 保存坐标
-                _hasCoordinates: true
+                _hasCoordinates: !!sightFeature.coordinates  // 根据是否有坐标设置标记
               }))
             }
 
@@ -850,7 +867,7 @@ export default {
               介绍: `${sightFeature.properties.level || ''}级景区`,
               coordinates: sightFeature.coordinates, // 保存坐标
               _isBasicInfo: true, // 标记这是基本信息
-              _hasCoordinates: true
+              _hasCoordinates: !!sightFeature.coordinates  // 根据是否有坐标设置标记
             }]
           } catch (error) {
             console.error(`查询景区 ${sightFeature.name} 详细信息失败:`, error)
@@ -862,7 +879,7 @@ export default {
               介绍: `${sightFeature.properties.level || ''}级景区`,
               coordinates: sightFeature.coordinates, // 保存坐标
               _isBasicInfo: true,
-              _hasCoordinates: true
+              _hasCoordinates: !!sightFeature.coordinates  // 根据是否有坐标设置标记
             }]
           }
         })
@@ -914,7 +931,12 @@ export default {
     }
 
     // 开始拖拽
-    const startDrag = (e) => {
+    const handleDragStart = (e) => {
+      // 检查点击目标是否为输入框，如果是则阻止拖拽
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
+        return
+      }
+
       // 阻止文本选择
       e.preventDefault()
 
@@ -1051,6 +1073,40 @@ export default {
       }
     })
 
+    // 处理景点修改
+    const handleEditSpot = (spot) => {
+      console.log('开始修改景点:', spot)
+      console.log('景点ID:', spot.id)
+      console.log('景点名称:', spot.name)
+      
+      // 检查景点数据是否有效
+      // if (!spot || !spot.id) {
+      //   console.error('景点数据无效，缺少ID:', spot)
+      //   alert('无法编辑该景点：缺少必要数据')
+      //   return
+      // }
+      
+      editingSpot.value = spot
+      editModalVisible.value = true
+      
+      console.log('弹窗状态已更新:', {
+        editModalVisible: editModalVisible.value,
+        editingSpot: editingSpot.value
+      })
+    }
+
+    // 处理景点保存
+    const handleSpotSave = (updatedSpot) => {
+      console.log('景点保存成功:', updatedSpot)
+      // 更新搜索结果列表中的景点信息
+      const index = allSearchResults.value.findIndex(s => s.id === updatedSpot.id)
+      if (index !== -1) {
+        allSearchResults.value[index] = { ...allSearchResults.value[index], ...updatedSpot }
+        applyPagination() // 重新应用分页以更新显示
+      }
+      editModalVisible.value = false
+    }
+
     // 组件卸载时清理事件监听器
     onUnmounted(() => {
       document.removeEventListener('mousemove', onDrag)
@@ -1063,7 +1119,7 @@ export default {
       isCollapsed,
       position,
       toggleCollapse,
-      startDrag,
+      handleDragStart,
       // 搜索相关
       searchKeyword,
       searchResults,
@@ -1082,7 +1138,12 @@ export default {
       getLoadedImage,
       handleImageError,
       isExtentSearchActive,
-      toggleExtentSearch
+      toggleExtentSearch,
+      // 修改相关
+      editModalVisible,
+      editingSpot,
+      handleEditSpot,
+      handleSpotSave
     }
   }
 }
@@ -1094,18 +1155,19 @@ export default {
   position: fixed;
   width: 420px;
   max-height: 80vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   z-index: 2000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: box-shadow 0.3s ease;
+  border: 1px solid #e0e0e0;
 }
 
 .tourist-spot-search:hover {
-  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.15);
 }
 
 .tourist-spot-search.collapsed {
@@ -1113,70 +1175,26 @@ export default {
   height: auto;
 }
 
-/* ==================== 面板头部 ==================== */
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+/* ==================== 搜索框包装器（可拖拽） ==================== */
+/* .search-box-wrapper {
+  padding: 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
   cursor: move;
   user-select: none;
-}
+} */
 
-.panel-header:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.panel-icon {
-  font-size: 18px;
-}
-
-.panel-title {
-  margin: 0;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.header-right {
-  display: flex;
-  gap: 8px;
-}
-
-.toggle-button {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  width: 26px;
-  height: 26px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-
-.toggle-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
-}
+/* .search-box-wrapper:hover {
+  background: #f0f1f3;
+} */
 
 /* ==================== 搜索框包装器（始终显示） ==================== */
 .search-box-wrapper {
   padding: 12px;
   background: white;
   border-bottom: 1px solid #e0e0e0;
+  cursor: move;
+  user-select: none;
 }
 
 /* ==================== 面板内容 ==================== */
@@ -1193,27 +1211,49 @@ export default {
   gap: 8px;
 }
 
+.fold-button {
+  background: #ffffff;
+  color: #666;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  width: 28px;
+  height: 38px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.fold-button:hover {
+  background: #f0f0f0;
+  border-color: #999;
+}
+
 .search-input {
   flex: 1;
-  padding: 8px 10px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
   font-size: 14px;
   transition: all 0.2s ease;
+  background: #ffffff;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #4a90e2;
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
 }
 
 .search-button {
-  padding: 8px 14px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 10px 16px;
+  background: #4a90e2;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
@@ -1222,34 +1262,31 @@ export default {
 }
 
 .search-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  background: #357abd;
 }
 
 .search-button:active {
-  transform: translateY(0);
+  background: #2c5aa0;
 }
 
 .extent-search-button {
-  padding: 8px 10px;
-  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  padding: 10px 12px;
+  background: #6c757d;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .extent-search-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+  background: #5a6268;
 }
 
 .extent-search-button.active {
-  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-  animation: pulse 1.5s infinite;
+  background: #dc3545;
 }
 
 @keyframes pulse {
@@ -1285,17 +1322,18 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  padding: 10px;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  border-radius: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
 }
 
 .pagination-button {
-  padding: 6px 14px;
-  background: white;
-  color: #667eea;
-  border: 2px solid #667eea;
-  border-radius: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  color: #4a90e2;
+  border: 1px solid #4a90e2;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
@@ -1303,16 +1341,15 @@ export default {
 }
 
 .pagination-button:disabled {
-  background: #f5f5f5;
-  color: #ccc;
-  border-color: #e0e0e0;
+  background: #f8f9fa;
+  color: #999;
+  border-color: #d0d0d0;
   cursor: not-allowed;
 }
 
 .pagination-button:hover:not(:disabled) {
-  background: #667eea;
+  background: #4a90e2;
   color: white;
-  transform: translateY(-1px);
 }
 
 .page-info {
@@ -1330,39 +1367,22 @@ export default {
 .result-item {
   padding: 12px;
   border: 1px solid #e0e0e0;
-  border-radius: 10px;
-  margin-bottom: 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  background: white;
+  transition: all 0.2s ease;
+  background: #ffffff;
 }
 
 .result-item:hover {
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  border-color: #667eea;
-  transform: translateX(4px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  background: #f8f9fa;
+  border-color: #4a90e2;
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.1);
 }
 
 .result-item.highlighted {
-  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-  border-color: #4CAF50;
-  animation: highlight-pulse 2s ease-in-out;
-}
-
-@keyframes highlight-pulse {
-  0% {
-    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-    transform: scale(1);
-  }
-  50% {
-    background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
-    transform: scale(1.02);
-  }
-  100% {
-    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-    transform: scale(1);
-  }
+  background: #e8f5e9;
+  border-color: #28a745;
 }
 
 /* ==================== 景区信息样式 ==================== */
@@ -1384,12 +1404,39 @@ export default {
 
 .basic-info-badge {
   display: inline-block;
-  padding: 3px 10px;
-  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-  color: white;
+  padding: 3px 8px;
+  background: #ffc107;
+  color: #212529;
   font-size: 11px;
-  border-radius: 12px;
+  border-radius: 3px;
   font-weight: 500;
+}
+
+/* ==================== 修改按钮样式 ==================== */
+.edit-button {
+  background: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.edit-button:hover {
+  background: #357abd;
+  transform: scale(1.1);
+}
+
+.edit-button:active {
+  background: #2c5aa0;
+  transform: scale(0.95);
 }
 
 .spot-details {
@@ -1423,15 +1470,15 @@ export default {
 /* ==================== 图片样式 ==================== */
 .spot-image-container {
   width: 100%;
-  height: 180px;
+  height: 160px;
   margin-bottom: 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: #f8f9fa;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #e9ecef;
+  border: 1px solid #e0e0e0;
 }
 
 .image-loading,
@@ -1447,10 +1494,10 @@ export default {
 }
 
 .loading-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #e9ecef;
-  border-top: 3px solid #667eea;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #e0e0e0;
+  border-top: 2px solid #4a90e2;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -1462,32 +1509,32 @@ export default {
 
 .error-icon,
 .placeholder-icon {
-  font-size: 36px;
+  font-size: 32px;
 }
 
 .spot-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  transition: transform 0.2s ease;
 }
 
 .spot-image:hover {
-  transform: scale(1.05);
+  transform: scale(1.02);
 }
 
 /* ==================== 其他状态样式 ==================== */
 .no-results {
   text-align: center;
-  padding: 40px 20px;
-  color: #999;
+  padding: 30px 20px;
+  color: #666;
   font-size: 14px;
 }
 
 .loading {
   text-align: center;
-  padding: 30px 20px;
-  color: #667eea;
+  padding: 24px 20px;
+  color: #4a90e2;
   font-weight: 500;
 }
 
@@ -1505,12 +1552,12 @@ export default {
 
 .results-list::-webkit-scrollbar-thumb,
 .panel-content::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #4a90e2;
   border-radius: 3px;
 }
 
 .results-list::-webkit-scrollbar-thumb:hover,
 .panel-content::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  background: #357abd;
 }
 </style>

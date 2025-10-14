@@ -11,6 +11,7 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from config import settings
 import logging
+from .graph.context_schemas import LLMContextSchema
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,11 @@ class BaseLLM:
         Returns:
             LLM响应文本
         """
-        config = {"configurable": {"session_id": session_id}}
+        context = LLMContextSchema(session_id=session_id)
         try:
             response = self.chain_with_history.invoke(
                 {"input": input_text},
-                config=config
+                context=context
             )
             logger.debug(f"LLM response for session {session_id}: {response[:100]}...")
             return response

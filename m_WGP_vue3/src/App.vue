@@ -16,6 +16,7 @@
       <template #AgentQueryBar>
         <agent-query-bar />
       </template>
+
     </MapView>
     <!-- <geojsonfetcher url="https://geojson.xyz/point/30.531,114.353"></geojsonfetcher> -->
   </div>
@@ -29,6 +30,7 @@ import SpatialTableFetcher from "./components/SpatialTableFetcher.vue";
 import API_CONFIG from '@/config/api.js';
 import TouristSpotSearch from "./components/TouristSpotSearch.vue";
 import AgentQueryBar from "./components/agent_query_bar.vue";  // 引入 AI 智能查询组件
+import TouristSpotEditModal from "./components/TouristSpotEditModal.vue";
 // Use dynamic config to build URLs
 const tableNamesUrl = API_CONFIG.buildURL(API_CONFIG.endpoints.spatialTables.list);
 const geojsonUrl = API_CONFIG.buildURL(API_CONFIG.endpoints.spatialTables.geojsonByTable);

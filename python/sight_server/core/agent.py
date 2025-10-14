@@ -10,19 +10,27 @@ import json
 from datetime import datetime
 import time
 import uuid
+import asyncio
 
 from .llm import BaseLLM
 from .database import DatabaseConnector
 from .prompts import PromptManager, PromptType
 from .schemas import QueryResult, AgentState
-from .processors import SQLGenerator, SQLExecutor, ResultParser, AnswerGenerator,OptimizedSQLExecutor
+from .processors import SQLGenerator, SQLExecutor, ResultParser, AnswerGenerator, OptimizedSQLExecutor
 from .graph import build_node_context, build_node_mapping, GraphBuilder
+from .graph.context_schemas import AgentContextSchema
 from .memory import MemoryManager
 from .optimized_memory_manager import OptimizedMemoryManager
 from .checkpoint import CheckpointManager
 from .error_handler import EnhancedErrorHandler  # ✅ 导入错误处理器
 from .cache_manager import QueryCacheManager  # ✅ 导入缓存管理器
 from .structured_logger import StructuredLogger  # ✅ 导入结构化日志器
+
+# ✅ 新增：导入LangGraph内置的PostgreSQL组件
+# 使用同步版本避免async context manager问题
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.store.postgres import PostgresStore
+
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +71,12 @@ class SQLQueryAgent:
         enable_cache: bool = True,  # ✅ 新增：是否启用查询缓存
         cache_manager: Optional[QueryCacheManager] = None,  # ✅ 新增：外部传入缓存管理器
         cache_ttl: int = 3600,  # ? ʱ䣨룩
-        max_retries: int = 5,  # ? Դ
+        max_retries: int = 5,  # \? Դ
         graph_recursion_limit: int = 40,
+        # ✅ 新增：LangGraph内置组件配置
+        use_langgraph_postgres: bool = True,  # 是否使用LangGraph内置PostgreSQL组件
+        postgres_connection_string: Optional[str] = None,  # PostgreSQL连接字符串
+        enable_final_validation: bool = False,  # ✅ 新增：是否启用最终验证节点
     ):
         """
         初始化SQL查询Agent
@@ -85,7 +97,8 @@ class SQLQueryAgent:
             graph_recursion_limit: LangGraph 最大递归层数限制
         """
         self.logger = logger
-        self.logger.info("Initializing SQLQueryAgent (LangGraph + Memory + Checkpoint mode)...")
+        self.logger.info(
+            "Initializing SQLQueryAgent (LangGraph + Memory + Checkpoint mode)...")
 
         self.enable_spatial = enable_spatial
         self.enable_memory = enable_memory
@@ -95,6 +108,17 @@ class SQLQueryAgent:
         self.enable_cache = enable_cache  # ✅ 新增
         self.graph_recursion_limit = graph_recursion_limit
 
+        # ✅ 新增：LangGraph内置组件配置
+        self.use_langgraph_postgres = use_langgraph_postgres
+        self.postgres_connection_string = postgres_connection_string
+
+        # ✅ 新增：对话总结配置
+        self.summary_threshold = 10  # 触发总结的历史条数阈值
+        self.summary_interval = 5    # 总结间隔步数
+
+        # ✅ 新增：最终验证节点配置
+        self.enable_final_validation = enable_final_validation  # 是否启用最终验证节点
+
         # ==================== 初始化核心组件 ====================
 
         # 初始化数据库连接
@@ -102,7 +126,8 @@ class SQLQueryAgent:
             self.db_connector = DatabaseConnector()
             self.logger.info("✓ DatabaseConnector initialized")
         except Exception as e:
-            self.logger.error(f"✗ DatabaseConnector initialization failed: {e}")
+            self.logger.error(
+                f"✗ DatabaseConnector initialization failed: {e}")
             raise
 
         # 初始化LLM
@@ -142,7 +167,8 @@ class SQLQueryAgent:
 
         # ✅ 增强错误处理器（新增）
         if self.enable_error_handler:
-            self.error_handler = EnhancedErrorHandler(max_retries=max_retries, enable_learning=True)
+            self.error_handler = EnhancedErrorHandler(
+                max_retries=max_retries, enable_learning=True)
             self.logger.info("✓ EnhancedErrorHandler initialized")
         else:
             self.error_handler = None
@@ -156,13 +182,100 @@ class SQLQueryAgent:
                 self.cache_manager = QueryCacheManager(ttl=cache_ttl)
                 self.logger.info("✓ QueryCacheManager initialized")
             except Exception as cache_error:
-                self.logger.warning(f"QueryCacheManager unavailable, disabling cache: {cache_error}")
+                self.logger.warning(
+                    f"QueryCacheManager unavailable, disabling cache: {cache_error}")
                 self.cache_manager = None
         else:
             self.cache_manager = None
 
         self.result_validator = None
         self.data_analyzer = None
+
+        # ==================== 初始化Memory和Checkpoint ====================
+
+        # ✅ 新增：初始化LangGraph内置PostgreSQL组件
+        self.postgres_store = None
+        self.postgres_saver = None
+        self.saver_context = None
+        self.store_context = None
+
+        if self.use_langgraph_postgres:
+            try:
+                # 获取数据库连接字符串
+                db_conn_string = self.postgres_connection_string or self.db_connector.get_connection_string()
+
+                # ✅ 修复：手动调用 __enter__() 获取实际实例，避免context manager问题
+                # PostgresSaver.from_conn_string() 返回的是 _GeneratorContextManager，需要手动进入context
+                saver_context = PostgresSaver.from_conn_string(db_conn_string)
+                actual_saver = saver_context.__enter__()
+                
+                # PostgresStore.from_conn_string() 同样需要手动进入context
+                store_context = PostgresStore.from_conn_string(db_conn_string)
+                actual_store = store_context.__enter__()
+
+                # ✅ 新增：调用setup\(\)方法初始化数据库表结构（仅在第一次使用时调用）
+                try:
+                    actual_saver.setup()  # 初始化checkpoint表
+                    self.logger.info("✓ PostgresSaver tables initialized")
+                except Exception as setup_error:
+                    # 如果表已存在，setup可能会失败，这是正常的
+                    self.logger.debug(f"PostgresSaver setup completed or tables already exist: {setup_error}")
+                
+                try:
+                    actual_store.setup()  # 初始化store表
+                    self.logger.info("✓ PostgresStore tables initialized")
+                except Exception as setup_error:
+                    # 如果表已存在，setup可能会失败，这是正常的
+                    self.logger.debug(f"PostgresStore setup completed or tables already exist: {setup_error}")
+
+                # 保存实际实例和context对象
+                self.postgres_store = actual_store
+                self.postgres_saver = actual_saver
+                self.saver_context = saver_context
+                self.store_context = store_context
+
+                self.logger.info(
+                    "✓ PostgresStore and PostgresSaver initialized with manual context management")
+
+                # 如果启用了LangGraph内置组件，优先使用它们
+                if self.enable_memory:
+                    self.memory_manager = None  # 使用PostgresStore
+                    self.logger.info(
+                        "✓ Using PostgresStore for memory management")
+
+                if self.enable_checkpoint:
+                    self.checkpoint_manager = None  # 使用PostgresSaver
+                    self.logger.info(
+                        "✓ Using PostgresSaver for checkpoint management")
+
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to initialize LangGraph PostgreSQL components, falling back to custom implementations: {e}")
+                # 如果初始化失败，确保清理已创建的context对象
+                if hasattr(self, 'saver_context') and self.saver_context:
+                    self.saver_context.__exit__(None, None, None)
+                if hasattr(self, 'store_context') and self.store_context:
+                    self.store_context.__exit__(None, None, None)
+                self.use_langgraph_postgres = False
+
+        # ✅ 回退到自定义实现
+        if not self.use_langgraph_postgres:
+            # Memory管理器
+            if self.enable_memory:
+                self.memory_manager = OptimizedMemoryManager()
+                self.logger.info(
+                    "✓ OptimizedMemoryManager initialized (fallback)")
+            else:
+                self.memory_manager = None
+
+            # Checkpoint管理器
+            if self.enable_checkpoint:
+                self.checkpoint_manager = CheckpointManager(
+                    checkpoint_dir=checkpoint_dir)
+                self.logger.info(
+                    f"✓ CheckpointManager initialized (fallback) (dir: {checkpoint_dir})")
+            else:
+                self.checkpoint_manager = None
 
         # ==================== 构建LangGraph工作流 ====================
 
@@ -188,24 +301,42 @@ class SQLQueryAgent:
         self.logger.info("? Node handlers registered")
 
         # 构建图
-        self.graph = GraphBuilder.build(self.node_handlers)
+        # ✅ 优化：如果启用了LangGraph内置组件，在构建图时传入checkpointer
+        # 现在使用手动context管理后的实际实例，避免context manager问题
+        if self.use_langgraph_postgres and self.postgres_saver:
+            # 使用手动context管理后的实际PostgresSaver和PostgresStore实例
+            self.graph = GraphBuilder.build(
+                self.node_handlers,
+                checkpointer=self.postgres_saver,  # 使用实际的PostgresSaver实例
+                store=self.postgres_store,         # 使用实际的PostgresStore实例
+                enable_final_validation=self.enable_final_validation
+            )
+            self.logger.info("✓ Using PostgresSaver and PostgresStore for persistent checkpointing (manual context management)")
+        else:
+            self.graph = GraphBuilder.build(
+                self.node_handlers,
+                enable_final_validation=self.enable_final_validation
+            )
         self.logger.info("✓ LangGraph workflow compiled")
 
-        # ==================== 初始化Memory和Checkpoint ====================
+        # ✅ 回退到自定义实现
+        if not self.use_langgraph_postgres:
+            # Memory管理器
+            if self.enable_memory:
+                self.memory_manager = OptimizedMemoryManager()
+                self.logger.info(
+                    "✓ OptimizedMemoryManager initialized (fallback)")
+            else:
+                self.memory_manager = None
 
-        # Memory管理器
-        if self.enable_memory:
-            self.memory_manager = OptimizedMemoryManager()
-            self.logger.info("✓ OptimizedMemoryManager initialized")
-        else:
-            self.memory_manager = None
-
-        # Checkpoint管理器
-        if self.enable_checkpoint:
-            self.checkpoint_manager = CheckpointManager(checkpoint_dir=checkpoint_dir)
-            self.logger.info(f"✓ CheckpointManager initialized (dir: {checkpoint_dir})")
-        else:
-            self.checkpoint_manager = None
+            # Checkpoint管理器
+            if self.enable_checkpoint:
+                self.checkpoint_manager = CheckpointManager(
+                    checkpoint_dir=checkpoint_dir)
+                self.logger.info(
+                    f"✓ CheckpointManager initialized (fallback) (dir: {checkpoint_dir})")
+            else:
+                self.checkpoint_manager = None
 
         self.logger.info("✓ SQLQueryAgent initialized successfully")
 
@@ -231,17 +362,21 @@ class SQLQueryAgent:
                 query_id,
             ) = self._prepare_run_context(query, conversation_id, resume_from_checkpoint)
 
-            result_state = self._run_with_checkpoints(initial_state)  # type: ignore
+            result_state = self._run_with_checkpoints(
+                initial_state)  # type: ignore
 
             self._update_memory_post_run(query, result_state, memory_data)
 
-            query_result, sql_history, final_data_snapshot, data_count = self._build_query_result(result_state)
-            self._log_result_details(result_state, final_data_snapshot, sql_history, query_result)
+            query_result, sql_history, final_data_snapshot, data_count = self._build_query_result(
+                result_state)
+            self._log_result_details(
+                result_state, final_data_snapshot, sql_history, query_result)
 
             json_output = self._serialize_query_result(query_result)
 
             execution_time_ms = (time.time() - start_time) * 1000
-            self._log_query_completion(query_id, query_result.status, data_count, execution_time_ms)
+            self._log_query_completion(
+                query_id, query_result.status, data_count, execution_time_ms)
 
             return json_output
 
@@ -260,7 +395,8 @@ class SQLQueryAgent:
 
             if query_id:
                 execution_time_ms = (time.time() - start_time) * 1000
-                self._log_query_completion(query_id, "error", 0, execution_time_ms)
+                self._log_query_completion(
+                    query_id, "error", 0, execution_time_ms)
 
             return json_output
 
@@ -280,22 +416,42 @@ class SQLQueryAgent:
         self.structured_logger.log_query_start(query_id, query)
 
         memory_data: Dict[str, Any] = {}
-        if self.enable_memory and self.memory_manager:
-            memory_data = self.memory_manager.start_session(conversation_id)
-            if memory_data:
-                self.logger.debug(f"Memory session initialized with keys: {list(memory_data.keys())}")
+        if self.enable_memory:
+            if self.use_langgraph_postgres and self.postgres_store:
+                # ✅ 使用LangGraph内置的AsyncPostgresStore
+                # TODO: 实现AsyncPostgresStore的会话初始化逻辑
+                # 这里需要根据LangGraph文档实现具体的会话初始化
+                self.logger.debug(
+                    f"Using AsyncPostgresStore for memory management (conversation_id: {conversation_id})")
+            elif self.memory_manager:
+                # ✅ 回退到自定义MemoryManager
+                memory_data = self.memory_manager.start_session(
+                    conversation_id)
+                if memory_data:
+                    self.logger.debug(
+                        f"Memory session initialized with keys: {list(memory_data.keys())}")
 
         if resume_from_checkpoint and self.checkpoint_manager:
-            self.logger.info(f"Resuming from checkpoint: {resume_from_checkpoint}")
-            resumed_state = self.checkpoint_manager.resume_from_checkpoint(resume_from_checkpoint)
+            self.logger.info(
+                f"Resuming from checkpoint: {resume_from_checkpoint}")
+            resumed_state = self.checkpoint_manager.resume_from_checkpoint(
+                resume_from_checkpoint)
             if resumed_state is not None:
                 initial_state = resumed_state  # type: ignore[assignment]
                 self.logger.info("Successfully resumed from checkpoint")
             else:
                 self.logger.warning("Checkpoint not found, creating new state")
-                initial_state = self._create_initial_state(query, conversation_id, memory_data)
+                initial_state = self._create_initial_state(
+                    query, conversation_id, memory_data)
         else:
-            initial_state = self._create_initial_state(query, conversation_id, memory_data)
+            initial_state = self._create_initial_state(
+                query, conversation_id, memory_data)
+
+        # ✅ 新增：设置总结相关参数
+        initial_state["summary_trigger_count"] = self.summary_threshold
+        initial_state["summary_interval"] = self.summary_interval
+        initial_state["conversation_summary"] = ""
+        initial_state["last_summary_step"] = 0
 
         initial_state["query_id"] = query_id
         return initial_state, memory_data, conversation_id, query_id
@@ -314,7 +470,8 @@ class SQLQueryAgent:
         data_count = len(final_data) if final_data else 0
         sql_history = result_state.get("sql_history", [])
         if memory_data:
-            self.logger.debug(f"Memory session bootstrap keys: {list(memory_data.keys())}")
+            self.logger.debug(
+                f"Memory session bootstrap keys: {list(memory_data.keys())}")
         joined_sql = "; ".join(sql_history)
         success = result_state.get("status") == "success"
 
@@ -380,7 +537,8 @@ class SQLQueryAgent:
                 query_intent,
             )
         else:
-            self.logger.info("Query intent is '%s', returning full data", query_intent)
+            self.logger.info(
+                "Query intent is '%s', returning full data", query_intent)
 
         self.logger.debug(f"Result state keys: {list(result_state.keys())}")
         self.logger.info(f"SQL history length: {len(sql_history)}")
@@ -413,7 +571,8 @@ class SQLQueryAgent:
             f"QueryResult.sql field: {query_result.sql[:100] if query_result.sql else 'None'}..."
         )
         self.logger.info(f"QueryResult.sql type: {type(query_result.sql)}")
-        self.logger.info(f"QueryResult.sql is None: {query_result.sql is None}")
+        self.logger.info(
+            f"QueryResult.sql is None: {query_result.sql is None}")
 
         return json_output
 
@@ -450,11 +609,38 @@ class SQLQueryAgent:
         Returns:
             最终状态
         """
-        # 如果启用Checkpoint，使用流式执行以支持中间保存
-        if self.enable_checkpoint and self.checkpoint_manager:
+        # ✅ 优化：现在使用手动context管理后的实际PostgresSaver实例
+        if self.enable_checkpoint and self.use_langgraph_postgres and self.postgres_saver:
+            # 使用手动context管理后的实际PostgresSaver实例
+            context = AgentContextSchema(
+                thread_id=state.get("conversation_id", "default"))
+            # 使用异步调用
+            result_state =   self.graph.invoke(
+                state,
+                context=context,
+                config={
+                    "configurable": {
+                        "thread_id": state.get("conversation_id", "default")
+                    }
+                }
+            )
+            self.logger.debug("✓ Using PostgresSaver with manual context management")
+            return result_state
+
+        # ✅ 回退：使用自定义CheckpointManager
+        elif self.enable_checkpoint and self.checkpoint_manager:
             # TODO: LangGraph的流式执行需要特殊API
             # 这里先使用简单invoke，后续可以升级为stream()
-            result_state = self.graph.invoke(state, config={"recursion_limit": self.graph_recursion_limit})
+            result_state = self.graph.invoke(
+                state,
+                config={
+                    "configurable": {
+                        "thread_id": state.get("conversation_id", "default"),
+                        "checkpoint_ns": "sql_query_agent",
+                        "checkpoint_id": f"{state.get('conversation_id', 'default')}_{int(time.time())}"
+                    }
+                }
+            )
 
             # 执行完成后保存最终Checkpoint
             final_checkpoint_id = f"{state.get('conversation_id', 'unknown')}_final_{int(datetime.now().timestamp())}"
@@ -575,7 +761,7 @@ class SQLQueryAgent:
             initial_state = self._create_initial_state(query, conversation_id, memory_data)
 
             # 执行LangGraph工作流
-            result_state = self._run_with_checkpoints(initial_state)
+            result_state =   self._run_with_checkpoints(initial_state)
 
             # 学习查询模式
             if self.enable_memory and self.memory_manager:
@@ -780,6 +966,22 @@ class SQLQueryAgent:
 
     def close(self):
         """关闭并清理资源"""
+        # ✅ 新增：清理LangGraph PostgreSQL组件的context对象
+        if hasattr(self, 'saver_context') and self.saver_context:
+            try:
+                self.saver_context.__exit__(None, None, None)
+                self.logger.debug("✓ PostgresSaver context cleaned up")
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up saver context: {e}")
+        
+        if hasattr(self, 'store_context') and self.store_context:
+            try:
+                self.store_context.__exit__(None, None, None)
+                self.logger.debug("✓ PostgresStore context cleaned up")
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up store context: {e}")
+        
+        # 清理数据库连接
         if hasattr(self, 'db_connector'):
             self.db_connector.close()
             self.logger.info("✓ SQLQueryAgent resources closed")

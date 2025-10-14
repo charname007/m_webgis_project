@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Generate Scene List"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/generate-scene-list.md}
+"""

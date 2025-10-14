@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import com.backend.be.mapper.TouristSpotMapper;
 import com.backend.be.model.TouristSpot;
 import com.backend.be.service.TouristSpotService;
+import com.backend.be.service.ASightService;
 
 /**
  * TouristSpot 业务逻辑层实现
@@ -17,6 +18,9 @@ public class TouristSpotServiceImpl implements TouristSpotService {
 
     @Autowired
     private TouristSpotMapper touristSpotMapper;
+
+    @Autowired
+    private ASightService aSightService;
 
     @Override
     public List<TouristSpot> getAllTouristSpots() {
@@ -52,6 +56,82 @@ public class TouristSpotServiceImpl implements TouristSpotService {
         int result = touristSpotMapper.update(touristSpot);
         if (result > 0) {
             return touristSpotMapper.findById(touristSpot.getId());
+        }
+        return null;
+    }
+
+    @Override
+    public TouristSpot updateTouristSpotWithSight(com.backend.be.model.TouristSpotUpdateRequest updateRequest) {
+        // 更新 tourist_spot 表
+        TouristSpot touristSpot = updateRequest.getTourist_spot();
+        int spotResult = touristSpotMapper.update(touristSpot);
+        
+        if (spotResult > 0) {
+            // 更新 a_sight 表 - 通过名称匹配
+            com.backend.be.model.ASight aSight = updateRequest.getA_sight();
+            if (aSight != null && aSight.getName() != null) {
+                // 使用 ASightService 进行upsert操作
+                boolean sightResult = aSightService.upsertByName(aSight);
+                if (sightResult) {
+                    System.out.println("双表upsert成功 - 景点名称: " + aSight.getName());
+                } else {
+                    System.out.println("a_sight 表upsert失败 - 景点名称: " + aSight.getName());
+                }
+            }
+            
+            // 返回更新后的旅游景点信息
+            return touristSpotMapper.findById(touristSpot.getId());
+        }
+        return null;
+    }
+
+    @Override
+    public TouristSpot updateTouristSpotByNameWithSight(com.backend.be.model.TouristSpotUpdateRequest updateRequest) {
+        // 获取两个表的数据
+        TouristSpot touristSpot = updateRequest.getTourist_spot();
+        com.backend.be.model.ASight aSight = updateRequest.getA_sight();
+
+        if (touristSpot != null && touristSpot.getName() != null) {
+            // 1. 处理 tourist_spot 表 - 使用 upsert 逻辑
+            int spotResult;
+
+            // 先检查记录是否存在
+            List<TouristSpot> existingSpots = touristSpotMapper.findByName(touristSpot.getName());
+            if (existingSpots != null && !existingSpots.isEmpty()) {
+                // 记录存在，执行更新
+                spotResult = touristSpotMapper.updateByName(touristSpot);
+                System.out.println("tourist_spot 表更新 - 名称: " + touristSpot.getName() + ", 影响行数: " + spotResult);
+            } else {
+                // 记录不存在，执行插入
+                spotResult = touristSpotMapper.insert(touristSpot);
+                System.out.println("tourist_spot 表插入 - 名称: " + touristSpot.getName() + ", 影响行数: " + spotResult);
+            }
+
+            if (spotResult > 0) {
+                // 2. 处理 a_sight 表 - 使用 upsert 逻辑
+                if (aSight != null && aSight.getName() != null) {
+                    boolean sightResult;
+
+                    // 使用upsert操作，自动处理更新或插入
+                    sightResult = aSightService.upsertByName(aSight);
+                    if (sightResult) {
+                        System.out.println("a_sight 表upsert成功 - 名称: " + aSight.getName());
+                    } else {
+                        System.out.println("a_sight 表upsert失败 - 名称: " + aSight.getName());
+                    }
+
+                    if (sightResult) {
+                        System.out.println("双表upsert成功 - 景点名称: " + aSight.getName());
+                    } else {
+                        System.out.println("a_sight 表upsert失败 - 景点名称: " + aSight.getName());
+                    }
+                }
+
+                // 返回更新/插入后的旅游景点信息
+                return touristSpotMapper.findByName(touristSpot.getName()).stream().findFirst().orElse(null);
+            } else {
+                System.out.println("tourist_spot 表操作失败 - 名称: " + touristSpot.getName());
+            }
         }
         return null;
     }

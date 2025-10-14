@@ -1,0 +1,6 @@
+description = "Executes the BMad Task: Incorporate Feedback"
+prompt = """
+CRITICAL: You are to execute the BMad Task defined below.
+
+@{.bmad-creative-writing/tasks/incorporate-feedback.md}
+"""
