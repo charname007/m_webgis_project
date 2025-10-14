@@ -77,24 +77,56 @@ public interface TouristSpotMapper {
     int deleteById(@Param("id") Integer id);
 
     /**
-     * 根据名称更新旅游景点
+     * 根据名称更新旅游景点（部分更新，只更新非null字段）
      */
-    @Update("UPDATE tourist_spot SET " +
-            "name = #{name}, " +
-            "链接 = #{链接}, " +
-            "地址 = #{地址}, " +
-            "介绍 = #{介绍}, " +
-            "开放时间 = #{开放时间}, " +
-            "图片链接 = #{图片链接}, " +
-            "评分 = #{评分}, " +
-            "建议游玩时间 = #{建议游玩时间}, " +
-            "建议季节 = #{建议季节}, " +
-            "门票 = #{门票}, " +
-            "小贴士 = #{小贴士}, " +
-            "page = #{page}, " +
-            "城市 = #{城市} " +
-            "WHERE name = #{name}")
-    int updateByName(TouristSpot touristSpot);
+    @Update({
+        "<script>",
+        "UPDATE tourist_spot",
+        "<set>",
+        "  <if test='name != null'>name = #{name},</if>",
+        "  <if test='链接 != null'>链接 = #{链接},</if>",
+        "  <if test='地址 != null'>地址 = #{地址},</if>",
+        "  <if test='介绍 != null'>介绍 = #{介绍},</if>",
+        "  <if test='开放时间 != null'>开放时间 = #{开放时间},</if>",
+        "  <if test='图片链接 != null'>图片链接 = #{图片链接},</if>",
+        "  <if test='评分 != null'>评分 = #{评分},</if>",
+        "  <if test='建议游玩时间 != null'>建议游玩时间 = #{建议游玩时间},</if>",
+        "  <if test='建议季节 != null'>建议季节 = #{建议季节},</if>",
+        "  <if test='门票 != null'>门票 = #{门票},</if>",
+        "  <if test='小贴士 != null'>小贴士 = #{小贴士},</if>",
+        "  <if test='page != null'>page = #{page},</if>",
+        "  <if test='城市 != null'>城市 = #{城市},</if>",
+        "</set>",
+        "WHERE name = #{name}",
+        "</script>"
+    })
+    int updateByNameSelective(TouristSpot touristSpot);
+
+    /**
+     * 根据ID更新旅游景点（部分更新，只更新非null字段）
+     */
+    @Update({
+        "<script>",
+        "UPDATE tourist_spot",
+        "<set>",
+        "  <if test='name != null'>name = #{name},</if>",
+        "  <if test='链接 != null'>链接 = #{链接},</if>",
+        "  <if test='地址 != null'>地址 = #{地址},</if>",
+        "  <if test='介绍 != null'>介绍 = #{介绍},</if>",
+        "  <if test='开放时间 != null'>开放时间 = #{开放时间},</if>",
+        "  <if test='图片链接 != null'>图片链接 = #{图片链接},</if>",
+        "  <if test='评分 != null'>评分 = #{评分},</if>",
+        "  <if test='建议游玩时间 != null'>建议游玩时间 = #{建议游玩时间},</if>",
+        "  <if test='建议季节 != null'>建议季节 = #{建议季节},</if>",
+        "  <if test='门票 != null'>门票 = #{门票},</if>",
+        "  <if test='小贴士 != null'>小贴士 = #{小贴士},</if>",
+        "  <if test='page != null'>page = #{page},</if>",
+        "  <if test='城市 != null'>城市 = #{城市},</if>",
+        "</set>",
+        "WHERE id = #{id}",
+        "</script>"
+    })
+    int updateByIdSelective(TouristSpot touristSpot);
 
     /**
      * 统计旅游景点数量

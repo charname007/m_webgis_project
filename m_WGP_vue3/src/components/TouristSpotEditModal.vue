@@ -38,8 +38,28 @@
                 <option value="1A">1A</option>
               </select>
             </div>
+            <div class="form-group">
+              <label for="图片链接">图片链接</label>
+              <input
+                id="图片链接"
+                v-model="formData.图片链接"
+                type="text"
+                placeholder="请输入图片链接"
+                class="form-input"
+              />
+            </div>
+            <div class="form-group">
+              <label for="城市">城市</label>
+              <input
+                id="城市"
+                v-model="formData.城市"
+                type="text"
+                placeholder="请输入城市名称"
+                class="form-input"
+              />
+            </div>
             <div class="form-group full-width">
-              <label for="address">地址</label>
+              <label for="address">详细地址</label>
               <input
                 id="address"
                 v-model="formData.地址"
@@ -234,6 +254,8 @@ export default {
         // tourist_spot 表字段
         name: props.spot.name || '',
         地址: props.spot.地址 || '',
+        图片链接: props.spot.图片链接 || '',
+        城市: props.spot.城市 || '',
         介绍: props.spot.介绍 || '',
         开放时间: props.spot.开放时间 || '',
         评分: props.spot.评分 || '',
@@ -288,28 +310,32 @@ export default {
       error.value = ''
 
       try {
-        // 构建请求数据
+        // 构建请求数据 - 只包含用户实际修改的字段，其他字段设为undefined
+        // 这样后端部分更新时只会更新非null字段，避免覆盖现有数据
         const requestData = {
           // tourist_spot 表数据
           tourist_spot: {
             name: formData.value.name.trim(),
             地址: formData.value.地址.trim(),
-            介绍: formData.value.介绍?.trim() || null,
-            开放时间: formData.value.开放时间?.trim() || null,
-            评分: formData.value.评分?.trim() || null,
-            门票: formData.value.门票?.trim() || null,
-            建议游玩时间: formData.value.建议游玩时间?.trim() || null,
-            建议季节: formData.value.建议季节?.trim() || null,
-            小贴士: formData.value.小贴士?.trim() || null
+            // 只传递用户实际修改的字段，其他字段不传递（undefined）
+            图片链接: formData.value.图片链接?.trim() || undefined,
+            城市: formData.value.城市?.trim() || undefined,
+            介绍: formData.value.介绍?.trim() || undefined,
+            开放时间: formData.value.开放时间?.trim() || undefined,
+            评分: formData.value.评分?.trim() || undefined,
+            门票: formData.value.门票?.trim() || undefined,
+            建议游玩时间: formData.value.建议游玩时间?.trim() || undefined,
+            建议季节: formData.value.建议季节?.trim() || undefined,
+            小贴士: formData.value.小贴士?.trim() || undefined
           },
           // a_sight 表数据
           a_sight: {
             name: formData.value.name.trim(),
-            level: formData.value.level || null,
-            lngWgs84: formData.value.lng_wgs84 ? parseFloat(formData.value.lng_wgs84) : null,
-            latWgs84: formData.value.lat_wgs84 ? parseFloat(formData.value.lat_wgs84) : null,
-            // 所属城市: formData.value.所属城市?.trim() || null,
-            // 所属区县: formData.value.所属区县?.trim() || null
+            level: formData.value.level || undefined,
+            lngWgs84: formData.value.lng_wgs84 ? parseFloat(formData.value.lng_wgs84) : undefined,
+            latWgs84: formData.value.lat_wgs84 ? parseFloat(formData.value.lat_wgs84) : undefined,
+            // 所属城市: formData.value.所属城市?.trim() || undefined,
+            // 所属区县: formData.value.所属区县?.trim() || undefined
           }
         }
 

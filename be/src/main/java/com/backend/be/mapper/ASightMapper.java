@@ -24,6 +24,13 @@ public interface ASightMapper {
     int updateByName(com.backend.be.model.ASight aSight);
 
     /**
+     * 根据名称部分更新景区信息（只更新非null字段）
+     * @param aSight 景区实体对象
+     * @return 更新影响的行数
+     */
+    int updateByNameSelective(com.backend.be.model.ASight aSight);
+
+    /**
      * 插入景区信息
      * @param aSight 景区实体对象
      * @return 插入影响的行数

@@ -133,17 +133,12 @@ public class TouristSpotController {
     }
 
     /**
-     * 通过名称更新旅游景点和关联的景区信息（双表更新）
+     * 通过名称更新旅游景点和关联的景区信息（双表更新）- 部分更新版本
      */
     @PutMapping("/by-name/{name}/with-sight")
     public ResponseEntity<TouristSpot> updateTouristSpotByNameWithSight(
             @PathVariable String name, 
             @RequestBody com.backend.be.model.TouristSpotUpdateRequest updateRequest) {
-        
-        // 设置 tourist_spot 的名称
-        if (updateRequest.getTourist_spot() != null) {
-            updateRequest.getTourist_spot().setName(name);
-        }
         
         // 提取中文名称（去除英文部分）
         String chineseName = extractChineseName(name);

@@ -45,15 +45,16 @@ public class ASightServiceImpl implements ASightService {
             System.out.println("开始upsert操作 - 名称: " + aSight.getName() + ", 数据: " + aSight.toString());
             System.out.println("坐标信息 - lngWgs84: " + aSight.getLngWgs84() + ", latWgs84: " + aSight.getLatWgs84());
             
-            int updateResult = sightMapper.updateByName(aSight);
-            System.out.println("更新操作结果 - 影响行数: " + updateResult);
+            // 使用部分更新，只更新非null字段，避免覆盖现有数据
+            int updateResult = sightMapper.updateByNameSelective(aSight);
+            System.out.println("部分更新操作结果 - 影响行数: " + updateResult);
             
             if (updateResult > 0) {
-                System.out.println("景区upsert成功 - 名称: " + aSight.getName() + ", 更新影响行数: " + updateResult);
+                System.out.println("景区upsert成功 - 名称: " + aSight.getName() + ", 部分更新影响行数: " + updateResult);
                 return true;
             } else {
                 // 更新失败，尝试插入
-                System.out.println("更新失败，尝试插入 - 名称: " + aSight.getName());
+                System.out.println("部分更新失败，尝试插入 - 名称: " + aSight.getName());
                 int insertResult = sightMapper.insert(aSight);
                 System.out.println("插入操作结果 - 影响行数: " + insertResult);
                 
