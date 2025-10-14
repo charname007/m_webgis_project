@@ -272,17 +272,23 @@ async def query_get(
 
             if not cached_result:
                 # 精确匹配未命中，尝试相似度搜索
+                logger.info('精确匹配未命中，尝试相似度搜索')
                 cached_result = query_cache_manager.get_with_similarity_search(
                     q, 
                     cache_context,
-                    similarity_threshold=95,  # 80% 相似度阈值
+                    similarity_threshold=0.95,  # 80% 相似度阈值
                     max_results=1
                 )
+                if cached_result:
+                    cache_type = "模糊匹配"
+            
+            else:
+                cache_type = "精确匹配"
 
             if cached_result:
                 # 缓存命中，直接构建响应
                 cache_execution_time = time.time() - start_time
-                cache_type = "精确匹配" if cache_key == query_cache_manager.get_cache_key(q, cache_context) else "相似度匹配"
+                # cache_type = "精确匹配" if cache_key == query_cache_manager.get_cache_key(q, cache_context) else "相似度匹配"
                 logger.info(f"✓ Cache HIT ({cache_type}): {q[:50]}... (time={cache_execution_time:.3f}s)")
 
                 # ✅ 修复：直接使用缓存结果，不再尝试获取 result_data 字段

@@ -691,11 +691,11 @@ class QueryCacheManager:
         cache_key = self.get_cache_key(query, context)
         exact_match = self.get_query_cache(cache_key)
         if exact_match:
-            logger.debug(f"精确匹配缓存命中，键: {cache_key}")
+            logger.info(f"精确匹配缓存命中，键: {cache_key}")
             return exact_match
 
         # 如果没有精确匹配，进行相似度搜索
-        logger.debug(f"精确匹配未命中，开始相似度搜索，阈值: {similarity_threshold}")
+        logger.info(f"精确匹配未命中，开始相似度搜索，阈值: {similarity_threshold}")
         
         # 获取所有缓存的查询
         cached_queries = self._get_all_cached_queries()
@@ -706,22 +706,25 @@ class QueryCacheManager:
         similarities = []
         for cached_query, cache_data in cached_queries.items():
             similarity = self._calculate_similarity(query, cached_query)
-            if similarity >= similarity_threshold:
-                similarities.append((similarity, cached_query, cache_data))
-
-        # 按相似度排序
-        similarities.sort(key=lambda x: x[0], reverse=True)
+            # if similarity >= similarity_threshold:
+            similarities.append((similarity, cached_query, cache_data))
         
         if similarities:
+            # 按相似度排序
+            similarities.sort(key=lambda x: x[0], reverse=True)
             best_match = similarities[0]
             similarity_score, matched_query, cache_data = best_match
+            if similarity_score >= similarity_threshold:
+                logger.info(f"相似度搜索命中: '{query}' -> '{matched_query}' (相似度: {similarity_score:.2f})")
             
-            logger.info(f"相似度搜索命中: '{query}' -> '{matched_query}' (相似度: {similarity_score:.2f})")
-            
-            # 返回最相似的结果
-            return cache_data
+                # 返回最相似的结果
+                return cache_data
+            else:
+                logger.info(
+                    f"相似度搜索未找到匹配，最高相似度: {similarity_score}")
+                return None
         else:
-            logger.debug(f"相似度搜索未找到匹配，最高相似度: {similarities[0][0] if similarities else 0}")
+            logger.info(f"相似度搜索未找到匹配，最高相似度: {similarities[0][0] if similarities else 0}")
             return None
 
     def _get_all_cached_queries(self) -> Dict[str, Dict[str, Any]]:

@@ -33,7 +33,7 @@ class GenerateSqlNode(NodeBase):
         fallback_strategy = state.get("fallback_strategy")
         last_error = state.get("last_error")
         validation_feedback = state.get("validation_feedback")
-        match_mode = state.get("match_mode", "fuzzy")
+        match_mode = state.get("match_mode", "exact")
 
         self.logger.info("[Node: generate_sql] Generating SQL for step %s", current_step)
         if fallback_strategy:
