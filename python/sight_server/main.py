@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sympy import true
 
 from config import settings
 from core import SQLQueryAgent, DatabaseConnector
@@ -271,16 +272,16 @@ async def query_get(
             cached_result = query_cache_manager.get_query_cache(cache_key)
 
             if not cached_result:
-                # 精确匹配未命中，尝试相似度搜索
-                logger.info('精确匹配未命中，尝试相似度搜索')
-                cached_result = query_cache_manager.get_with_similarity_search(
+                # 精确匹配未命中，尝试语义搜索回退
+                logger.info('精确匹配未命中，尝试语义搜索回退')
+                cached_result = query_cache_manager.get_with_semantic_fallback(
                     q, 
                     cache_context,
-                    similarity_threshold=0.95,  # 80% 相似度阈值
+                    similarity_threshold=0.95,  # 95% 相似度阈值
                     max_results=1
                 )
                 if cached_result:
-                    cache_type = "模糊匹配"
+                    cache_type = "语义/相似度匹配"
             
             else:
                 cache_type = "精确匹配"
@@ -332,7 +333,7 @@ async def query_get(
         logger.info(f"✗ Cache MISS: {q[:50]}... Executing Agent...")
         # ✅ 传递会话ID给Agent
         result_json =  sql_agent.run(q, conversation_id=actual_conversation_id)
-
+        logger.info('AGENT RUN DONE')
         # 解析结果
         import json
         result_dict = json.loads(result_json)
@@ -372,7 +373,6 @@ async def query_get(
             cache_key = query_cache_manager.get_cache_key(q, cache_context)
             if query_cache_manager.save_query_cache(q, cache_data, execution_time, context=cache_context):
                 logger.info(f"✓ Cache SAVED: {q[:50]}...")
-
         # ✅ 4. 保存会话历史记录
         if sql_agent and sql_agent.db_connector and result_dict.get("status") == "success":
             try:
@@ -891,8 +891,7 @@ async def get_cache_stats():
     try:
         stats = query_cache_manager.get_cache_stats()
         
-        # 新的缓存管理器不再支持语义搜索，只返回基础统计
-        stats["semantic_search_enabled"] = False
+        stats["semantic_search_enabled"] = query_cache_manager.enable_semantic_search
         stats["cache_strategy"] = query_cache_manager.cache_strategy
 
         return {

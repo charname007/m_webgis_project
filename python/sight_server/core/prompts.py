@@ -102,7 +102,7 @@ class PromptManager:
 
    - **Query 类型**（列表、查询、详情）：
      * 使用 `SELECT json_agg(json_build_object(...)) as result FROM ...
-       例如：
+       例如（仅供参考）：
     SELECT json_agg(
      json_build_object(
     'name', a.name,
@@ -129,7 +129,8 @@ class PromptManager:
 
 ### 技术约束提醒：
 - 必须包含完整的FROM子句定义表别名
-- 优先使用精确匹配，若非指出精确地名且没有得到返回结果，则改为模糊匹配：例如`FROM a_sight a
+- 优先使用精确匹配，若非指出精确地名且没有得到返回结果，则改为模糊匹配：例如
+  `FROM a_sight a
   LEFT JOIN tourist_spot t
   t.name LIKE a.name || '%' OR TRIM(SPLIT_PART(t.name, ' ', 1)) = a.name`
 - 评分字段需要安全处理（CASE语句处理无效值）
