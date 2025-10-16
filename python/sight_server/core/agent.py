@@ -620,7 +620,8 @@ class SQLQueryAgent:
                 context=context,
                 config={
                     "configurable": {
-                        "thread_id": state.get("conversation_id", "default")
+                        "thread_id": state.get("conversation_id", "default"),
+                        'recursion_limit':50
                     }
                 }
             )
@@ -637,7 +638,9 @@ class SQLQueryAgent:
                     "configurable": {
                         "thread_id": state.get("conversation_id", "default"),
                         "checkpoint_ns": "sql_query_agent",
-                        "checkpoint_id": f"{state.get('conversation_id', 'default')}_{int(time.time())}"
+                        "checkpoint_id": f"{state.get('conversation_id', 'default')}_{int(time.time())}",
+                        'recursion_limit':50
+
                     }
                 }
             )

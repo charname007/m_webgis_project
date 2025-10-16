@@ -36,7 +36,9 @@
       "mcp__filesystem__edit_file",
       "mcp__git__git_status",
       "mcp__git__git_diff_unstaged",
-      "mcp__filesystem__write_file"
+      "mcp__filesystem__write_file",
+      "Bash(findstr:*)",
+      "Bash(npm run build)"
     ],
     "deny": [],
     "ask": []

@@ -29,6 +29,8 @@ class QueryStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     PARTIAL = "partial"
+    INTERRUPT = "interrupt"
+    PENDING = "pending"
 
 
 # ==================== 请求模型 ====================
@@ -168,6 +170,103 @@ class ThoughtChainRequest(BaseModel):
         }
 
 
+class ResumeQueryRequest(BaseModel):
+    """
+    继续查询请求模型
+    """
+    conversation_id: str = Field(
+        default=...,
+        description="原始会话ID",
+        min_length=1,
+        max_length=36
+    )
+    clarified_query: str = Field(
+        default=...,
+        description="澄清后的查询文本",
+        min_length=1,
+        max_length=500
+    )
+    include_sql: bool = Field(
+        default=False,
+        description="是否在响应中包含执行的SQL语句"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "conversation_id": "session-12345678-1234-1234-1234-123456789abc",
+                "clarified_query": "查询浙江省杭州市的5A景区",
+                "include_sql": True
+            }
+        }
+
+
+class ResumeQueryResponse(BaseModel):
+    """
+    继续查询响应模型
+    """
+    status: QueryStatus = Field(
+        description="查询状态"
+    )
+    answer: str = Field(
+        default="",
+        description="Agent 生成的自然语言回答"
+    )
+    data: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="查询结果的结构化数据"
+    )
+    count: int = Field(
+        default=0,
+        description="结果数量"
+    )
+    message: str = Field(
+        default="",
+        description="响应消息"
+    )
+    sql: Optional[str] = Field(
+        default=None,
+        description="执行的SQL语句（可选）"
+    )
+    execution_time: Optional[float] = Field(
+        default=None,
+        description="查询执行时间（秒）"
+    )
+    intent_info: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="查询意图分析信息"
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="会话ID",
+        max_length=55
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "success",
+                "answer": "浙江省杭州市共有3个5A景区，分别是西湖、千岛湖和西溪湿地",
+                "data": [
+                    {
+                        "name": "西湖",
+                        "level": "5A",
+                        "city": "杭州市"
+                    }
+                ],
+                "count": 3,
+                "message": "查询成功",
+                "sql": "SELECT * FROM a_sight WHERE level = '5A' AND city = '杭州市'",
+                "execution_time": 1.23,
+                "intent_info": {
+                    "intent_type": "query",
+                    "is_spatial": False
+                },
+                "conversation_id": "session-12345678-1234-1234-1234-123456789abc"
+            }
+        }
+
+
 # ==================== 响应模型 ====================
 
 class QueryResponse(BaseModel):
@@ -234,6 +333,10 @@ class QueryResponse(BaseModel):
         description="会话ID，用于多轮对话上下文跟踪",
         max_length=55,
         examples=["session-12345678-1234-1234-1234-123456789abc"]
+    )
+    interrupt_info: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="中断信息，用于处理查询中断情况"
     )
 
     class Config:

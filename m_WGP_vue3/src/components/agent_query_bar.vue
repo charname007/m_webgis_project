@@ -37,8 +37,32 @@
     <div v-show="!isCollapsed" class="panel-content">
       <!-- 答案显示区域 -->
       <div v-if="answer || error" class="answer-section">
+        <!-- interrupt澄清提示 -->
+        <div v-if="isInterrupted" class="interrupt-content">
+          <div class="interrupt-header">
+            <span class="interrupt-icon">❓</span>
+            <span class="interrupt-label">需要澄清：</span>
+          </div>
+          <p class="interrupt-text">{{ answer }}</p>
+          <div v-if="interruptInfo" class="interrupt-suggestion">
+            <p class="suggestion-text">{{ interruptInfo.clarity_reason || '请提供更具体的查询信息' }}</p>
+          </div>
+          <div class="clarification-input">
+            <input
+              v-model="clarifiedQuery"
+              type="text"
+              placeholder="请输入澄清后的查询..."
+              class="clarification-input-field"
+              @keyup.enter="handleResume"
+            />
+            <button @click="handleResume" class="resume-button" :disabled="!clarifiedQuery.trim()">
+              🔄 继续查询
+            </button>
+          </div>
+        </div>
+
         <!-- 成功答案 -->
-        <div v-if="answer && !error" class="answer-content">
+        <div v-else-if="answer && !error" class="answer-content">
           <div class="answer-header">
             <span class="answer-icon">💡</span>
             <span class="answer-label">查询结果：</span>
@@ -99,6 +123,11 @@ export default {
     const panelRef = ref(null)          // 面板引用
     const currentSessionId = ref('')    // 当前会话ID
     const sessionHistory = ref([])      // 会话历史记录
+    
+    // ✅ 新增：interrupt相关状态
+    const isInterrupted = ref(false)    // 是否处于interrupt状态
+    const interruptInfo = ref(null)     // interrupt信息
+    const clarifiedQuery = ref('')      // 澄清后的查询文本
 
     // 注入设置查询结果的方法（由 OlMap 提供）
     const setAgentQueryResult = inject('setAgentQueryResult', null)
@@ -184,6 +213,18 @@ export default {
 
         console.log('✅ AI查询成功:', response.data)
 
+        // ✅ 新增：检查interrupt状态
+        if (response.data.status === 'interrupt') {
+          // 处理interrupt状态
+          isInterrupted.value = true
+          interruptInfo.value = response.data.interrupt_info || {}
+          answer.value = response.data.message || '查询需要澄清:'
+          error.value = ''
+          loading.value = false
+          console.log('🔄 查询被中断，等待澄清:', interruptInfo.value)
+          return
+        }
+
         // 检查响应状态
         if (response.data.status === 'success') {
           // 提取答案和数据
@@ -251,6 +292,94 @@ export default {
       return typeMap[intentType] || intentType
     }
 
+    /**
+     * 处理resume查询
+     * 当查询被interrupt后，使用澄清后的查询继续执行
+     */
+    const handleResume = async () => {
+      if (!clarifiedQuery.value.trim()) {
+        error.value = '请输入澄清后的查询内容'
+        return
+      }
+
+      // 重置状态
+      loading.value = true
+      error.value = ''
+      answer.value = ''
+
+      try {
+        // 构建 resume 请求的 URL
+        const resumeUrl = API_CONFIG.buildSightServerURL(API_CONFIG.sightServer.endpoints.query + '/resume')
+
+        console.log('🔄 继续查询:', clarifiedQuery.value)
+        console.log('📡 请求URL:', resumeUrl)
+        console.log('💬 会话ID:', currentSessionId.value)
+
+        // 发送 POST 请求到 resume 端点
+        const response = await axios.post(resumeUrl, {
+          conversation_id: currentSessionId.value,
+          clarified_query: clarifiedQuery.value.trim(),
+          include_sql: true
+        }, {
+          timeout: 600000  // 30秒超时
+        })
+
+        console.log('✅ 继续查询成功:', response.data)
+
+        // 检查响应状态
+        if (response.data.status === 'success') {
+          // 提取答案和数据
+          answer.value = response.data.answer || '查询成功，但未返回答案'
+          executionTime.value = response.data.execution_time || null
+
+          // 保存查询信息
+          queryInfo.value = {
+            count: response.data.count || 0,
+            intent_info: response.data.intent_info || null,
+            sql: response.data.sql || null,
+            conversation_id: response.data.conversation_id || currentSessionId.value
+          }
+
+          // 记录到会话历史
+          addToSessionHistory(clarifiedQuery.value, response.data)
+
+          // 将数据传递给 TouristSpotSearch 组件
+          if (setAgentQueryResult && response.data.data) {
+            console.log('📤 传递数据给 TouristSpotSearch，数量:', response.data.data.length)
+            setAgentQueryResult({
+              data: response.data.data,
+              query: clarifiedQuery.value,
+              count: response.data.count,
+              session_id: currentSessionId.value
+            })
+          }
+
+          // 重置interrupt状态
+          isInterrupted.value = false
+          interruptInfo.value = null
+          clarifiedQuery.value = ''
+        } else {
+          // 查询失败
+          error.value = response.data.message || '继续查询失败，请重试'
+        }
+      } catch (err) {
+        console.error('❌ 继续查询失败:', err)
+
+        // 错误处理
+        if (err.code === 'ECONNABORTED') {
+          error.value = '查询超时，请检查 sight_server 是否正在运行'
+        } else if (err.response) {
+          error.value = `继续查询失败: ${err.response.data?.message || err.response.statusText}`
+        } else if (err.request) {
+          error.value = '无法连接到 AI 查询服务，请检查 sight_server 是否启动'
+        } else {
+          error.value = `继续查询失败: ${err.message}`
+        }
+      } finally {
+        loading.value = false
+      }
+    }
+
     // ==================== 返回值 ====================
     return {
       // 状态
@@ -264,11 +393,16 @@ export default {
       panelRef,
       currentSessionId,
       sessionHistory,
+      // ✅ 新增：interrupt相关状态
+      isInterrupted,
+      interruptInfo,
+      clarifiedQuery,
       // 方法
       handleQuery,
       toggleCollapse,
       getIntentTypeName,
-      startNewSession
+      startNewSession,
+      handleResume
     }
   }
 }
@@ -493,6 +627,95 @@ export default {
   color: #666;
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* ==================== interrupt澄清提示样式 ==================== */
+.interrupt-content {
+  background: #fff8e1;
+  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid #ffd54f;
+}
+
+.interrupt-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.interrupt-icon {
+  font-size: 16px;
+}
+
+.interrupt-label {
+  font-weight: 500;
+  color: #f57c00;
+  font-size: 13px;
+}
+
+.interrupt-text {
+  margin: 6px 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.interrupt-suggestion {
+  background: #fff3e0;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 8px 0;
+  border-left: 3px solid #ff9800;
+}
+
+.suggestion-text {
+  margin: 0;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.clarification-input {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.clarification-input-field {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+}
+
+.clarification-input-field:focus {
+  outline: none;
+  border-color: #666;
+}
+
+.resume-button {
+  padding: 6px 12px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+  transition: background-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.resume-button:hover:not(:disabled) {
+  background: #f57c00;
+}
+
+.resume-button:disabled {
+  background: #ddd;
+  cursor: not-allowed;
 }
 
 /* ==================== 简化初始提示 ==================== */

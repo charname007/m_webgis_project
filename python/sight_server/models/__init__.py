@@ -14,7 +14,9 @@ from .api_models import (
     ErrorResponse,
     TableInfo,
     DatabaseInfoResponse,
-    QueryStatus
+    QueryStatus,
+    ResumeQueryRequest,
+    ResumeQueryResponse
 )
 
 __all__ = [
@@ -29,4 +31,6 @@ __all__ = [
     "TableInfo",
     "DatabaseInfoResponse",
     "QueryStatus",
+    "ResumeQueryRequest",
+    "ResumeQueryResponse"
 ]

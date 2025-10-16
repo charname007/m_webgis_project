@@ -1303,7 +1303,8 @@ class SQLGenerator:
         sql: str,
         error_context: Dict[str, Any],
         query: str,
-        database_schema: Optional[str] = None
+        database_schema: Optional[str] = None,
+        intent_type_override: Optional[str] = None
     ) -> str:
         """
         使用错误上下文增强修复SQL
@@ -1321,6 +1322,7 @@ class SQLGenerator:
                 - execution_context: 执行上下文
             query: 原始查询
             database_schema: 格式化的数据库Schema字符串（可选）
+            intent_type_override: 意图类型覆盖，用于指定修复时的查询意图（可选）
 
         Returns:
             修复后的SQL
@@ -1339,7 +1341,8 @@ class SQLGenerator:
             query_context = error_context.get("query_context", {})
             original_query = query_context.get("original_query", query)
             enhanced_query = query_context.get("enhanced_query", query)
-            intent_type = query_context.get("intent_type", "query")
+            # ✅ 优先使用意图类型覆盖，否则使用上下文中的意图类型
+            intent_type = intent_type_override if intent_type_override else query_context.get("intent_type", "query")
             requires_spatial = query_context.get("requires_spatial", False)
             
             # ✅ 提取数据库上下文
