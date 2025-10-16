@@ -212,6 +212,55 @@ class SQLQueryRecord(BaseModel):
     error: Optional[str] = Field(default=None, description="错误信息")
 
 
+class ValidationResult(BaseModel):
+    """LLM 验证结果（结构化输出）"""
+
+    validation_passed: bool = Field(
+        description="验证是否通过"
+    )
+
+    overall_confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="整体置信度 (0-1之间的浮点数)"
+    )
+
+    dimension_scores: Dict[str, float] = Field(
+        description="各维度评分",
+        default_factory=lambda: {
+            "relevance": 0.5,
+            "completeness": 0.5,
+            "accuracy": 0.5,
+            "usefulness": 0.5
+        }
+    )
+
+    detailed_analysis: Dict[str, str] = Field(
+        description="各维度的详细分析",
+        default_factory=dict
+    )
+
+    improvement_suggestions: List[str] = Field(
+        description="改进建议列表",
+        default_factory=list
+    )
+
+    summary_reason: str = Field(
+        description="验证结果的总结原因"
+    )
+
+    def get_average_score(self) -> float:
+        """计算维度评分的平均值"""
+        if not self.dimension_scores:
+            return 0.0
+        return sum(self.dimension_scores.values()) / len(self.dimension_scores)
+
+    def needs_improvement(self) -> bool:
+        """判断是否需要改进"""
+        return self.overall_confidence < 0.7 or any(
+            score < 0.6 for score in self.dimension_scores.values()
+        )
+
+
 # ==================== 测试代码 ====================
 
 if __name__ == "__main__":

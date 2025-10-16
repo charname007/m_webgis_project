@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from ...schemas import AgentState
+from ...schemas import AgentState, ValidationResult
 from .base import NodeBase
 from .memory_decorators import with_memory_tracking
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 
 
 class ValidateResultsNode(NodeBase):
     """Validate query results using LLM feedback."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parser = None  # 初始化 parser 属性
 
     @with_memory_tracking("result_validation")
     def __call__(self, state: AgentState) -> Dict[str, Any]:
@@ -135,7 +141,93 @@ class ValidateResultsNode(NodeBase):
                 }
 
             data_preview = self._prepare_validation_data_preview(data, count)
-            prompt = f"""请扮演资深的数据验证专家，判断以下查询结果是否满足用户需求
+            
+            # 使用结构化输出解析器
+            try:
+                # 初始化解析器
+                if self.parser is None:
+                    self.parser = PydanticOutputParser(pydantic_object=ValidationResult)
+
+                # 创建提示词模板
+                prompt_template = ChatPromptTemplate.from_template("""请扮演资深的数据验证专家，判断以下查询结果是否满足用户需求
+
+## 用户查询
+{query}
+
+## 查询意图
+{query_intent}
+
+## 查询结果
+- 结果条目数: {count}
+- 结果预览: {data_preview}
+
+## 验证标准
+请从以下维度进行分析
+
+### 1. 相关性
+- 结果是否直接回答了用户问题？
+- 结果是否与查询意图匹配？
+
+### 2. 完整性
+- 结果是否存在信息缺失？
+- 如果是统计查询，是否足够全面？
+
+### 3. 准确性
+- 数据内容是否可信且准确？
+- 是否存在异常值或离群点？
+
+### 4. 实用性
+- 这些结果对用户是否有实际帮助？
+- 是否需要补充更多信息？
+
+请基于以上分析给出结构化验证结果：
+
+{format_instructions}""")
+
+                # 构建完整的链式调用: prompt | llm | parser
+                structured_chain = (
+                    prompt_template.partial(format_instructions=self.parser.get_format_instructions())
+                    | self.llm.llm
+                    | self.parser
+                )
+
+                # 调用链
+                validation_result = structured_chain.invoke({
+                    "query": query,
+                    "query_intent": query_intent,
+                    "count": count,
+                    "data_preview": data_preview
+                })
+                self.logger.info(msg=f'validation_result:\n   f{validation_result}')
+                return self._parse_structured_validation(validation_result)
+
+            except Exception as structured_exc:
+                self.logger.warning(
+                    "Structured validation failed, falling back to text parsing: %s",
+                    structured_exc
+                )
+                # 回退到文本解析方法
+                return self._validate_with_llm_text(query, data, count, query_intent)
+
+        except Exception as exc:
+            self.logger.error("LLM validation failed: %s", exc)
+            return {
+                "passed": True,
+                "reason": f"验证流程出现异常，默认通过: {str(exc)}",
+                "confidence": 0.3,
+                "guidance": "建议人工复核结果",
+            }
+
+    def _validate_with_llm_text(
+        self,
+        query: str,
+        data: List[Dict[str, Any]],
+        count: int,
+        query_intent: str,
+    ) -> Dict[str, Any]:
+        """回退方法：使用文本解析的验证"""
+        data_preview = self._prepare_validation_data_preview(data, count)
+        prompt = f"""请扮演资深的数据验证专家，判断以下查询结果是否满足用户需求
 
 ## 用户查询
 {query}
@@ -172,21 +264,42 @@ class ValidateResultsNode(NodeBase):
 
 请输出："""
 
-            response = self.llm.llm.invoke(prompt)
-            validation_text = (
-                response.content.strip()
-                if hasattr(response, "content")
-                else str(response).strip()
-            )
-            return self._parse_validation_result(validation_text, query, count)
+        response = self.llm.llm.invoke(prompt)
+        validation_text = (
+            response.content.strip()
+            if hasattr(response, "content")
+            else str(response).strip()
+        )
+        return self._parse_validation_result(validation_text, query, count)
 
+    def _parse_structured_validation(
+        self,
+        validation_result: ValidationResult,
+    ) -> Dict[str, Any]:
+        """解析结构化验证结果"""
+        try:
+            # 将Pydantic模型转换为字典格式
+            result_dict = validation_result.model_dump()
+
+            # 确保返回格式与现有代码兼容
+            return {
+                "passed": result_dict["validation_passed"],
+                "reason": result_dict["summary_reason"],
+                "confidence": result_dict["overall_confidence"],
+                "guidance": "\n".join(result_dict["improvement_suggestions"]) if result_dict["improvement_suggestions"] else "",
+                "raw_validation": f"结构化验证结果: {result_dict}",
+                "dimension_scores": result_dict["dimension_scores"],
+                "detailed_analysis": result_dict["detailed_analysis"]
+            }
         except Exception as exc:
-            self.logger.error("LLM validation failed: %s", exc)
+            self.logger.error("Failed to parse structured validation: %s", exc)
+            # 如果解析失败，返回默认通过的结果
             return {
                 "passed": True,
-                "reason": f"验证流程出现异常，默认通过: {str(exc)}",
-                "confidence": 0.3,
-                "guidance": "建议人工复核结果",
+                "reason": f"结构化验证解析失败: {str(exc)}",
+                "confidence": 0.5,
+                "guidance": "",
+                "raw_validation": f"解析失败: {str(exc)}"
             }
 
     def _prepare_validation_data_preview(
@@ -197,17 +310,18 @@ class ValidateResultsNode(NodeBase):
         if not data:
             return "无数据"
 
-        preview_count = min(5, len(data))
+        preview_count = min(15, len(data))
         preview_data = data[:preview_count]
         preview_lines: List[str] = []
 
         for idx, record in enumerate(preview_data):
-            key_info: List[str] = []
-            for field in ["name", "level", "地区", "所属省份", "景区类型"]:
-                if field in record and record[field]:
-                    key_info.append(f"{field}: {record[field]}")
-            if key_info:
-                preview_lines.append(f"记录 {idx + 1}: {', '.join(key_info)}")
+            preview_lines.append(f"记录 {idx + 1}: {str(record)}")
+            # key_info: List[str] = []
+            # for field in ["name", "level", "地区", "所属省份", "景区类型"]:
+            #     if field in record and record[field]:
+            #         key_info.append(f"{field}: {record[field]}")
+            # if key_info:
+            #     preview_lines.append(f"记录 {idx + 1}: {', '.join(key_info)}")
 
         preview_text = "\n".join(preview_lines)
         if count > preview_count:

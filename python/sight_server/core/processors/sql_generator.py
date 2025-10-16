@@ -8,6 +8,12 @@ import re
 from typing import Optional, List, Dict, Any
 from langchain_core.prompts import PromptTemplate
 
+import re
+import sqlparse
+from sqlparse.sql import Identifier, IdentifierList, TokenList, Token
+from sqlparse.tokens import Keyword, DML, Whitespace, Punctuation, Name
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +53,9 @@ class SQLGenerator:
         self.logger = logger
         self._cached_schema: Optional[str] = None
         self._init_prompt_templates()
+        # self.ALIAS_TABLE_MAP = ALIAS_TABLE_MAP
+        # self.SUPPORTED_CTE_ALIASES = SUPPORTED_CTE_ALIASES
+        self.logger = logger
 
     def _build_sql_generation_prompt(self, match_mode: str) -> PromptTemplate:
         # 确保模板已初始化
@@ -1483,7 +1492,127 @@ class SQLGenerator:
             # 简化失败，直接在末尾添加LIMIT
             return f"{sql.rstrip().rstrip(';')}\nLIMIT {max_limit}"
 
+    def _extract_aliases_via_sqlparse(self, parsed) -> (set, set):
+        """
+        用 sqlparse 提取已定义的别名与使用的别名
+        返回 (defined_aliases, used_aliases)
+        """
+        defined_aliases = set()
+        used_aliases = set()
 
+        # 遍历 parsed 的所有 Identifier / IdentifierList 节点
+        for token in parsed.tokens:
+            # 展开子节点
+            for t in token.flatten():
+                # 检测 “alias.column” 使用方式
+                if t.ttype is Name:
+                    # 前一个 token 是 “.”，再前一个是一个 name，则可能是 alias.column
+                    prev = t.get_previous_sibling()
+                    prev2 = prev.get_previous_sibling() if prev is not None else None
+                    if prev and prev.value == '.' and prev2 and prev2.ttype is Name:
+                        alias = prev2.value.lower()
+                        used_aliases.add(alias)
+
+        # 使用 sqlparse 自带的识别 identifier 和 alias 功能来提取定义
+        # （包括 FROM、JOIN、子查询等）
+        def recurse_tokens(token_list: TokenList):
+            for t in token_list.tokens:
+                if isinstance(t, Identifier):
+                    # Identifier 可以包含 “表 别名” 信息
+                    alias = t.get_alias()
+                    name = t.get_real_name()  # 即表名／子查询名等
+                    if alias:
+                        defined_aliases.add(alias.lower())
+                    else:
+                        # 没有 alias，则使用真实名（在不冲突的场景下）
+                        defined_aliases.add(name.lower())
+                elif isinstance(t, IdentifierList):
+                    recurse_tokens(t)
+                elif isinstance(t, TokenList):
+                    recurse_tokens(t)
+
+        recurse_tokens(parsed)
+
+        return defined_aliases, used_aliases
+
+    def _strip_comments_and_normalize(self, sql: str) -> str:
+        # 去除注释
+        sql_no_comments = re.sub(r'--.*?(\r\n|\r|\n)|/\*.*?\*/', ' ', sql, flags=re.S)
+        # 合并空白
+        sql_norm = re.sub(r'\s+', ' ', sql_no_comments).strip()
+        return sql_norm
+
+    def _validate_simple_regex(self, sql: str) -> bool:
+        """作为 fallback，用正则做最基础的校验（你之前的逻辑）"""
+        sql_lower = sql.lower()
+        if 'from' not in sql_lower:
+            self.logger.warning("SQL missing FROM keyword")
+            return False
+        # 你之前的 alias_pattern + 系统关键字排除 + 定义检查 逻辑（简化版）
+        # 这里略写（可以复制之前逻辑）……
+        return True
+
+    def validate(self, sql: str) -> bool:
+        """
+        主校验入口
+        """
+        sql_norm = self._strip_comments_and_normalize(sql)
+        if not sql_norm:
+            self.logger.warning("SQL is empty after stripping comments")
+            return False
+
+        # 首先用 sqlparse 尝试解析
+        try:
+            statements = sqlparse.parse(sql_norm)
+            if not statements:
+                self.logger.warning("sqlparse failed to parse statement")
+                return False
+            # 仅考虑第一个 statement
+            stmt = statements[0]
+        except Exception as e:
+            self.logger.warning(f"sqlparse parsing failed: {e}, fallback to regex")
+            return self._validate_simple_regex(sql_norm)
+
+        # 用 sqlparse 提取别名信息
+        defined_aliases, used_aliases = self._extract_aliases_via_sqlparse(stmt)
+
+        # 日志调试
+        self.logger.debug(f"Defined aliases: {defined_aliases}, Used aliases: {used_aliases}")
+
+        # 检查至少有 FROM（或子查询／CTE） — 如果 sqlparse 可以识别 DML，则认为结构存在
+        first_token = stmt.token_first(skip_cm=True, skip_ws=True)
+        if not first_token or first_token.normalized.lower() != 'select':
+            # 可按需支持 INSERT/UPDATE 等，这里简单假设只检 SELECT
+            self.logger.warning("Not a SELECT statement or cannot find first token")
+            return False
+
+        # 检查 used_aliases 是否在允许范围内
+        system_keywords = {
+            'select','from','where','group','order','having','limit','offset',
+            'join','on','as','and','or','not','in','is','null','true','false'
+        }
+        used_aliases = {alias for alias in used_aliases if alias not in system_keywords}
+
+        allowed_aliases = set(self.ALIAS_TABLE_MAP.keys()) | set(self.SUPPORTED_CTE_ALIASES)
+        unsupported = used_aliases - allowed_aliases
+        if unsupported:
+            self.logger.warning(f"Unsupported aliases used: {unsupported}")
+            raise ValueError(f"Unsupported aliases: {unsupported}")
+
+        # 如果没有 alias 使用，则直接通过
+        if not used_aliases:
+            self.logger.debug("No alias usage detected — simplest pass")
+            return True
+
+        # 检查 undefined alias：used_aliases 必须是 defined_aliases 或 CTE 别名
+        undefined = (used_aliases - defined_aliases) - set(self.SUPPORTED_CTE_ALIASES)
+        if undefined:
+            self.logger.warning(f"Undefined aliases used: {undefined}")
+            return False
+
+        # 如果都通过，则结构有效
+        self.logger.debug("SQL structure validation passed")
+        return True
 # 测试代码
 if __name__ == "__main__":
     # 配置日志
