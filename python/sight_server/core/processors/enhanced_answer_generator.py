@@ -182,12 +182,14 @@ class EnhancedAnswerGenerator:
             return "无数据"
 
         # 限制预览记录数
-        preview_count = min(3, len(data))
+        preview_count = min(15, len(data))
         preview_data = data[:preview_count]
 
         preview_lines = []
         for i, record in enumerate(preview_data):
-            preview_lines.append(f"记录 {i+1}: {self._format_record_preview(record)}")
+            # preview_lines.append(f"记录 {i+1}: {self._format_record_preview(record)}")
+            preview_lines.append(
+                f"记录 {i+1}: {str(record)}")
 
         preview_text = "\n".join(preview_lines)
 

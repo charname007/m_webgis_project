@@ -834,7 +834,7 @@ class QueryCacheManager:
                     f"相似度搜索命中: '{query}' -> '{matched_query}' (相似度: {similarity_score:.2f})")
 
                 # 返回最相似的结果
-                return cache_data
+                return cache_data['result_data']
             else:
                 logger.info(
                     f"相似度搜索未找到匹配，最高相似度: {similarity_score}")
@@ -1034,7 +1034,7 @@ class QueryCacheManager:
                     f"✓ Found similar cached query (similarity={best_similarity:.2%}): "
                     f"'{cached_query[:50]}:'{query[:50]}...'"
                 )
-                return (best_match, best_similarity, cache_data)
+                return (best_match, best_similarity, cache_data['result_data'])
 
             return None
 

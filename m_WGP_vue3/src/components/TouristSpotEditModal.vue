@@ -322,7 +322,7 @@ export default {
             城市: formData.value.城市?.trim() || undefined,
             介绍: formData.value.介绍?.trim() || undefined,
             开放时间: formData.value.开放时间?.trim() || undefined,
-            评分: formData.value.评分?.trim() || undefined,
+            评分: String(formData.value.评分)?.trim() || undefined,
             门票: formData.value.门票?.trim() || undefined,
             建议游玩时间: formData.value.建议游玩时间?.trim() || undefined,
             建议季节: formData.value.建议季节?.trim() || undefined,
