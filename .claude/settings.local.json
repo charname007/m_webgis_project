@@ -35,7 +35,8 @@
       "Bash(.mvnw.cmd clean:*)",
       "mcp__filesystem__edit_file",
       "mcp__git__git_status",
-      "mcp__git__git_diff_unstaged"
+      "mcp__git__git_diff_unstaged",
+      "mcp__filesystem__write_file"
     ],
     "deny": [],
     "ask": []

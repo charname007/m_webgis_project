@@ -857,7 +857,7 @@ class SQLGenerator:
         """
         验证SQL是否包含必需的FROM子句和正确的别名定义
 
-        使用 sqlparse 库进行更准确的SQL语法解析，替代正则表达式实现
+        使用增强的 sqlparse 库进行更准确的SQL语法解析，包括子查询和复杂结构
 
         Args:
             sql: SQL语句
@@ -868,7 +868,10 @@ class SQLGenerator:
         # 首先清理SQL并标准化
         system_keywords = {
             'select','from','where','group','order','having','limit','offset',
-            'join','on','as','and','or','not','in','is','null','true','false'
+            'join','on','as','and','or','not','in','is','null','true','false',
+            'with','union','except','intersect','distinct','all','any','some',
+            'exists','between','like','ilike','similar','to','escape',
+            'case','when','then','else','end','cast','coalesce','nullif'
         }
         sql_norm = self._strip_comments_and_normalize(sql)
         if not sql_norm:
@@ -888,12 +891,18 @@ class SQLGenerator:
             self.logger.warning(f"sqlparse parsing failed: {e}, fallback to regex")
             return self._validate_simple_regex(sql_norm)
 
-        # 用 sqlparse 提取别名信息
+        # 用增强的 sqlparse 提取别名信息
         defined_aliases, used_aliases = self._extract_aliases_via_sqlparse(stmt)
+
+        # 检查未使用的别名（警告级别）
+        unused_aliases = defined_aliases - used_aliases
+        if unused_aliases:
+            self.logger.warning(f"Unused aliases defined: {unused_aliases}")
 
         # 详细调试日志
         self.logger.debug(f"SQL validation - Defined aliases: {defined_aliases}")
         self.logger.debug(f"SQL validation - Used aliases: {used_aliases}")
+        self.logger.debug(f"SQL validation - Unused aliases: {unused_aliases}")
         self.logger.debug(f"SQL validation - Allowed aliases: {set(self.ALIAS_TABLE_MAP.keys()) | set(self.SUPPORTED_CTE_ALIASES)}")
         self.logger.debug(f"SQL validation - System keywords excluded: {system_keywords}")
 
@@ -905,13 +914,14 @@ class SQLGenerator:
             return False
 
         # 检查 used_aliases 是否在允许范围内
-
         used_aliases = {alias for alias in used_aliases if alias not in system_keywords}
 
         allowed_aliases = set(self.ALIAS_TABLE_MAP.keys()) | set(self.SUPPORTED_CTE_ALIASES)
         unsupported = used_aliases - allowed_aliases
         if unsupported:
-            self.logger.warning(f"Unsupported aliases used: {unsupported}")
+            self.logger.error(f"Unsupported aliases used: {unsupported}")
+            for alias in unsupported:
+                self.logger.error(f"  - Alias '{alias}' is not in allowed alias set")
             raise ValueError(f"Unsupported aliases: {unsupported}")
 
         # 如果没有 alias 使用，则直接通过
@@ -922,9 +932,9 @@ class SQLGenerator:
         # 检查 undefined alias：used_aliases 必须是 defined_aliases 或 CTE 别名
         undefined = (used_aliases - defined_aliases) - set(self.SUPPORTED_CTE_ALIASES)
         if undefined:
-            self.logger.warning(f"Undefined aliases used: {undefined}")
+            self.logger.error(f"Undefined aliases used: {undefined}")
             for alias in undefined:
-                self.logger.warning(f"  - Alias '{alias}' is used but not defined in FROM clause")
+                self.logger.error(f"  - Alias '{alias}' is used but not defined in FROM clause or subquery")
             # 放宽验证：如果只有少量未定义别名，允许通过
             # 这可以处理一些边界情况，比如子查询中的别名
             if len(undefined) <= 1:
@@ -1490,70 +1500,125 @@ class SQLGenerator:
         返回 (defined_aliases, used_aliases)
 
         改进逻辑：
-        - 更准确地提取FROM子句中的别名定义
-        - 更精确地检测别名使用
+        - 递归遍历整个AST，包括子查询、CTEs、JOINs
+        - 更准确地提取所有上下文中的别名定义
+        - 更精确地检测别名使用，避免字符串匹配
         - 区分表名和别名
         """
         defined_aliases = set()
         used_aliases = set()
+        duplicate_aliases = set()
+        
+        # 系统关键字集合
+        system_keywords = {
+            'select','from','where','group','order','having','limit','offset',
+            'join','on','as','and','or','not','in','is','null','true','false',
+            'with','union','except','intersect','distinct','all','any','some',
+            'exists','between','like','ilike','similar','to','escape',
+            'case','when','then','else','end','cast','coalesce','nullif'
+        }
 
-        # 递归遍历 tokens
-        def recurse_tokens(tokens, in_from_clause=False):
+        def recurse_tokens(tokens, in_from_clause=False, in_join_clause=False, in_subquery=False, current_scope=None):
+            """
+            递归遍历 tokens，跟踪当前上下文
+            
+            Args:
+                tokens: 当前token列表
+                in_from_clause: 是否在FROM子句中
+                in_join_clause: 是否在JOIN子句中
+                in_subquery: 是否在子查询中
+                current_scope: 当前作用域标识符
+            """
             for i, token in enumerate(tokens):
                 # 检查是否进入FROM子句
                 if token.ttype == Keyword and token.normalized == 'FROM':
                     in_from_clause = True
+                    in_join_clause = False
                     continue
-                elif token.ttype == Keyword and token.normalized in ('WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT'):
+                elif token.ttype == Keyword and token.normalized in ('WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'WITH'):
                     in_from_clause = False
+                    in_join_clause = False
+                    continue
+                elif token.ttype == Keyword and token.normalized in ('JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'OUTER'):
+                    in_join_clause = True
+                    continue
+                elif token.ttype == Keyword and token.normalized == 'ON':
+                    in_join_clause = False
+                    continue
+
+                # 检查子查询开始
+                if token.ttype == Punctuation and token.value == '(':
+                    # 检查前一个token是否是SELECT或FROM，表示子查询开始
+                    if i > 0 and tokens[i-1].ttype == Keyword and tokens[i-1].normalized in ('SELECT', 'FROM', 'JOIN', 'WHERE'):
+                        in_subquery = True
+                        continue
+
+                # 检查子查询结束
+                if token.ttype == Punctuation and token.value == ')':
+                    in_subquery = False
                     continue
 
                 if isinstance(token, Identifier):
-                    # 在FROM子句中提取别名定义
-                    if in_from_clause:
+                    # 在FROM子句或JOIN子句中提取别名定义
+                    if in_from_clause or in_join_clause:
                         # 提取定义的别名 ('table as alias' 或 'table alias')
                         alias = token.get_alias()
                         if alias:
-                            defined_aliases.add(alias.lower())
+                            alias_lower = alias.lower()
+                            if alias_lower in defined_aliases:
+                                duplicate_aliases.add(alias_lower)
+                            else:
+                                defined_aliases.add(alias_lower)
                         else:
-                            # 在FROM子句中，如果没有显式别名，表名本身不是别名定义
-                            # 只有当表名被用作别名时才添加
+                            # 检查是否是表名，如果是则使用默认别名映射
                             real_name = token.get_real_name().lower()
                             # 检查表名是否在允许的别名映射中
                             if real_name in self.ALIAS_TABLE_MAP.values():
                                 # 找到对应的别名
                                 for alias_name, table_name in self.ALIAS_TABLE_MAP.items():
                                     if table_name == real_name:
-                                        defined_aliases.add(alias_name)
+                                        if alias_name in defined_aliases:
+                                            duplicate_aliases.add(alias_name)
+                                        else:
+                                            defined_aliases.add(alias_name)
                                         break
 
-                    # 检查 'alias.column' 的使用
-                    # 更精确地检测别名使用
+                    # 检查 'alias.column' 的使用 - 更精确的检测
                     tokens_list = token.tokens
                     if len(tokens_list) >= 3 and tokens_list[1].ttype == Punctuation and tokens_list[1].value == '.':
                         # 第一个token是别名部分
                         alias_candidate = tokens_list[0].value.lower()
 
                         # 排除系统关键字和表名
-                        system_keywords = {
-                            'select','from','where','group','order','having','limit','offset',
-                            'join','on','as','and','or','not','in','is','null','true','false'
-                        }
-
-                        # 检查是否是有效的别名（不是表名或系统关键字）
                         if (alias_candidate not in system_keywords and
                             alias_candidate not in self.ALIAS_TABLE_MAP.values() and
                             alias_candidate not in self.SUPPORTED_CTE_ALIASES):
-                            used_aliases.add(alias_candidate)
+                            
+                            # 进一步验证：确保这不是在字符串或注释中
+                            parent = token.parent
+                            in_literal = False
+                            while parent:
+                                if hasattr(parent, 'ttype') and parent.ttype in (sqlparse.tokens.Literal.String, sqlparse.tokens.Comment):
+                                    in_literal = True
+                                    break
+                                parent = getattr(parent, 'parent', None)
+                            
+                            if not in_literal:
+                                used_aliases.add(alias_candidate)
 
                 # 递归进入子组
                 elif token.is_group:
-                    recurse_tokens(token.tokens, in_from_clause)
+                    recurse_tokens(token.tokens, in_from_clause, in_join_clause, in_subquery, current_scope)
 
         recurse_tokens(parsed.tokens)
 
+        # 记录重复别名警告
+        if duplicate_aliases:
+            self.logger.warning(f"Duplicate alias definitions found: {duplicate_aliases}")
+
         # 调试日志
         self.logger.debug(f"Alias extraction - Defined: {defined_aliases}, Used: {used_aliases}")
+        self.logger.debug(f"Duplicate aliases: {duplicate_aliases}")
 
         return defined_aliases, used_aliases
 
