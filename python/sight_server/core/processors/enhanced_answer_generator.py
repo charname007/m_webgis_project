@@ -182,7 +182,7 @@ class EnhancedAnswerGenerator:
             return "无数据"
 
         # 限制预览记录数
-        preview_count = min(15, len(data))
+        preview_count = min(30, len(data))
         preview_data = data[:preview_count]
 
         preview_lines = []
