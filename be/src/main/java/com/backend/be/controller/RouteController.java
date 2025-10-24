@@ -11,10 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.backend.be.model.BicyclingRouteResponse;
 import com.backend.be.model.RouteRequest;
 import com.backend.be.model.RouteResponse;
-import com.backend.be.model.WalkingRouteResponse;
 import com.backend.be.service.RouteService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -150,14 +148,14 @@ public class RouteController {
                 throw new IllegalArgumentException(fieldName + "纬度范围错误，应在-90到90之间");
             }
             
-            // 验证小数点位数
+            // 验证坐标精度 - 符合高德地图API精度要求（小数点后最多6位）
             String lngStr = parts[0];
             String latStr = parts[1];
             if (lngStr.contains(".") && lngStr.split("\\.")[1].length() > 6) {
-                throw new IllegalArgumentException(fieldName + "经度小数点后不得超过6位");
+                throw new IllegalArgumentException(fieldName + "经度小数点后不得超过6位（高德地图API限制）");
             }
             if (latStr.contains(".") && latStr.split("\\.")[1].length() > 6) {
-                throw new IllegalArgumentException(fieldName + "纬度小数点后不得超过6位");
+                throw new IllegalArgumentException(fieldName + "纬度小数点后不得超过6位（高德地图API限制）");
             }
             
         } catch (NumberFormatException e) {
@@ -167,20 +165,20 @@ public class RouteController {
 
     /**
      * 异常处理
-     * 
+     *
      * @param e 异常
      * @return 错误响应
      */
     @ExceptionHandler(IllegalArgumentException.class)
     public RouteResponse handleIllegalArgumentException(IllegalArgumentException e) {
         log.warn("参数验证失败: {}", e.getMessage());
-        
+
         RouteResponse response = new RouteResponse();
         response.setStatus(0);
         response.setInfo(e.getMessage());
         response.setInfocode("40000");
         response.setCount(0);
-        
+
         return response;
     }
 
@@ -188,21 +186,21 @@ public class RouteController {
      /**
      * 步行路线规划接口
      * 根据起点和终点坐标，返回步行路线规划方案
-     * 
+     *
      * @param request 路线规划请求参数
-     * @return 步行路线规划响应，包含步行路径的详细信息
+     * @return 路线规划响应，包含步行路径的GeoJSON数据
      */
     @PostMapping("/walking")
-    public WalkingRouteResponse getWalkingRoute(@Valid @RequestBody RouteRequest request) {
-        log.info("接收到步行路线规划请求: origin={}, destination={}", 
+    public RouteResponse getWalkingRoute(@Valid @RequestBody RouteRequest request) {
+        log.info("接收到步行路线规划请求: origin={}, destination={}",
                 request.getOrigin(), request.getDestination());
-        
+
         // 参数验证
         validateWalkingRouteRequest(request);
-        
+
         // 调用步行路线规划服务
-        WalkingRouteResponse response = (WalkingRouteResponse) routeService.getWalkingRoute(request);
-        
+        RouteResponse response = routeService.getWalkingRoute(request);
+
         log.info("步行路线规划完成，返回 {} 条路径", response.getCount());
         return response;
     }
@@ -210,30 +208,30 @@ public class RouteController {
     /**
      * 步行路线规划接口（GET方式）
      * 支持通过URL参数传递起点和终点坐标
-     * 
+     *
      * @param origin 起点坐标，格式："经度,纬度"
      * @param destination 终点坐标，格式："经度,纬度"
-     * @return 步行路线规划响应，包含步行路径的详细信息
+     * @return 路线规划响应，包含步行路径的GeoJSON数据
      */
     @GetMapping("/walking")
-    public WalkingRouteResponse getWalkingRouteByGet(
+    public RouteResponse getWalkingRouteByGet(
             @RequestParam String origin,
             @RequestParam String destination) {
-        
-        log.info("接收到步行路线规划GET请求: origin={}, destination={}", 
+
+        log.info("接收到步行路线规划GET请求: origin={}, destination={}",
                 origin, destination);
-        
+
         // 构建请求对象
         RouteRequest request = new RouteRequest();
         request.setOrigin(origin);
         request.setDestination(destination);
-        
+
         // 参数验证
         validateWalkingRouteRequest(request);
-        
+
         // 调用步行路线规划服务
-        WalkingRouteResponse response = (WalkingRouteResponse) routeService.getWalkingRoute(request);
-        
+        RouteResponse response = routeService.getWalkingRoute(request);
+
         log.info("步行路线规划完成，返回 {} 条路径", response.getCount());
         return response;
     }
@@ -278,18 +276,7 @@ public class RouteController {
         }
     }
 
-    /**
-     * 步行路线规划异常处理
-     * 
-     * @param e 异常
-     * @return 错误响应
-     */
-    @ExceptionHandler(IllegalArgumentException.class)
-    public WalkingRouteResponse handleIllegalArgumentExceptionForWalking(IllegalArgumentException e) {
-        log.warn("步行路线规划参数验证失败: {}", e.getMessage());
-        
-        return WalkingRouteResponse.error(e.getMessage(), "40000");
-    }
+    // 步行路线规划异常处理已统一到通用异常处理方法中
 
     /**
      * 骑行路线规划接口
@@ -300,7 +287,7 @@ public class RouteController {
      * @return 骑行路线规划响应，包含骑行路径的详细信息
      */
     @PostMapping("/bicycling")
-    public BicyclingRouteResponse getBicyclingRoute(@Valid @RequestBody RouteRequest request) {
+    public RouteResponse getBicyclingRoute(@Valid @RequestBody RouteRequest request) {
         log.info("接收到骑行路线规划请求: origin={}, destination={}", 
                 request.getOrigin(), request.getDestination());
         
@@ -308,7 +295,7 @@ public class RouteController {
         validateBicyclingRouteRequest(request);
         
         // 调用骑行路线规划服务
-        BicyclingRouteResponse response = routeService.getBicyclingRoute(request);
+        RouteResponse response = routeService.getBicyclingRoute(request);
         
         log.info("骑行路线规划完成，返回 {} 条路径", response.getCount());
         return response;
@@ -324,7 +311,7 @@ public class RouteController {
      * @return 骑行路线规划响应，包含骑行路径的详细信息
      */
     @GetMapping("/bicycling")
-    public BicyclingRouteResponse getBicyclingRouteByGet(
+    public RouteResponse getBicyclingRouteByGet(
             @RequestParam String origin,
             @RequestParam String destination) {
         
@@ -340,7 +327,7 @@ public class RouteController {
         validateBicyclingRouteRequest(request);
         
         // 调用骑行路线规划服务
-        BicyclingRouteResponse response = routeService.getBicyclingRoute(request);
+        RouteResponse response = routeService.getBicyclingRoute(request);
         
         log.info("骑行路线规划完成，返回 {} 条路径", response.getCount());
         return response;
@@ -386,18 +373,7 @@ public class RouteController {
         }
     }
 
-    /**
-     * 骑行路线规划异常处理
-     * 
-     * @param e 异常
-     * @return 错误响应
-     */
-    @ExceptionHandler(IllegalArgumentException.class)
-    public BicyclingRouteResponse handleIllegalArgumentExceptionForBicycling(IllegalArgumentException e) {
-        log.warn("骑行路线规划参数验证失败: {}", e.getMessage());
-        
-        return BicyclingRouteResponse.error(e.getMessage(), "40000");
-    }
+    // 骑行路线规划异常处理已统一到通用异常处理方法中
 
     @ExceptionHandler(Exception.class)
     public RouteResponse handleException(Exception e) {

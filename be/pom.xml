@@ -46,12 +46,7 @@
 		</dependency>
 
 
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starters</artifactId>
-			<version>2.2.13.RELEASE</version>
-			<type>pom</type>
-		</dependency>
+		<!-- 移除冲突的Spring Boot Starter版本，使用父pom中定义的版本 -->
 
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>

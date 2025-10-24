@@ -1301,8 +1301,8 @@ export class RoutePlanningControl extends Control {
     this.restoreMapEvents();
 
     // 移除地图点击事件
-    if (this.mapClickHandler) {
-      this.map.unByKey(this.mapClickHandler);
+    if (this.map && this.mapClickHandler) {
+      unByKey(this.mapClickHandler);
       this.mapClickHandler = null;
     }
 
@@ -1396,12 +1396,14 @@ export class RoutePlanningControl extends Control {
     const [startPoint, endPoint] = this.selectedPoints;
 
     try {
-      // 构建请求参数
+      // 构建请求参数 - 高德地图API要求"经度,纬度"格式
+      // 同时确保坐标精度符合高德地图API要求（小数点后最多6位）
       const params = {
-        origin: `${startPoint[1]},${startPoint[0]}`, // 纬度,经度
-        destination: `${endPoint[1]},${endPoint[0]}`, // 纬度,经度
+        origin: this.formatCoordinateForAMap(startPoint), // 经度,纬度
+        destination: this.formatCoordinateForAMap(endPoint), // 经度,纬度
         mode: this.routeMode
       };
+      console.log('请求参数',params)
 
       // 发送请求到后端API
       const response = await this.sendRouteRequest(params);
@@ -1424,11 +1426,31 @@ export class RoutePlanningControl extends Control {
       this.restoreMapEvents();
 
       // 移除地图点击事件
-      if (this.mapClickHandler) {
-        this.map.unByKey(this.mapClickHandler);
+      if (this.map && this.mapClickHandler) {
+        unByKey(this.mapClickHandler);
         this.mapClickHandler = null;
       }
     }
+  }
+
+  /**
+   * 格式化坐标以符合高德地图API要求
+   * 确保坐标精度不超过6位小数
+   * @param {Array} coordinate 坐标数组 [经度, 纬度]
+   * @returns {string} 格式化后的坐标字符串 "经度,纬度"
+   */
+  formatCoordinateForAMap(coordinate) {
+    if (!Array.isArray(coordinate) || coordinate.length !== 2) {
+      console.error('坐标格式错误:', coordinate);
+      return '';
+    }
+
+    // 确保坐标精度不超过6位小数
+    const lng = parseFloat(coordinate[0].toFixed(6));
+    const lat = parseFloat(coordinate[1].toFixed(6));
+
+    // 返回"经度,纬度"格式
+    return `${lng},${lat}`;
   }
 
   /**
@@ -1577,8 +1599,8 @@ export class RoutePlanningControl extends Control {
     this.restoreMapEvents();
 
     // 移除地图点击事件
-    if (this.mapClickHandler) {
-      this.map.unByKey(this.mapClickHandler);
+    if (this.map && this.mapClickHandler) {
+      unByKey(this.mapClickHandler);
       this.mapClickHandler = null;
     }
   }

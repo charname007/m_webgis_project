@@ -38,7 +38,16 @@
       "mcp__git__git_diff_unstaged",
       "mcp__filesystem__write_file",
       "Bash(findstr:*)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(./mvnw.cmd compile)",
+      "Bash(./mvnw.cmd clean compile)",
+      "Bash(mvn --version)",
+      "Bash(./mvnw.cmd spring-boot:run)",
+      "Bash(netstat -ano)",
+      "Bash(tasklist)",
+      "Bash(taskkill /PID 34576 /F)",
+      "Bash(taskkill /F /PID 34576)",
+      "Bash(./mvnw clean compile)"
     ],
     "deny": [],
     "ask": []

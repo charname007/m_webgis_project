@@ -64,8 +64,9 @@ import '../assets/map-controls.css';
 
 // // 强制引用 OverviewMap 确保不被 tree-shaking 移除
 // ensureOverviewMap();
-import {MeasureControl,LocationControl} from "./m_controls";
+import {MeasureControl,LocationControl,RoutePlanningControl} from "./m_controls";
 import m_controls from "./m_controls";
+import API_CONFIG from "../config/api.js";
 export default class MapUtils {
   constructor(target) {
     this.target = target;
@@ -190,10 +191,13 @@ export default class MapUtils {
             new ZoomToExtent({ className: "custom-zoom-to-extent" }),
             new MeasureControl({ className: "custom-measure" }),
             new LocationControl({ className: "custom-location" }),
-        //             new Measure({
-        //   className: "custom-measure",  
-        // })
-
+            new RoutePlanningControl({
+              className: "custom-location",
+              baseURL: API_CONFIG.baseURL
+            }),
+            //             new Measure({
+            //   className: "custom-measure",
+            // })
           ],
         }),
         // new Scale(),
@@ -202,7 +206,8 @@ export default class MapUtils {
         // new FeatureList(),
         // new Gauge({ className: "custom-gauge" }),
         new Disable({ className: "custom-disable" }),
-        new SearchCoordinates({ className: "custom-search-coordinates",
+        new SearchCoordinates({
+          className: "custom-search-coordinates",
           projection: "EPSG:4326",
         }),
         // new LayerShop({ className: "custom-layer-shop" }),
@@ -214,7 +219,6 @@ export default class MapUtils {
         //   units: "metric",
         //   minWidth: 100,
         // }),
-
       ]),
     });
 
