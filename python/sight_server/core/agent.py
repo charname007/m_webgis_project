@@ -72,7 +72,7 @@ class SQLQueryAgent:
         cache_manager: Optional[QueryCacheManager] = None,  # ✅ 新增：外部传入缓存管理器
         cache_ttl: int = 3600,  # ? ʱ䣨룩
         max_retries: int = 5,  # \? Դ
-        graph_recursion_limit: int = 50,
+        graph_recursion_limit: int = 75,
         # ✅ 新增：LangGraph内置组件配置
         use_langgraph_postgres: bool = True,  # 是否使用LangGraph内置PostgreSQL组件
         postgres_connection_string: Optional[str] = None,  # PostgreSQL连接字符串

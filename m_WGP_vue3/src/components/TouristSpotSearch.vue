@@ -192,8 +192,8 @@ export default {
 
     // 面板UI状态
     const panelRef = ref(null)
-    const isCollapsed = ref(false)
-    const position = ref({ x: 20, y: 20 }) // 初始位置：左上角
+    const isCollapsed = ref(true)
+    const position = ref({ x: 80, y: 8 }) // 初始位置：左上角
     const isDragging = ref(false)
     const dragOffset = ref({ x: 0, y: 0 })
 
@@ -1210,6 +1210,7 @@ export default {
   overflow: hidden;
   transition: box-shadow 0.3s ease;
   border: 1px solid #e0e0e0;
+  
 }
 
 .tourist-spot-search:hover {
@@ -1236,11 +1237,12 @@ export default {
 
 /* ==================== 搜索框包装器（始终显示） ==================== */
 .search-box-wrapper {
-  padding: 12px;
+  padding: 8px;
   background: white;
   border-bottom: 1px solid #e0e0e0;
   cursor: move;
   user-select: none;
+  /* left: 150px; */
 }
 
 /* ==================== 面板内容 ==================== */

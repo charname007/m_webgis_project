@@ -22,9 +22,8 @@
             ST_Transform(geom, 4326),
             ST_MakeEnvelope(#{minLon}, #{minLat}, #{maxLon}, #{maxLat}, 4326)
         ))
-        OR
-        -- 无坐标的景区：直接返回
-        geom IS NULL
+        <!-- OR
+        geom IS NULL -->
     )
         <if test="levels != null and levels.size() > 0">
             AND level IN
@@ -52,7 +51,6 @@
 
 <!-- 根据名称部分更新景区信息（只更新非null字段） -->
 <update id="updateByNameSelective" parameterType="com.backend.be.model.ASight">
-    <![CDATA[
     UPDATE a_sight
     <set>
         <if test="name != null">name = #{name},</if>
@@ -69,7 +67,6 @@
         </if>
     </set>
     WHERE name = #{name}
-    ]]>
 </update>
 
 <insert id="insert" parameterType="com.backend.be.model.ASight">

@@ -156,6 +156,11 @@ export default class MapUtils {
       projection: "EPSG:4326",
       align: "bottom-left",
       // className: "custom-overview",
+      collapsed: false,
+
+      collapsible: true,
+
+      // extent: this.chinaExtent,
     });
 
 
