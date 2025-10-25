@@ -72,7 +72,7 @@ class SQLQueryAgent:
         cache_manager: Optional[QueryCacheManager] = None,  # ✅ 新增：外部传入缓存管理器
         cache_ttl: int = 3600,  # ? ʱ䣨룩
         max_retries: int = 5,  # \? Դ
-        graph_recursion_limit: int = 40,
+        graph_recursion_limit: int = 50,
         # ✅ 新增：LangGraph内置组件配置
         use_langgraph_postgres: bool = True,  # 是否使用LangGraph内置PostgreSQL组件
         postgres_connection_string: Optional[str] = None,  # PostgreSQL连接字符串
@@ -621,8 +621,9 @@ class SQLQueryAgent:
                 config={
                     "configurable": {
                         "thread_id": state.get("conversation_id", "default"),
-                        'recursion_limit':50
-                    }
+                    },
+                    "recursion_limit": self.graph_recursion_limit
+
                 }
             )
             self.logger.debug("✓ Using PostgresSaver with manual context management")
@@ -639,9 +640,10 @@ class SQLQueryAgent:
                         "thread_id": state.get("conversation_id", "default"),
                         "checkpoint_ns": "sql_query_agent",
                         "checkpoint_id": f"{state.get('conversation_id', 'default')}_{int(time.time())}",
-                        'recursion_limit':50
+                        # 'recursion_limit':50
 
-                    }
+                    },
+                    "recursion_limit": self.graph_recursion_limit
                 }
             )
 

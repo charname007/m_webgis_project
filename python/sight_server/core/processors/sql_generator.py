@@ -505,29 +505,29 @@ class SQLGenerator:
             sql = self._extract_sql(response)
 
             # ✅ 验证SQL结构
-            if not self._validate_sql_structure(sql):
-                self.logger.warning("Generated SQL missing proper FROM clause, attempting to fix")
-                sql = self._add_from_clause_if_missing(sql, query)
-                # 再次验证
-                if not self._validate_sql_structure(sql):
-                    self.logger.error("Unable to fix SQL structure automatically")
+            # if not self._validate_sql_structure(sql):
+            #     self.logger.warning("Generated SQL missing proper FROM clause, attempting to fix")
+            #     sql = self._add_from_clause_if_missing(sql, query)
+            #     # 再次验证
+            #     if not self._validate_sql_structure(sql):
+            #         self.logger.error("Unable to fix SQL structure automatically")
 
-            # ✅ 验证 summary 查询的 SQL
-            is_valid, warning = self._validate_summary_sql(sql, intent_type, is_spatial)
-            if not is_valid:
-                self.logger.warning(f"Summary SQL validation failed: {warning}")
-                self.logger.info(f"Generated SQL (may be incorrect for summary): {sql[:100]}...")
+            # # ✅ 验证 summary 查询的 SQL
+            # is_valid, warning = self._validate_summary_sql(sql, intent_type, is_spatial)
+            # if not is_valid:
+                # self.logger.warning(f"Summary SQL validation failed: {warning}")
+                # self.logger.info(f"Generated SQL (may be incorrect for summary): {sql[:100]}...")
 
-                # ✅ 尝试自动修复
-                sql = self._fix_summary_sql_if_needed(sql, intent_type)
+                # # ✅ 尝试自动修复
+                # sql = self._fix_summary_sql_if_needed(sql, intent_type)
 
-                # ✅ 再次验证修复后的 SQL
-                is_valid_after_fix, warning_after_fix = self._validate_summary_sql(sql, intent_type, is_spatial)
-                if is_valid_after_fix:
-                    self.logger.info("✓ Summary SQL auto-fixed successfully")
-                else:
-                    self.logger.error(f"✗ Summary SQL fix failed: {warning_after_fix}")
-                    # 修复失败，但仍返回（让后续错误处理机制处理）
+                # # ✅ 再次验证修复后的 SQL
+                # is_valid_after_fix, warning_after_fix = self._validate_summary_sql(sql, intent_type, is_spatial)
+                # if is_valid_after_fix:
+                #     self.logger.info("✓ Summary SQL auto-fixed successfully")
+                # else:
+                #     self.logger.error(f"✗ Summary SQL fix failed: {warning_after_fix}")
+                #     # 修复失败，但仍返回（让后续错误处理机制处理）
 
             self.logger.info(f"Generated initial SQL ({intent_type}, spatial={is_spatial}): {sql[:100]}...")
             return sql
@@ -732,9 +732,9 @@ class SQLGenerator:
             fixed_sql = self._extract_sql(response)
 
             # ✅ 验证修复后的SQL是否包含FROM子句
-            if not self._validate_sql_structure(fixed_sql):
-                self.logger.warning("Fixed SQL still missing FROM clause, adding it manually")
-                fixed_sql = self._add_from_clause_if_missing(fixed_sql, query)
+            # if not self._validate_sql_structure(fixed_sql):
+            #     self.logger.warning("Fixed SQL still missing FROM clause, adding it manually")
+            #     fixed_sql = self._add_from_clause_if_missing(fixed_sql, query)
 
             self.logger.info(f"SQL fixed: {fixed_sql[:100]}...")
             return fixed_sql
@@ -841,9 +841,9 @@ class SQLGenerator:
             improved_sql = self._extract_sql(response)
 
             # 验证改进后的SQL是否包含FROM子句
-            if not self._validate_sql_structure(improved_sql):
-                self.logger.warning("Improved SQL still missing FROM clause, adding it manually")
-                improved_sql = self._add_from_clause_if_missing(improved_sql, query)
+            # if not self._validate_sql_structure(improved_sql):
+            #     self.logger.warning("Improved SQL still missing FROM clause, adding it manually")
+            #     improved_sql = self._add_from_clause_if_missing(improved_sql, query)
 
             self.logger.info(f"SQL improved based on feedback: {improved_sql[:100]}...")
             return improved_sql
@@ -1445,9 +1445,9 @@ class SQLGenerator:
             fixed_sql = self._extract_sql(response)
 
             # ✅ 验证修复后的SQL是否包含FROM子句
-            if not self._validate_sql_structure(fixed_sql):
-                self.logger.warning("Fixed SQL still missing FROM clause, adding it manually")
-                fixed_sql = self._add_from_clause_if_missing(fixed_sql, query)
+            # if not self._validate_sql_structure(fixed_sql):
+            #     self.logger.warning("Fixed SQL still missing FROM clause, adding it manually")
+            #     fixed_sql = self._add_from_clause_if_missing(fixed_sql, query)
 
             self.logger.info(f"SQL fixed with enhanced context: {fixed_sql[:100]}...")
             return fixed_sql
