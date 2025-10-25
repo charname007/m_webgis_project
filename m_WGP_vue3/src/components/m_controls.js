@@ -10,7 +10,8 @@ import CircleGeometry from 'ol/geom/Circle';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
-
+import API_CONFIG from "@/config/api.js";
+ 
 /**
  * 测量工具控制类 - 按钮式测量控件
  * 继承自 ol/control/Control
@@ -1083,14 +1084,14 @@ export class RoutePlanningControl extends Control {
    * @param {string} [options.className='ol-route-planning-control'] CSS类名
    * @param {string} [options.title='路线规划'] 按钮标题
    * @param {string} [options.activeClassName='active'] 激活状态类名
-   * @param {string} [options.baseURL=''] API基础URL
+  //  * @param {string} [options.baseURL=''] API基础URL
    */
   constructor(options = {}) {
     const {
       className = 'ol-route-planning-control',
       title = '路线规划',
       activeClassName = 'active',
-      baseURL = '',
+      // baseURL = '',
       eventsToSuspend = ['singleclick', 'moveend'],
       cursorWhenActive = 'crosshair',
       longPressDuration = 600
@@ -1117,7 +1118,7 @@ export class RoutePlanningControl extends Control {
     this.button = button;
     this.className = className;
     this.activeClassName = activeClassName;
-    this.baseURL = baseURL;
+    // this.baseURL = baseURL;
     this.isActive = false;
     this.isSelecting = false;
     this.selectedPoints = []; // 存储选中的点 [起点, 终点]
@@ -1460,8 +1461,10 @@ export class RoutePlanningControl extends Control {
    */
   async sendRouteRequest(params) {
     // 这里需要根据实际的后端API进行调整
-    const endpoint = `${this.baseURL}/route/${this.routeMode}`;
-
+    // const endpoint = `${this.baseURL}/route/${this.routeMode}`;
+    const endpoint = API_CONFIG.buildURL(
+      API_CONFIG.endpoints.routes[this.routeMode]
+    );
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {

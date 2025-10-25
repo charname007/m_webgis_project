@@ -193,7 +193,7 @@ export default class MapUtils {
             new LocationControl({ className: "custom-location" }),
             new RoutePlanningControl({
               className: "custom-location",
-              baseURL: API_CONFIG.baseURL
+              // baseURL: API_CONFIG.baseURL
             }),
             //             new Measure({
             //   className: "custom-measure",
