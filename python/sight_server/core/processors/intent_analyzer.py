@@ -65,15 +65,27 @@ class IntentAnalyzer:
    - **false**: 普通数据查询，不涉及空间计算
      * 示例："浙江省的5A景区"
 
-3. **Confidence 评估**:
+3. **Query Clarity 判断**:
+   - **true**: 查询明确清晰，可以直接执行
+     * 标准：查询包含具体信息（地点、类型、条件等）
+     * 示例："查询浙江省的5A景区"（明确）
+     * 示例："推荐几个杭州的景区"（明确）
+
+   - **false**: 查询不明确，需要用户重新表述
+     * 标准：查询过于模糊、缺少关键信息、有歧义
+     * 示例："查询景区"（不明确，缺少地点）
+     * 示例："推荐"（不明确，缺少类型）
+     * 示例："附近有什么"（不明确，缺少参考点）
+
+4. **Confidence 评估**:
    - 0.8-1.0: 意图非常明确（有明确的统计/查询关键词）
    - 0.5-0.8: 意图较明确（可以从上下文推断）
    - 0.0-0.5: 意图模糊（需要更多信息）
 
-4. **Keywords Matched**:
+5. **Keywords Matched**:
    - 列出查询中识别到的关键词
 
-5. **Reasoning**:
+6. **Reasoning**:
    - 详细说明你的分析推理过程
 
 {format_instructions}
@@ -125,6 +137,7 @@ class IntentAnalyzer:
                 "confidence": result.confidence,
                 "reasoning": result.reasoning,
                 "keywords_matched": result.keywords_matched,
+                "is_query_clear": result.is_query_clear,
                 "prompt_type": self._infer_prompt_type(result.intent_type.value, result.is_spatial),
                 "description": result.reasoning,  # 使用 reasoning 作为描述
                 "analysis_details": {
@@ -132,7 +145,8 @@ class IntentAnalyzer:
                     "model": self.llm.model,
                     "summary_score": 1.0 if result.intent_type == IntentType.SUMMARY else 0.0,
                     "spatial_score": 1.0 if result.is_spatial else 0.0,
-                    "scenic_score": 0.5  # LLM 分析不单独评分 scenic
+                    "scenic_score": 0.5,  # LLM 分析不单独评分 scenic
+                    "clarity_score": 1.0 if result.is_query_clear else 0.0
                 },
                 "semantic_enhanced": True  # LLM 分析即为语义增强
             }

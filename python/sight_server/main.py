@@ -25,7 +25,9 @@ from models import (
     ThoughtChainResponse,
     HealthResponse,
     ErrorResponse,
-    QueryStatus
+    QueryStatus,
+    ResumeQueryRequest,
+    ResumeQueryResponse
 )
 from utils import GeoJSONConverter, CoordinateConverter
 from utils.geojson_utils import CoordinateSystem
@@ -342,15 +344,63 @@ async def query_get(
         logger.info(f"✗ Cache MISS: {q[:50]}... Executing Agent...")
         # ✅ 传递会话ID给Agent
         result_json = sql_agent.run(q, conversation_id=actual_conversation_id)
+        # if result_json["__interrupt__"] is not None:
+        #     interrupt_info= result_json["__interrupt__"]
+        #     execution_time = time.time() - start_time
+
+        #     response = QueryResponse(
+        #         status=QueryStatus.INTERRUPT,
+        #         answer="",
+        #         data=None,
+        #         count=0,
+        #         # message=result_dict.get("message", "查询需要澄清"),
+        #         sql=None,
+        #         execution_time=round(execution_time, 2),
+        #         # intent_info=result_dict.get("intent_info"),
+        #         conversation_id=actual_conversation_id,
+        #         interrupt_info=interrupt_info
+        #     )
+        #     return response
+            
+            
         logger.info('AGENT RUN DONE')
         # 解析结果
         import json
         result_dict = json.loads(result_json)
+        logger.info('result_dict:\n'+str(result_dict))
 
         # 计算执行时间
         execution_time = time.time() - start_time
 
-        # 构建响应
+        # ✅ 新增：检查interrupt状态
+        # interrupt_info = result_dict.get("__interrupt__")
+        # if interrupt_info and interrupt_info.get("status"):
+        if result_dict.get("status")=='pending':
+            # 返回interrupt响应
+            interrupt_info={
+                        'status': 'interrupt',
+                        "reason": "query_not_clear",
+                        # "original_query": query,
+                        "message": "您的查询不够明确，请提供更具体的信息",
+                        "suggestion": "请说明：1) 地点（如城市、省份）2) 查询类型（如统计、列表）3) 具体条件（如景区等级、时间范围）",
+                        "clarity_reason": result_dict.get("intent_info").get("reasoning", "")
+                    }
+            response = QueryResponse(
+                status=QueryStatus.INTERRUPT,
+                answer="",
+                data=None,
+                count=0,
+                message=result_dict.get("message", "查询需要澄清"),
+                sql=None,
+                execution_time=round(execution_time, 2),
+                intent_info=result_dict.get("intent_info"),
+                conversation_id=actual_conversation_id,
+                interrupt_info=interrupt_info
+            )
+            logger.info(f"Query interrupted: {interrupt_info.get('reason', 'unknown')}")
+            return response
+
+        # 构建正常响应
         response = QueryResponse(
             status=QueryStatus(result_dict.get("status", "success")),
             answer=result_dict.get("answer", ""),
@@ -550,7 +600,26 @@ async def query_post(request: QueryRequest):
         # 计算执行时间
         execution_time = time.time() - start_time
 
-        # 构建响应
+        # ✅ 新增：检查interrupt状态
+        interrupt_info = result_dict.get("interrupt_info")
+        if interrupt_info and interrupt_info.get("interrupted"):
+            # 返回interrupt响应
+            response = QueryResponse(
+                status=QueryStatus.INTERRUPT,
+                answer="",
+                data=None,
+                count=0,
+                message=result_dict.get("message", "查询需要澄清"),
+                sql=None,
+                execution_time=round(execution_time, 2),
+                intent_info=result_dict.get("intent_info"),
+                conversation_id=actual_conversation_id,
+                interrupt_info=interrupt_info
+            )
+            logger.info(f"Query interrupted: {interrupt_info.get('reason', 'unknown')}")
+            return response
+
+        # 构建正常响应
         response = QueryResponse(
             status=QueryStatus(result_dict.get("status", "success")),
             answer=result_dict.get("answer", ""),
@@ -967,6 +1036,84 @@ async def clear_cache():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"清除缓存失败: {str(e)}"
+        )
+
+
+@app.post("/query/resume", response_model=ResumeQueryResponse, summary="继续被中断的查询")
+async def resume_query(request: ResumeQueryRequest):
+    """
+    继续被中断的查询
+
+    **功能：**
+    - 当查询被interrupt中断后，使用澄清后的查询继续执行
+    - 保持原有的会话上下文和状态
+
+    **参数：**
+    - conversation_id: 原始会话ID
+    - clarified_query: 澄清后的查询文本
+    - include_sql: 是否返回SQL语句
+
+    **返回：**
+    - 与普通查询相同的响应格式
+    """
+    # 检查 Agent 是否初始化
+    if not agent_initialized or sql_agent is None:
+        if not initialize_agent():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="SQL Query Agent 未初始化，请检查配置"
+            )
+
+    try:
+        logger.info(
+            f"Resuming interrupted query: conversation_id={request.conversation_id}, "
+            f"clarified_query={request.clarified_query}"
+        )
+        start_time = time.time()
+
+        # ✅ 使用澄清后的查询继续执行
+        result_json = sql_agent.run(
+            request.clarified_query,
+            conversation_id=request.conversation_id
+        )
+
+        # 解析结果
+        import json
+        result_dict = json.loads(result_json)
+
+        # 计算执行时间
+        execution_time = time.time() - start_time
+
+        # 构建响应
+        response = ResumeQueryResponse(
+            status=QueryStatus(result_dict.get("status", QueryStatus.SUCCESS)),
+            answer=result_dict.get("answer", ""),
+            data=result_dict.get("data"),
+            count=result_dict.get("count", 0),
+            message=result_dict.get("message", "查询成功"),
+            sql=result_dict.get("sql") if request.include_sql else None,
+            execution_time=round(execution_time, 2),
+            intent_info=result_dict.get("intent_info"),
+            conversation_id=request.conversation_id
+        )
+
+        logger.info(
+            f"Resume query completed in {execution_time:.2f}s, count={response.count}, "
+            f"conversation_id={request.conversation_id}"
+        )
+        return response
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse Agent output: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Agent 输出格式错误"
+        )
+    except Exception as e:
+        logger.error(f"Resume query execution failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"继续查询失败: {str(e)}"
         )
 
 

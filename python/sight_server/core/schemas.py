@@ -43,6 +43,11 @@ class QueryIntentAnalysis(BaseModel):
         description="识别到的关键词列表"
     )
 
+    is_query_clear: bool = Field(
+        default=True,
+        description="查询是否明确清晰，是否需要用户重新表述。True=明确，False=需要重新表述"
+    )
+
 
 class QueryResult(BaseModel):
     """SQL查询结果的标准输出格式"""

@@ -8,6 +8,7 @@ from .base import NodeContext
 from .error import HandleErrorNode
 from .fetch_schema import FetchSchemaNode
 from .intent import AnalyzeIntentNode, EnhanceQueryNode
+from .interrupt import InterruptCheckNode
 from .legacy import LegacyAgentNodes  # Legacy compatibility
 from .sql_execution import ExecuteSqlNode
 from .sql_generation import GenerateSqlNode
@@ -29,6 +30,7 @@ def build_node_mapping(context: NodeContext) -> Dict[str, NodeCallable]:
     return {
         "fetch_schema": FetchSchemaNode(context),
         "analyze_intent": AnalyzeIntentNode(context),
+        "interrupt_check": InterruptCheckNode(context),
         "enhance_query": EnhanceQueryNode(context),
         "generate_sql": GenerateSqlNode(context),
         "execute_sql": ExecuteSqlNode(context),
@@ -47,6 +49,7 @@ class AgentNodes:
         self.context = build_node_context(**kwargs)
         self.fetch_schema = FetchSchemaNode(self.context)
         self.analyze_intent = AnalyzeIntentNode(self.context)
+        self.interrupt_check = InterruptCheckNode(self.context)
         self.enhance_query = EnhanceQueryNode(self.context)
         self.generate_sql = GenerateSqlNode(self.context)
         self.execute_sql = ExecuteSqlNode(self.context)

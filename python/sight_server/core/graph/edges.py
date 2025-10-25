@@ -6,6 +6,8 @@ LangGraph边条件模块 - Sight Server
 import logging
 from typing import Literal
 
+from langgraph.types import Command
+
 from ..schemas import AgentState
 
 logger = logging.getLogger(__name__)
@@ -184,6 +186,51 @@ def should_summarize_conversation(state: AgentState) -> Literal["summarize_conve
         f"history={history_length}, steps_since_summary={steps_since_summary}"
     )
     return "continue"
+
+
+def should_interrupt_after_intent(
+    state: AgentState
+) -> Literal["interrupt_check", "enhance_query", Command]:
+    """
+    条件边: 在intent分析后判断是否需要中断
+
+    决策逻辑:
+    1. 检查 intent_info 中的 is_query_clear 字段
+    2. 如果 is_query_clear=False → 进入 interrupt_check 节点（请求新查询）
+    3. 如果 is_query_clear=True → 继续到 enhance_query 节点
+    4. 如果发现查询被更新了（interrupt的结果），则 Command(goto="analyze_intent")
+
+    Args:
+        state: Agent状态
+
+    Returns:
+        下一个节点名称或Command: "interrupt_check" 或 "enhance_query" 或 Command(goto="analyze_intent")
+    """
+    # 检查是否是interrupt后的重新执行（查询已更新）
+    interrupt_info = state.get("interrupt_info", {})
+    if interrupt_info.get("reason") == "query_clarified":
+        # 查询已更新，重新分析意图
+        logger.info(
+            f"[Edge: should_interrupt_after_intent] Query clarified, restarting analyze_intent"
+        )
+        return Command(goto="analyze_intent")
+
+    # 正常情况下的逻辑不变
+    intent_info = state.get("intent_info", {})
+    is_query_clear = intent_info.get("is_query_clear", True)
+
+    if not is_query_clear:
+        # 查询不明确，需要请求澄清
+        logger.info(
+            f"[Edge: should_interrupt_after_intent] Query is unclear, going to interrupt_check"
+        )
+        return "interrupt_check"
+
+    # 查询明确，继续执行
+    logger.info(
+        f"[Edge: should_interrupt_after_intent] Query is clear, continuing to enhance_query"
+    )
+    return "enhance_query"
 
 
 # 其他可能的条件边函数（未来扩展）

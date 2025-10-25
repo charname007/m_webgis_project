@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict
 from langgraph.graph import StateGraph, END
 
 from ..schemas import AgentState
-from .edges import should_continue_querying, should_retry_or_fail, should_requery, should_summarize_conversation
+from .edges import should_continue_querying, should_retry_or_fail, should_requery, should_summarize_conversation, should_interrupt_after_intent
 from .summarization import summarize_conversation
 from .context_schemas import AgentContextSchema
 from langgraph.checkpoint.memory import InMemorySaver
@@ -62,6 +62,7 @@ class GraphBuilder:
         required = {
             "fetch_schema",
             "analyze_intent",
+            "interrupt_check",
             "enhance_query",
             "generate_sql",
             "execute_sql",
@@ -85,6 +86,7 @@ class GraphBuilder:
         workflow.add_node("fetch_schema", node_handlers["fetch_schema"])
 
         workflow.add_node("analyze_intent", node_handlers["analyze_intent"])
+        workflow.add_node("interrupt_check", node_handlers["interrupt_check"])
         workflow.add_node("enhance_query", node_handlers["enhance_query"])
         workflow.add_node("generate_sql", node_handlers["generate_sql"])
         workflow.add_node("execute_sql", node_handlers["execute_sql"])
@@ -102,8 +104,8 @@ class GraphBuilder:
         workflow.add_node("summarize_conversation", summarize_conversation)
         logger.info("✓ Added summarize_conversation node for memory optimization")
 
-        node_count = 10 if not enable_final_validation else 11
-        logger.info(f"✓ Added {node_count} nodes to workflow (including fetch_schema, handle_error, check_results, and validate_results)")
+        node_count = 11 if not enable_final_validation else 12
+        logger.info(f"✓ Added {node_count} nodes to workflow (including fetch_schema, interrupt_check, handle_error, check_results, and validate_results)")
 
         workflow.set_entry_point(key="fetch_schema")
 
@@ -119,7 +121,21 @@ class GraphBuilder:
 
         workflow.add_edge("summarize_conversation", "analyze_intent")
         logger.info("✓ Added summary check at workflow start")
-        workflow.add_edge("analyze_intent", "enhance_query")
+
+        # 在analyze_intent后添加条件边
+        workflow.add_conditional_edges(
+            "analyze_intent",
+            should_interrupt_after_intent,
+            {
+                "interrupt_check": "interrupt_check",
+                "enhance_query": "enhance_query",
+            },
+        )
+        logger.info("✓ Added interrupt check after intent analysis")
+
+        # interrupt_check后重新回到analyze_intent
+        workflow.add_edge("interrupt_check", "analyze_intent")
+        logger.info("✓ Added interrupt restart edge")
         workflow.add_edge("enhance_query", "generate_sql")
         workflow.add_edge("generate_sql", "execute_sql")
 
