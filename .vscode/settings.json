@@ -22,5 +22,6 @@
   "java.compile.nullAnalysis.mode": "automatic",
   "java.configuration.updateBuildConfiguration": "automatic",
   "python.analysis.typeEvaluation.strictParameterNoneValue": false,
-  "python.analysis.inlayHints.functionReturnTypes": true
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "oxc.enable": false
 }
