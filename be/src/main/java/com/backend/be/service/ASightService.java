@@ -34,4 +34,11 @@ public interface ASightService {
      * @return 操作是否成功
      */
     boolean upsertByName(com.backend.be.model.ASight aSight);
+
+    /**
+     * 根据名称删除景区信息
+     * @param name 景区名称
+     * @return 删除是否成功
+     */
+    boolean deleteByName(String name);
 }

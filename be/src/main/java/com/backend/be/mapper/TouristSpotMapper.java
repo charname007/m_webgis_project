@@ -77,6 +77,12 @@ public interface TouristSpotMapper {
     int deleteById(@Param("id") Integer id);
 
     /**
+     * 根据名称删除旅游景点
+     */
+    @Delete("DELETE FROM tourist_spot WHERE name = #{name}")
+    int deleteByName(@Param("name") String name);
+
+    /**
      * 根据名称更新旅游景点（部分更新，只更新非null字段）
      */
     @Update({

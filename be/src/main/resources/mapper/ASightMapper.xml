@@ -82,4 +82,8 @@
     )
 </insert>
 
+<delete id="deleteByName" parameterType="string">
+    DELETE FROM a_sight WHERE name = #{name}
+</delete>
+
 </mapper>

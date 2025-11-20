@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree myapp/src -L 3 -I node_modules)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -35,6 +35,13 @@ public interface TouristSpotService {
     TouristSpot createTouristSpot(TouristSpot touristSpot);
 
     /**
+     * 创建旅游景点和关联的景区信息（双表插入）
+     * @param createRequest 包含两个表数据的创建请求
+     * @return 创建后的旅游景点信息
+     */
+    TouristSpot createTouristSpotWithSight(com.backend.be.model.TouristSpotUpdateRequest createRequest);
+
+    /**
      * 更新旅游景点
      */
     TouristSpot updateTouristSpot(TouristSpot touristSpot);
@@ -57,6 +64,20 @@ public interface TouristSpotService {
      * 删除旅游景点
      */
     boolean deleteTouristSpot(Integer id);
+
+    /**
+     * 删除旅游景点和关联的景区信息（双表删除）
+     * @param id 旅游景点ID
+     * @return 删除是否成功
+     */
+    boolean deleteTouristSpotWithSight(Integer id);
+
+    /**
+     * 通过名称删除旅游景点和关联的景区信息（双表删除）
+     * @param name 旅游景点名称
+     * @return 删除是否成功
+     */
+    boolean deleteTouristSpotByNameWithSight(String name);
 
     /**
      * 获取旅游景点总数

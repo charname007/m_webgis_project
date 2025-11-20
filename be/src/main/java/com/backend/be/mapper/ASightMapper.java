@@ -36,4 +36,11 @@ public interface ASightMapper {
      * @return 插入影响的行数
      */
     int insert(com.backend.be.model.ASight aSight);
+
+    /**
+     * 根据名称删除景区信息
+     * @param name 景区名称
+     * @return 删除影响的行数
+     */
+    int deleteByName(String name);
 }

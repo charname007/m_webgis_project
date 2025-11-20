@@ -85,4 +85,17 @@ public class ASightServiceImpl implements ASightService {
             return false;
         }
     }
+
+    @Override
+    public boolean deleteByName(String name) {
+        try {
+            int result = sightMapper.deleteByName(name);
+            System.out.println("景区删除成功 - 名称: " + name + ", 影响行数: " + result);
+            return result > 0;
+        } catch (Exception e) {
+            System.err.println("景区删除失败 - 名称: " + name + ", 错误详情: " + e.getMessage());
+            e.printStackTrace(); // 打印完整的堆栈跟踪
+            return false;
+        }
+    }
 }

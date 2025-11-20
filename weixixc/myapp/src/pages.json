@@ -1,0 +1,19 @@
+{
+	"pages": [
+		{
+			"path": "pages/map/index",
+			"style": {
+				"navigationBarTitleText": "景区地图",
+				"navigationBarBackgroundColor": "#4a90e2",
+				"navigationBarTextStyle": "white",
+				"enablePullDownRefresh": false
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "景区地图",
+		"navigationBarBackgroundColor": "#4a90e2",
+		"backgroundColor": "#f8f8f8"
+	}
+}

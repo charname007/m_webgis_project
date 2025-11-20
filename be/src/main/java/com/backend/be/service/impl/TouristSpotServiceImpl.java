@@ -52,6 +52,35 @@ public class TouristSpotServiceImpl implements TouristSpotService {
     }
 
     @Override
+    public TouristSpot createTouristSpotWithSight(com.backend.be.model.TouristSpotUpdateRequest createRequest) {
+        TouristSpot touristSpot = createRequest.getTourist_spot();
+        com.backend.be.model.ASight aSight = createRequest.getA_sight();
+
+        if (touristSpot != null) {
+            // 1. 插入 tourist_spot 表
+            int spotResult = touristSpotMapper.insert(touristSpot);
+
+            if (spotResult > 0) {
+                // 2. 插入 a_sight 表
+                if (aSight != null && aSight.getName() != null) {
+                    boolean sightResult = aSightService.upsertByName(aSight);
+                    if (sightResult) {
+                        System.out.println("双表插入成功 - 景点名称: " + aSight.getName());
+                    } else {
+                        System.out.println("a_sight 表插入失败 - 景点名称: " + aSight.getName());
+                    }
+                }
+
+                // 返回创建后的旅游景点信息
+                return touristSpotMapper.findById(touristSpot.getId());
+            } else {
+                System.out.println("tourist_spot 表插入失败");
+            }
+        }
+        return null;
+    }
+
+    @Override
     public TouristSpot updateTouristSpot(TouristSpot touristSpot) {
         int result = touristSpotMapper.update(touristSpot);
         if (result > 0) {
@@ -136,6 +165,81 @@ public class TouristSpotServiceImpl implements TouristSpotService {
     public boolean deleteTouristSpot(Integer id) {
         int result = touristSpotMapper.deleteById(id);
         return result > 0;
+    }
+
+    @Override
+    public boolean deleteTouristSpotWithSight(Integer id) {
+        // 1. 先获取要删除的旅游景点信息，用于获取名称
+        TouristSpot touristSpot = touristSpotMapper.findById(id);
+        if (touristSpot == null) {
+            System.out.println("旅游景点不存在 - ID: " + id);
+            return false;
+        }
+
+        // 2. 删除 tourist_spot 表中的记录
+        int spotResult = touristSpotMapper.deleteById(id);
+
+        if (spotResult > 0) {
+            // 3. 删除 a_sight 表中的相关记录
+            boolean sightResult = aSightService.deleteByName(touristSpot.getName());
+            if (sightResult) {
+                System.out.println("双表删除成功 - 景点名称: " + touristSpot.getName());
+                return true;
+            } else {
+                System.out.println("a_sight 表删除失败，但tourist_spot表删除成功 - 景点名称: " + touristSpot.getName());
+                return true; // 即使a_sight删除失败，tourist_spot删除成功也算成功
+            }
+        } else {
+            System.out.println("tourist_spot 表删除失败 - ID: " + id);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean deleteTouristSpotByNameWithSight(String name) {
+        // 1. 提取中文名称
+        String chineseName = extractChineseName(name);
+
+        // 2. 删除 a_sight 表中的记录
+        boolean sightResult = aSightService.deleteByName(chineseName);
+
+        // 3. 删除 tourist_spot 表中的记录
+        int spotResult = touristSpotMapper.deleteByName(chineseName);
+
+        boolean overallSuccess = sightResult || spotResult > 0;
+
+        if (overallSuccess) {
+            System.out.println("双表删除操作完成 - 景点名称: " + chineseName +
+                             ", a_sight删除: " + sightResult +
+                             ", tourist_spot删除行数: " + spotResult);
+        } else {
+            System.out.println("双表删除失败 - 景点名称: " + chineseName);
+        }
+
+        return overallSuccess;
+    }
+
+    /**
+     * 从混合名称中提取中文部分
+     */
+    private String extractChineseName(String mixedName) {
+        if (mixedName == null || mixedName.trim().isEmpty()) {
+            return mixedName;
+        }
+
+        // 使用正则表达式匹配中文部分
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^[\u4e00-\u9fa5]+\s*[\u4e00-\u9fa5]*");
+        java.util.regex.Matcher matcher = pattern.matcher(mixedName);
+
+        if (matcher.find()) {
+            String chinesePart = matcher.group().trim();
+            if (!chinesePart.isEmpty()) {
+                return chinesePart;
+            }
+        }
+
+        // 如果没有找到中文部分，返回原名称
+        return mixedName;
     }
 
     @Override

@@ -78,7 +78,7 @@ class QueryCacheManager:
         # enable_database_persistence: bool = True,  # ✅ 新增：启用数据库持久化
         database_connector=None,                 # ✅ 新增：数据库连接器实例
         cache_strategy: str = "hybrid",
-        enable_semantic_search: bool = True,
+        enable_semantic_search: bool = False,
         similarity_threshold: float = 0.95,
         embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2",
         lazy_load_embedding: bool = True,        # ✅ 新增：懒加载模型

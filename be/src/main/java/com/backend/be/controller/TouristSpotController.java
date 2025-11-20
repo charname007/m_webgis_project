@@ -92,6 +92,61 @@ public class TouristSpotController {
     }
 
     /**
+     * 创建旅游景点和关联的景区信息（双表插入）
+     */
+    @PostMapping("/with-sight")
+    public ResponseEntity<TouristSpot> createTouristSpotWithSight(
+            @RequestBody com.backend.be.model.TouristSpotUpdateRequest createRequest) {
+
+        try {
+            System.out.println("=== 开始创建景点和景区信息 ===");
+            System.out.println("接收到的请求: " + createRequest);
+
+            // 参数验证
+            if (createRequest == null) {
+                System.err.println("错误: 请求体为空");
+                return ResponseEntity.badRequest().build();
+            }
+
+            if (createRequest.getTourist_spot() == null) {
+                System.err.println("错误: tourist_spot 信息为空");
+                return ResponseEntity.badRequest().build();
+            }
+
+            if (createRequest.getTourist_spot().getName() == null || createRequest.getTourist_spot().getName().trim().isEmpty()) {
+                System.err.println("错误: 景点名称为空");
+                return ResponseEntity.badRequest().build();
+            }
+
+            // 处理a_sight表的名称，提取中文部分
+            if (createRequest.getA_sight() != null && createRequest.getA_sight().getName() != null) {
+                String originalName = createRequest.getA_sight().getName();
+                String chineseName = extractChineseName(originalName);
+                createRequest.getA_sight().setName(chineseName);
+                System.out.println("处理景区名称: " + originalName + " -> " + chineseName);
+            }
+
+            System.out.println("TouristSpot数据: " + createRequest.getTourist_spot());
+            if (createRequest.getA_sight() != null) {
+                System.out.println("ASight数据: " + createRequest.getA_sight());
+            }
+
+            TouristSpot createdTouristSpot = touristSpotService.createTouristSpotWithSight(createRequest);
+            if (createdTouristSpot != null) {
+                System.out.println("创建成功，ID: " + createdTouristSpot.getId());
+                return ResponseEntity.ok(createdTouristSpot);
+            } else {
+                System.err.println("创建失败: Service返回null");
+                return ResponseEntity.badRequest().build();
+            }
+        } catch (Exception e) {
+            System.err.println("创建景点时发生异常: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
      * 更新旅游景点
      */
     @PutMapping("/{id}")
@@ -194,6 +249,32 @@ public class TouristSpotController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTouristSpot(@PathVariable Integer id) {
         boolean deleted = touristSpotService.deleteTouristSpot(id);
+        if (deleted) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 删除旅游景点和关联的景区信息（双表删除）
+     */
+    @DeleteMapping("/{id}/with-sight")
+    public ResponseEntity<Void> deleteTouristSpotWithSight(@PathVariable Integer id) {
+        boolean deleted = touristSpotService.deleteTouristSpotWithSight(id);
+        if (deleted) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 通过名称删除旅游景点和关联的景区信息（双表删除）
+     */
+    @DeleteMapping("/by-name/{name}/with-sight")
+    public ResponseEntity<Void> deleteTouristSpotByNameWithSight(@PathVariable String name) {
+        boolean deleted = touristSpotService.deleteTouristSpotByNameWithSight(name);
         if (deleted) {
             return ResponseEntity.ok().build();
         } else {
