@@ -1,364 +1,344 @@
 <template>
   <view class="map-container">
-    <!-- 地图组件 -->
+    <!-- 搜索框 -->
+    <view class="search-bar">
+      <input
+        v-model="searchKeyword"
+        class="search-input"
+        placeholder="搜索地点"
+        @confirm="handleSearch"
+      />
+      <view class="search-btn" @tap="handleSearch">🔍</view>
+    </view>
+
+    <!-- 搜索结果 -->
+    <view v-if="searchResults.length > 0" class="search-results">
+      <view
+        v-for="(item, index) in searchResults"
+        :key="index"
+        class="result-item"
+        @tap="selectSearchResult(item)"
+      >
+        <view class="result-title">{{ item.title }}</view>
+        <view class="result-address">{{ item.address }}</view>
+      </view>
+    </view>
+
+    <!-- 地图 -->
     <map
       id="mainMap"
       :longitude="center.lng"
       :latitude="center.lat"
       :scale="zoom"
       :markers="markers"
+      :polyline="polyline"
       :show-location="true"
-      :enable-zoom="true"
-      :enable-scroll="true"
-      :enable-rotate="false"
-      :enable-overlooking="false"
-      :enable-satellite="false"
-      :enable-traffic="false"
       @regionchange="onRegionChange"
-      @tap="onMapTap"
       @markertap="onMarkerTap"
     >
-      <!-- 地图控件 - 使用 cover-view -->
+      <!-- 控件 -->
       <cover-view class="map-controls">
-        <!-- 缩放控件 -->
-        <cover-view class="control-group zoom-controls">
-          <cover-view class="control-button zoom-in" @tap="handleZoomIn">
+        <cover-view class="control-group">
+          <cover-view class="control-button" @tap="handleZoomIn">
             <cover-view class="button-text">+</cover-view>
           </cover-view>
-          <cover-view class="control-button zoom-out" @tap="handleZoomOut">
+          <cover-view class="control-button" @tap="handleZoomOut">
             <cover-view class="button-text">-</cover-view>
           </cover-view>
         </cover-view>
 
-        <!-- 定位按钮 -->
-        <cover-view class="control-group location-control">
-          <cover-view class="control-button location-button" @tap="handleLocate">
+        <cover-view class="control-group">
+          <cover-view class="control-button" @tap="handleLocate">
             <cover-view class="button-text">📍</cover-view>
           </cover-view>
         </cover-view>
 
-        <!-- 刷新景点按钮 -->
-        <cover-view class="control-group refresh-control">
-          <cover-view class="control-button refresh-button" @tap="loadSpots">
+        <cover-view class="control-group">
+          <cover-view class="control-button" @tap="loadSpots">
             <cover-view class="button-text">🔄</cover-view>
           </cover-view>
         </cover-view>
       </cover-view>
 
-      <!-- 地图信息显示 -->
+      <!-- 地图信息 -->
       <cover-view class="map-info">
-        <cover-view class="info-item">缩放: {{ zoom }}</cover-view>
-        <cover-view class="info-item">
-          中心: {{ center.lng.toFixed(4) }}, {{ center.lat.toFixed(4) }}
-        </cover-view>
         <cover-view class="info-item">景点: {{ markers.length }}</cover-view>
       </cover-view>
     </map>
 
-    <!-- 加载提示 -->
-    <view v-if="loading" class="loading-overlay">
-      <view class="loading-content">
-        <text class="loading-text">{{ loadingText }}</text>
-      </view>
-    </view>
-
     <!-- 景点详情弹窗 -->
-    <view v-if="selectedSpot" class="spot-detail-popup" @tap="closeSpotDetail">
+    <view v-if="selectedSpot" class="spot-popup" @tap="closePopup">
       <view class="popup-content" @tap.stop>
         <view class="popup-header">
           <text class="spot-name">{{ selectedSpot.name }}</text>
-          <text class="close-btn" @tap="closeSpotDetail">✕</text>
+          <text class="close-btn" @tap="closePopup">✕</text>
         </view>
 
         <view class="popup-body">
           <view class="detail-item" v-if="selectedSpot.level">
-            <text class="item-label">等级:</text>
-            <text class="item-value level-badge" :style="{ backgroundColor: getLevelColor(selectedSpot.level) }">
+            <text class="label">等级:</text>
+            <text class="value badge" :style="{ backgroundColor: getLevelColor(selectedSpot.level) }">
               {{ selectedSpot.level }}
             </text>
           </view>
 
           <view class="detail-item" v-if="selectedSpot.address">
-            <text class="item-label">地址:</text>
-            <text class="item-value">{{ selectedSpot.address }}</text>
+            <text class="label">地址:</text>
+            <text class="value">{{ selectedSpot.address }}</text>
           </view>
 
           <view class="detail-item" v-if="selectedSpot.rating">
-            <text class="item-label">评分:</text>
-            <text class="item-value">{{ selectedSpot.rating }} 分</text>
+            <text class="label">评分:</text>
+            <text class="value">{{ selectedSpot.rating }} 分</text>
           </view>
 
           <view class="detail-item" v-if="selectedSpot.ticket_price !== undefined">
-            <text class="item-label">票价:</text>
-            <text class="item-value">
+            <text class="label">票价:</text>
+            <text class="value">
               {{ selectedSpot.ticket_price === 0 ? '免费' : `¥${selectedSpot.ticket_price}` }}
             </text>
-          </view>
-
-          <view class="detail-item">
-            <text class="item-label">坐标:</text>
-            <text class="item-value">{{ selectedSpot.lng_wgs84?.toFixed(6) }}, {{ selectedSpot.lat_wgs84?.toFixed(6) }}</text>
           </view>
         </view>
 
         <view class="popup-footer">
-          <button class="action-btn navigate-btn" @tap="navigateToSpot">导航</button>
-          <button class="action-btn detail-btn" @tap="viewMoreDetail">详情</button>
+          <button class="action-btn nav-btn" @tap="planRoute('walking')">步行</button>
+          <button class="action-btn nav-btn" @tap="planRoute('driving')">驾车</button>
+          <button class="action-btn" @tap="navigateToSpot">导航</button>
         </view>
       </view>
+    </view>
+
+    <!-- 加载提示 -->
+    <view v-if="loading" class="loading">
+      <text>{{ loadingText }}</text>
     </view>
   </view>
 </template>
 
-<script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+<script>
 import { getAllSpots, convertSpotsToMarkers } from '@/services/touristSpotService'
+import { searchPlace, drivingRoute, walkingRoute } from '@/services/tencentMapService'
 
-// 响应式数据
-const center = ref({
-  lng: 114.353,  // 武汉大学经度
-  lat: 30.531    // 武汉大学纬度
-})
-
-const zoom = ref(12)  // 缩放级别 (3-20)
-const loading = ref(false)
-const loadingText = ref('加载中...')
-const mapContext = ref(null)
-const markers = ref([])  // 地图标记数组
-const selectedSpot = ref(null)  // 当前选中的景点
-const allSpots = ref([])  // 所有景点数据
-
-// 地图上下文
-onMounted(() => {
-  // 获取地图上下文
-  mapContext.value = uni.createMapContext('mainMap')
-
-  // 请求位置权限
-  requestLocationPermission()
-
-  // 加载景点数据
-  loadSpots()
-
-  console.log('地图页面加载完成')
-})
-
-// 加载景点数据
-const loadSpots = async () => {
-  loading.value = true
-  loadingText.value = '加载景点数据...'
-
-  try {
-    const result = await getAllSpots()
-
-    if (result.success) {
-      console.log('景点数据加载成功:', result.data)
-      allSpots.value = result.data
-
-      // 转换为markers格式
-      markers.value = convertSpotsToMarkers(result.data)
-
-      console.log('生成标记数量:', markers.value.length)
-
-      // 如果有景点数据,将地图中心移到第一个景点
-      if (markers.value.length > 0 && markers.value[0].latitude && markers.value[0].longitude) {
-        center.value = {
-          lng: markers.value[0].longitude,
-          lat: markers.value[0].latitude
-        }
-      }
-
-      uni.showToast({
-        title: `加载了 ${markers.value.length} 个景点`,
-        icon: 'success'
-      })
-    } else {
-      console.error('加载景点失败:', result.error)
-      uni.showToast({
-        title: result.error || '加载景点失败',
-        icon: 'none'
-      })
+export default {
+  data() {
+    return {
+      center: { lng: 114.353, lat: 30.531 },
+      zoom: 12,
+      loading: false,
+      loadingText: '加载中...',
+      mapContext: null,
+      markers: [],
+      polyline: [],
+      selectedSpot: null,
+      searchKeyword: '',
+      searchResults: [],
+      userLocation: null
     }
-  } catch (error) {
-    console.error('加载景点异常:', error)
-    uni.showToast({
-      title: '加载景点异常',
-      icon: 'none'
-    })
-  } finally {
-    loading.value = false
-  }
-}
+  },
 
-// 请求位置权限
-const requestLocationPermission = () => {
-  uni.authorize({
-    scope: 'scope.userLocation',
-    success() {
-      console.log('位置权限已授予')
-    },
-    fail() {
-      console.log('位置权限被拒绝')
-      uni.showModal({
-        title: '提示',
-        content: '需要获取您的位置信息来显示附近景点',
-        success(res) {
-          if (res.confirm) {
-            uni.openSetting()
+  onLoad() {
+    this.mapContext = uni.createMapContext('mainMap', this)
+    this.loadSpots()
+    this.getUserLocation()
+  },
+
+  methods: {
+    // 加载景点
+    async loadSpots() {
+      this.loading = true
+      this.loadingText = '加载景点...'
+      try {
+        const result = await getAllSpots()
+        if (result.success) {
+          this.markers = convertSpotsToMarkers(result.data)
+          if (this.markers.length > 0) {
+            this.center = {
+              lng: this.markers[0].longitude,
+              lat: this.markers[0].latitude
+            }
           }
+          uni.showToast({ title: `加载了 ${this.markers.length} 个景点`, icon: 'success' })
+        }
+      } catch (error) {
+        console.error('加载失败:', error)
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // 获取用户位置
+    getUserLocation() {
+      uni.getLocation({
+        type: 'gcj02',
+        success: (res) => {
+          this.userLocation = { lng: res.longitude, lat: res.latitude }
         }
       })
-    }
-  })
-}
+    },
 
-// 地图区域变化事件
-const onRegionChange = (e) => {
-  if (e.type === 'end' && e.causedBy === 'drag') {
-    // 拖动结束,更新中心点
-    mapContext.value.getCenterLocation({
-      success: (res) => {
-        center.value = {
-          lng: res.longitude,
-          lat: res.latitude
+    // 搜索
+    async handleSearch() {
+      if (!this.searchKeyword.trim()) {
+        return uni.showToast({ title: '请输入搜索关键词', icon: 'none' })
+      }
+
+      this.loading = true
+      this.loadingText = '搜索中...'
+      try {
+        const location = `${this.center.lat},${this.center.lng}`
+        const results = await searchPlace(this.searchKeyword, { location, radius: 5000 })
+        this.searchResults = results || []
+
+        if (this.searchResults.length === 0) {
+          uni.showToast({ title: '未找到结果', icon: 'none' })
         }
+      } catch (error) {
+        console.error('搜索失败:', error)
+        uni.showToast({ title: '搜索失败', icon: 'none' })
+      } finally {
+        this.loading = false
       }
-    })
-  }
+    },
 
-  if (e.type === 'end' && e.causedBy === 'scale') {
-    // 缩放结束,更新缩放级别
-    mapContext.value.getScale({
-      success: (res) => {
-        zoom.value = res.scale
-      }
-    })
-  }
-}
+    // 选择搜索结果
+    selectSearchResult(item) {
+      const { location } = item
+      this.center = { lng: location.lng, lat: location.lat }
+      this.zoom = 15
 
-// 地图点击事件
-const onMapTap = (e) => {
-  console.log('地图点击:', e)
-  // 点击地图空白处关闭详情弹窗
-  if (selectedSpot.value) {
-    closeSpotDetail()
-  }
-}
-
-// 标记点击事件
-const onMarkerTap = (e) => {
-  console.log('标记点击:', e)
-  const markerId = e.detail.markerId || e.markerId
-
-  // 查找对应的景点数据
-  const marker = markers.value.find(m => m.id === markerId)
-  if (marker && marker.spotData) {
-    selectedSpot.value = marker.spotData
-    console.log('选中景点:', selectedSpot.value)
-  }
-}
-
-// 关闭景点详情
-const closeSpotDetail = () => {
-  selectedSpot.value = null
-}
-
-// 导航到景点
-const navigateToSpot = () => {
-  if (!selectedSpot.value) return
-
-  const lat = selectedSpot.value.lat_wgs84
-  const lng = selectedSpot.value.lng_wgs84
-
-  uni.openLocation({
-    latitude: lat,
-    longitude: lng,
-    name: selectedSpot.value.name,
-    address: selectedSpot.value.address || '',
-    scale: 15
-  })
-}
-
-// 查看更多详情
-const viewMoreDetail = () => {
-  // 这里可以跳转到详情页面
-  uni.showToast({
-    title: '详情页面开发中',
-    icon: 'none'
-  })
-}
-
-// 获取等级颜色
-const getLevelColor = (level) => {
-  const colorMap = {
-    '5A': '#ff6b6b',
-    '4A': '#4ecdc4',
-    '3A': '#45b7d1',
-    '2A': '#96ceb4'
-  }
-  return colorMap[level] || '#95a5a6'
-}
-
-// 放大地图
-const handleZoomIn = () => {
-  if (zoom.value < 20) {
-    zoom.value += 1
-    mapContext.value.moveToLocation({
-      longitude: center.value.lng,
-      latitude: center.value.lat
-    })
-  }
-}
-
-// 缩小地图
-const handleZoomOut = () => {
-  if (zoom.value > 3) {
-    zoom.value -= 1
-    mapContext.value.moveToLocation({
-      longitude: center.value.lng,
-      latitude: center.value.lat
-    })
-  }
-}
-
-// 定位到当前位置
-const handleLocate = () => {
-  loading.value = true
-  loadingText.value = '正在定位...'
-
-  uni.getLocation({
-    type: 'gcj02',
-    success: (res) => {
-      center.value = {
-        lng: res.longitude,
-        lat: res.latitude
-      }
-
-      mapContext.value.moveToLocation({
-        longitude: res.longitude,
-        latitude: res.latitude
+      // 添加标记
+      this.markers.push({
+        id: Date.now(),
+        latitude: location.lat,
+        longitude: location.lng,
+        iconPath: '/static/icons/spot-default.png',
+        width: 32,
+        height: 32,
+        callout: {
+          content: item.title,
+          display: 'ALWAYS'
+        },
+        spotData: item
       })
 
-      uni.showToast({
-        title: '定位成功',
-        icon: 'success'
+      this.searchResults = []
+      this.searchKeyword = ''
+    },
+
+    // 路线规划
+    async planRoute(mode) {
+      if (!this.selectedSpot || !this.userLocation) {
+        return uni.showToast({ title: '请先定位', icon: 'none' })
+      }
+
+      this.loading = true
+      this.loadingText = '规划路线...'
+
+      try {
+        const from = `${this.userLocation.lat},${this.userLocation.lng}`
+        const to = `${this.selectedSpot.lat_wgs84},${this.selectedSpot.lng_wgs84}`
+
+        const route = mode === 'walking'
+          ? await walkingRoute(from, to)
+          : await drivingRoute(from, to)
+
+        this.polyline = [{
+          points: route.polyline,
+          color: '#4a90e2',
+          width: 6,
+          borderColor: '#2a70c2',
+          borderWidth: 2
+        }]
+
+        const distance = (route.distance / 1000).toFixed(1)
+        const duration = Math.ceil(route.duration / 60)
+        uni.showToast({
+          title: `${distance}km，约${duration}分钟`,
+          icon: 'none'
+        })
+      } catch (error) {
+        console.error('路线规划失败:', error)
+        uni.showToast({ title: '路线规划失败', icon: 'none' })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // 导航
+    navigateToSpot() {
+      if (!this.selectedSpot) return
+      uni.openLocation({
+        latitude: this.selectedSpot.lat_wgs84,
+        longitude: this.selectedSpot.lng_wgs84,
+        name: this.selectedSpot.name,
+        address: this.selectedSpot.address || '',
+        scale: 15
       })
     },
-    fail: (err) => {
-      console.error('定位失败:', err)
-      uni.showToast({
-        title: '定位失败',
-        icon: 'none'
+
+    // 标记点击
+    onMarkerTap(e) {
+      const marker = this.markers.find(m => m.id === (e.detail.markerId || e.markerId))
+      if (marker && marker.spotData) {
+        this.selectedSpot = marker.spotData
+      }
+    },
+
+    // 关闭弹窗
+    closePopup() {
+      this.selectedSpot = null
+      this.polyline = []
+    },
+
+    // 地图控制
+    handleZoomIn() {
+      if (this.zoom < 20) this.zoom++
+    },
+
+    handleZoomOut() {
+      if (this.zoom > 3) this.zoom--
+    },
+
+    handleLocate() {
+      this.loading = true
+      this.loadingText = '定位中...'
+      uni.getLocation({
+        type: 'gcj02',
+        success: (res) => {
+          this.center = { lng: res.longitude, lat: res.latitude }
+          this.userLocation = { lng: res.longitude, lat: res.latitude }
+          uni.showToast({ title: '定位成功', icon: 'success' })
+        },
+        fail: () => {
+          uni.showToast({ title: '定位失败', icon: 'none' })
+        },
+        complete: () => {
+          this.loading = false
+        }
       })
     },
-    complete: () => {
-      loading.value = false
+
+    onRegionChange(e) {
+      if (e.type === 'end' && this.mapContext) {
+        this.mapContext.getCenterLocation({
+          success: (res) => {
+            this.center = { lng: res.longitude, lat: res.latitude }
+          }
+        })
+      }
+    },
+
+    getLevelColor(level) {
+      const colors = {
+        '5A': '#ff6b6b',
+        '4A': '#4ecdc4',
+        '3A': '#45b7d1',
+        '2A': '#96ceb4'
+      }
+      return colors[level] || '#95a5a6'
     }
-  })
+  }
 }
-
-onUnmounted(() => {
-  console.log('地图页面卸载')
-})
 </script>
 
 <style lang="scss" scoped>
@@ -366,16 +346,72 @@ onUnmounted(() => {
   width: 100%;
   height: 100vh;
   position: relative;
-  overflow: hidden;
 }
 
-/* 地图组件 */
 #mainMap {
   width: 100%;
   height: 100%;
 }
 
-/* 地图控件容器 */
+.search-bar {
+  position: absolute;
+  top: 20rpx;
+  left: 20rpx;
+  right: 20rpx;
+  display: flex;
+  gap: 16rpx;
+  z-index: 10;
+}
+
+.search-input {
+  flex: 1;
+  height: 70rpx;
+  padding: 0 24rpx;
+  background: #fff;
+  border-radius: 35rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+}
+
+.search-btn {
+  width: 70rpx;
+  height: 70rpx;
+  line-height: 70rpx;
+  text-align: center;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+  font-size: 32rpx;
+}
+
+.search-results {
+  position: absolute;
+  top: 100rpx;
+  left: 20rpx;
+  right: 20rpx;
+  max-height: 400rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.result-item {
+  padding: 24rpx;
+  border-bottom: 2rpx solid #f0f0f0;
+}
+
+.result-title {
+  font-size: 30rpx;
+  color: #333;
+  margin-bottom: 8rpx;
+}
+
+.result-address {
+  font-size: 24rpx;
+  color: #999;
+}
+
 .map-controls {
   position: absolute;
   right: 20rpx;
@@ -390,66 +426,37 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2rpx;
-  background-color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.95);
   border-radius: 8rpx;
   overflow: hidden;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.15);
 }
 
 .control-button {
-  width: 80rpx;
-  height: 80rpx;
+  width: 70rpx;
+  height: 70rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(255, 255, 255, 0.95);
-  cursor: pointer;
-  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .control-button:active {
-  background-color: rgba(240, 240, 240, 0.95);
+  background: rgba(240, 240, 240, 0.95);
 }
 
 .button-text {
-  font-size: 40rpx;
+  font-size: 36rpx;
   font-weight: bold;
   color: #333;
-  line-height: 1;
 }
 
-/* 缩放控件 */
-.zoom-controls {
-  .zoom-in {
-    border-bottom: 2rpx solid #e0e0e0;
-  }
-}
-
-/* 定位控件 */
-.location-control {
-  margin-top: 20rpx;
-}
-
-.location-button .button-text {
-  font-size: 36rpx;
-}
-
-/* 刷新控件 */
-.refresh-control {
-  margin-top: 20rpx;
-}
-
-.refresh-button .button-text {
-  font-size: 32rpx;
-}
-
-/* 地图信息显示 */
 .map-info {
   position: absolute;
-  top: 20rpx;
+  bottom: 150rpx;
   left: 20rpx;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 16rpx 24rpx;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 12rpx 20rpx;
   border-radius: 8rpx;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
 }
@@ -457,64 +464,27 @@ onUnmounted(() => {
 .info-item {
   font-size: 24rpx;
   color: #666;
-  line-height: 1.5;
-  margin-bottom: 8rpx;
 }
 
-.info-item:last-child {
-  margin-bottom: 0;
-}
-
-/* 加载提示 */
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.loading-content {
-  background-color: rgba(255, 255, 255, 0.95);
-  padding: 40rpx 60rpx;
-  border-radius: 12rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.loading-text {
-  font-size: 28rpx;
-  color: #333;
-  margin-top: 20rpx;
-}
-
-/* 景点详情弹窗 */
-.spot-detail-popup {
+.spot-popup {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  top: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: flex-end;
-  z-index: 1000;
-  animation: fadeIn 0.3s;
+  z-index: 100;
 }
 
 .popup-content {
   width: 100%;
-  background-color: #ffffff;
+  background: #fff;
   border-radius: 32rpx 32rpx 0 0;
   padding: 32rpx;
   max-height: 70vh;
   overflow-y: auto;
-  animation: slideUp 0.3s;
 }
 
 .popup-header {
@@ -537,7 +507,6 @@ onUnmounted(() => {
   font-size: 48rpx;
   color: #999;
   padding: 0 16rpx;
-  cursor: pointer;
 }
 
 .popup-body {
@@ -546,35 +515,33 @@ onUnmounted(() => {
 
 .detail-item {
   display: flex;
-  align-items: flex-start;
   margin-bottom: 20rpx;
   font-size: 28rpx;
 }
 
-.item-label {
+.label {
   color: #666;
   min-width: 120rpx;
   margin-right: 16rpx;
 }
 
-.item-value {
+.value {
   color: #333;
   flex: 1;
-  word-break: break-all;
 }
 
-.level-badge {
+.badge {
   display: inline-block;
   padding: 6rpx 16rpx;
   border-radius: 8rpx;
-  color: #ffffff;
+  color: #fff;
   font-size: 24rpx;
   font-weight: bold;
 }
 
 .popup-footer {
   display: flex;
-  gap: 24rpx;
+  gap: 16rpx;
 }
 
 .action-btn {
@@ -584,33 +551,25 @@ onUnmounted(() => {
   font-size: 28rpx;
   font-weight: bold;
   border: none;
-}
-
-.navigate-btn {
-  background-color: #4a90e2;
-  color: #ffffff;
-}
-
-.detail-btn {
-  background-color: #f0f0f0;
+  background: #f0f0f0;
   color: #333;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.nav-btn {
+  background: #4a90e2;
+  color: #fff;
 }
 
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
+.loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 32rpx 48rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  z-index: 999;
 }
 </style>

@@ -10,7 +10,7 @@ const responseInterceptor = (response) => {
     return response.data
   } else {
     uni.showToast({
-      title: \`请求失败: \${response.statusCode}\`,
+      title: `请求失败: ${response.statusCode}`,
       icon: 'none'
     })
     return Promise.reject(response)
@@ -53,9 +53,9 @@ const request = (options) => {
 export const get = (url, params = {}, useSightServer = false) => {
   const fullUrl = API_CONFIG.buildURL(url, useSightServer)
   const queryString = Object.keys(params)
-    .map(key => \`\${encodeURIComponent(key)}=\${encodeURIComponent(params[key])}\`)
+    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
     .join('&')
-  const requestUrl = queryString ? \`\${fullUrl}?\${queryString}\` : fullUrl
+  const requestUrl = queryString ? `${fullUrl}?${queryString}` : fullUrl
   return request({ url: requestUrl, method: 'GET' })
 }
 

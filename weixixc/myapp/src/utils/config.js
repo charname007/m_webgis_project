@@ -47,7 +47,7 @@ const API_CONFIG = {
 // 腾讯地图配置
 // 请在腾讯位置服务平台申请Key: https://lbs.qq.com/
 export const TENCENT_MAP_CONFIG = {
-  key: 'YOUR_TENCENT_MAP_KEY', // 替换为你的腾讯地图Key
+  key: 'WBYBZ-UJVCN-RMGFD-SMORX-7C53K-VZBSX', // 替换为你的腾讯地图Key
   apiBaseUrl: 'https://apis.map.qq.com',
 
   endpoints: {
