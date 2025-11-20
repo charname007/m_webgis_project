@@ -116,7 +116,7 @@
 </template>
 
 <script>
-import { getAllSpots, convertSpotsToMarkers } from '@/services/touristSpotService'
+import { getSpotsByBounds, convertSpotsToMarkers } from '@/services/touristSpotService'
 import { searchPlace, drivingRoute, walkingRoute } from '@/services/tencentMapService'
 
 export default {
@@ -132,38 +132,152 @@ export default {
       selectedSpot: null,
       searchKeyword: '',
       searchResults: [],
-      userLocation: null
+      userLocation: null,
+      // 动态加载相关
+      loadedSpotIds: new Set(), // 已加载的景点ID集合，用于去重
+      lastLoadTime: 0, // 上次加载时间戳
+      loadThrottle: 1000, // 加载节流时间（毫秒）
+      currentBounds: null, // 当前地图边界
+      loadRangeFactor: 0.6 // 加载范围缩小系数（0.6表示缩小到可视区域的60%）
+                           // 可调整范围：0.3-1.0
+                           // 0.3=加载更少景点, 1.0=加载可视区域所有景点
     }
   },
 
   onLoad() {
     this.mapContext = uni.createMapContext('mainMap', this)
-    this.loadSpots()
     this.getUserLocation()
+    // 延迟加载，等待地图初始化完成
+    setTimeout(() => {
+      this.loadSpotsInView()
+    }, 500)
   },
 
   methods: {
-    // 加载景点
-    async loadSpots() {
+    // 根据当前可视区域加载景点（带节流和去重）
+    async loadSpotsInView() {
+      // 节流：避免频繁请求
+      const now = Date.now()
+      if (now - this.lastLoadTime < this.loadThrottle) {
+        return
+      }
+      this.lastLoadTime = now
+
+      if (!this.mapContext) {
+        console.warn('地图上下文未初始化')
+        return
+      }
+
       this.loading = true
-      this.loadingText = '加载景点...'
+      this.loadingText = '加载附近景点...'
+
       try {
-        const result = await getAllSpots()
-        if (result.success) {
-          this.markers = convertSpotsToMarkers(result.data)
-          if (this.markers.length > 0) {
-            this.center = {
-              lng: this.markers[0].longitude,
-              lat: this.markers[0].latitude
-            }
+        // 获取地图区域信息
+        const region = await this.getMapRegion()
+        if (!region) {
+          console.error('无法获取地图区域')
+          return
+        }
+
+        this.currentBounds = region
+
+        // 从后端获取范围内的景点
+        const result = await getSpotsByBounds(region, this.zoom)
+
+        if (result.success && result.data.length > 0) {
+          // 去重：只添加新景点
+          const newSpots = result.data.filter(spot => !this.loadedSpotIds.has(spot.id))
+
+          if (newSpots.length > 0) {
+            // 记录已加载的景点ID
+            newSpots.forEach(spot => this.loadedSpotIds.add(spot.id))
+
+            // 转换为markers并合并到现有markers
+            const newMarkers = convertSpotsToMarkers(newSpots)
+            this.markers = [...this.markers, ...newMarkers]
+
+            console.log(`新增 ${newSpots.length} 个景点，总计 ${this.markers.length} 个`)
+          } else {
+            console.log('当前区域景点已全部加载')
           }
-          uni.showToast({ title: `加载了 ${this.markers.length} 个景点`, icon: 'success' })
         }
       } catch (error) {
-        console.error('加载失败:', error)
+        console.error('加载可视区域景点失败:', error)
       } finally {
         this.loading = false
       }
+    },
+
+    // 获取地图当前区域边界（缩小范围版本）
+    getMapRegion() {
+      return new Promise((resolve) => {
+        this.mapContext.getRegion({
+          success: (res) => {
+            // res包含: southwest {latitude, longitude}, northeast {latitude, longitude}
+            const originalBounds = {
+              southwest: {
+                lng: res.southwest.longitude,
+                lat: res.southwest.latitude
+              },
+              northeast: {
+                lng: res.northeast.longitude,
+                lat: res.northeast.latitude
+              }
+            }
+
+            // 计算原始范围的中心点和尺寸
+            const centerLng = (originalBounds.southwest.lng + originalBounds.northeast.lng) / 2
+            const centerLat = (originalBounds.southwest.lat + originalBounds.northeast.lat) / 2
+            const widthLng = originalBounds.northeast.lng - originalBounds.southwest.lng
+            const heightLat = originalBounds.northeast.lat - originalBounds.southwest.lat
+
+            // 缩小到原范围的60%（可调整shrinkFactor）
+            const shrinkFactor = 0.6
+            const newWidthLng = widthLng * shrinkFactor
+            const newHeightLat = heightLat * shrinkFactor
+
+            // 返回缩小后的范围
+            resolve({
+              southwest: {
+                lng: centerLng - newWidthLng / 2,
+                lat: centerLat - newHeightLat / 2
+              },
+              northeast: {
+                lng: centerLng + newWidthLng / 2,
+                lat: centerLat + newHeightLat / 2
+              }
+            })
+          },
+          fail: (err) => {
+            console.error('获取地图区域失败:', err)
+            // 降级：使用中心点估算更小的范围
+            const delta = 0.05 // 约5.5公里（原来是0.1约11公里）
+            resolve({
+              southwest: {
+                lng: this.center.lng - delta,
+                lat: this.center.lat - delta
+              },
+              northeast: {
+                lng: this.center.lng + delta,
+                lat: this.center.lat + delta
+              }
+            })
+          }
+        })
+      })
+    },
+
+    // 清除所有景点（用于刷新）
+    clearAllSpots() {
+      this.markers = []
+      this.loadedSpotIds.clear()
+      console.log('已清除所有景点')
+    },
+
+    // 旧的加载方法（保留用于手动刷新）
+    async loadSpots() {
+      this.clearAllSpots()
+      await this.loadSpotsInView()
     },
 
     // 获取用户位置
@@ -319,12 +433,19 @@ export default {
     },
 
     onRegionChange(e) {
+      // e.type: 'begin' 开始移动, 'end' 移动结束
+      // e.causedBy: 'gesture' 手势, 'scale' 缩放, 'update' 方法调用
       if (e.type === 'end' && this.mapContext) {
+        // 更新中心点
         this.mapContext.getCenterLocation({
           success: (res) => {
             this.center = { lng: res.longitude, lat: res.latitude }
           }
         })
+
+        // 地图移动或缩放结束后，加载新区域的景点
+        console.log('地图区域变化，触发加载:', e.causedBy)
+        this.loadSpotsInView()
       }
     },
 

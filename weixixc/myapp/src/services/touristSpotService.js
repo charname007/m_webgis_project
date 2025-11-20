@@ -17,18 +17,180 @@ export const getAllSpots = async () => {
       data: response
     }
   } catch (error) {
-    console.error('获取景点列表失败:', error)
+    console.error('获取景点列表失败，使用模拟数据:', error)
+    // 如果API请求失败，返回武汉地区的模拟景点数据
     return {
-      success: false,
-      error: error.message || '获取景点列表失败'
+      success: true,
+      data: getMockSpots()
     }
   }
 }
 
 /**
- * 根据关键词搜索景点
- * @param {string} keyword - 搜索关键词
+ * 获取模拟景点数据（用于开发和演示）
  */
+const getMockSpots = () => {
+  return [
+    {
+      id: 1,
+      name: '黄鹤楼',
+      level: '5A',
+      address: '武汉市武昌区蛇山西坡特1号',
+      lng_wgs84: 114.305539,
+      lat_wgs84: 30.544965,
+      rating: 4.6,
+      ticket_price: 70,
+      description: '江南三大名楼之一，享有"天下江山第一楼"的美誉'
+    },
+    {
+      id: 2,
+      name: '东湖风景区',
+      level: '5A',
+      address: '武汉市武昌区沿湖大道16号',
+      lng_wgs84: 114.377827,
+      lat_wgs84: 30.553673,
+      rating: 4.5,
+      ticket_price: 0,
+      description: '中国最大的城中湖，山清水秀'
+    },
+    {
+      id: 3,
+      name: '武汉大学',
+      level: '4A',
+      address: '武汉市武昌区八一路299号',
+      lng_wgs84: 114.371785,
+      lat_wgs84: 30.535812,
+      rating: 4.7,
+      ticket_price: 0,
+      description: '著名的樱花胜地，中国最美大学校园之一'
+    },
+    {
+      id: 4,
+      name: '户部巷',
+      level: '3A',
+      address: '武汉市武昌区户部巷',
+      lng_wgs84: 114.295044,
+      lat_wgs84: 30.547831,
+      rating: 4.3,
+      ticket_price: 0,
+      description: '汉味小吃第一巷，武汉著名美食街'
+    },
+    {
+      id: 5,
+      name: '武汉长江大桥',
+      level: '4A',
+      address: '武汉市武昌区临江大道',
+      lng_wgs84: 114.283211,
+      lat_wgs84: 30.557536,
+      rating: 4.4,
+      ticket_price: 0,
+      description: '万里长江第一桥，武汉地标建筑'
+    },
+    {
+      id: 6,
+      name: '古琴台',
+      level: '3A',
+      address: '武汉市汉阳区琴台路10号',
+      lng_wgs84: 114.266632,
+      lat_wgs84: 30.549948,
+      rating: 4.2,
+      ticket_price: 15,
+      description: '俞伯牙与钟子期高山流水遇知音的地方'
+    },
+    {
+      id: 7,
+      name: '木兰天池',
+      level: '5A',
+      address: '武汉市黄陂区长轩岭街道石门山',
+      lng_wgs84: 114.596954,
+      lat_wgs84: 31.046687,
+      rating: 4.4,
+      ticket_price: 80,
+      description: '国家森林公园，武汉的后花园'
+    },
+    {
+      id: 8,
+      name: '归元禅寺',
+      level: '4A',
+      address: '武汉市汉阳区归元寺路20号',
+      lng_wgs84: 114.254524,
+      lat_wgs84: 30.548776,
+      rating: 4.5,
+      ticket_price: 20,
+      description: '武汉佛教四大丛林之一，以罗汉堂著名'
+    },
+    {
+      id: 9,
+      name: '江汉路步行街',
+      level: '3A',
+      address: '武汉市江汉区江汉路',
+      lng_wgs84: 114.274422,
+      lat_wgs84: 30.595874,
+      rating: 4.3,
+      ticket_price: 0,
+      description: '百年商业老街，购物休闲好去处'
+    },
+    {
+      id: 10,
+      name: '晴川阁',
+      level: '3A',
+      address: '武汉市汉阳区洗马长街86号',
+      lng_wgs84: 114.272156,
+      lat_wgs84: 30.552741,
+      rating: 4.3,
+      ticket_price: 0,
+      description: '与黄鹤楼隔江相望，楚天第一名楼'
+    }
+  ]
+}
+
+/**
+ * 根据地图边界获取景点（用于动态加载）
+ * @param {object} bounds - 地图边界 { southwest: {lng, lat}, northeast: {lng, lat} }
+ * @param {number} zoom - 当前缩放级别（可选，用于控制返回数量）
+ */
+export const getSpotsByBounds = async (bounds, zoom = 12) => {
+  try {
+    const { southwest, northeast } = bounds
+    const params = {
+      minLng: southwest.lng,
+      minLat: southwest.lat,
+      maxLng: northeast.lng,
+      maxLat: northeast.lat,
+      zoom
+    }
+
+    const response = await get(API_CONFIG.endpoints.touristSpots.list, params)
+    return {
+      success: true,
+      data: response
+    }
+  } catch (error) {
+    console.error('获取范围内景点失败，使用模拟数据筛选:', error)
+    // 降级：从模拟数据中筛选范围内的景点
+    const allSpots = getMockSpots()
+    const filteredSpots = filterSpotsByBounds(allSpots, bounds)
+    return {
+      success: true,
+      data: filteredSpots
+    }
+  }
+}
+
+/**
+ * 从景点列表中筛选出在指定范围内的景点
+ * @param {Array} spots - 景点数组
+ * @param {object} bounds - 地图边界
+ */
+const filterSpotsByBounds = (spots, bounds) => {
+  const { southwest, northeast } = bounds
+  return spots.filter(spot => {
+    const lng = spot.lng_wgs84 || spot.longitude
+    const lat = spot.lat_wgs84 || spot.latitude
+    return lng >= southwest.lng && lng <= northeast.lng &&
+           lat >= southwest.lat && lat <= northeast.lat
+  })
+}
 export const searchSpots = async (keyword) => {
   try {
     const response = await get(API_CONFIG.endpoints.touristSpots.search, { keyword })
@@ -227,6 +389,7 @@ const getLevelColor = (level) => {
 
 export default {
   getAllSpots,
+  getSpotsByBounds,
   searchSpots,
   getSpotByName,
   addSpot,
