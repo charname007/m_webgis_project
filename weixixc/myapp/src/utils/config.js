@@ -28,7 +28,8 @@ const API_CONFIG = {
     },
 
     sights: {
-      geojsonByExtentAndLevel: '/api/sights/geojson/extent-level',
+      // 根据范围和等级获取景点GeoJSON（PostGIS空间查询）
+      geojsonByExtentAndLevel: '/postgis/WGP_db/tables/a_sight/geojson/extent-level',
       all: '/api/sights/all'
     },
 

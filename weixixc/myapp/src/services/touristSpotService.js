@@ -146,24 +146,81 @@ const getMockSpots = () => {
 
 /**
  * 根据地图边界获取景点（用于动态加载）
+ * 使用PostGIS空间查询API，支持范围和等级筛选
  * @param {object} bounds - 地图边界 { southwest: {lng, lat}, northeast: {lng, lat} }
- * @param {number} zoom - 当前缩放级别（可选，用于控制返回数量）
+ * @param {number} zoom - 当前缩放级别（用于控制返回的景点等级）
  */
 export const getSpotsByBounds = async (bounds, zoom = 12) => {
   try {
     const { southwest, northeast } = bounds
-    const params = {
-      minLng: southwest.lng,
-      minLat: southwest.lat,
-      maxLng: northeast.lng,
-      maxLat: northeast.lat,
-      zoom
+
+    // 根据缩放级别决定加载哪些等级的景点
+    // zoom越大（放大），显示的等级越多
+    let levels = []
+    if (zoom >= 15) {
+      // 放大到15级以上，显示所有等级
+      levels = ['5A', '4A', '3A', '2A', '1A']
+    } else if (zoom >= 13) {
+      // 13-14级，显示4A及以上
+      levels = ['5A', '4A', '3A']
+    } else if (zoom >= 11) {
+      // 11-12级，显示5A和4A
+      levels = ['5A', '4A']
+    } else {
+      // 10级以下，只显示5A景点
+      levels = ['5A']
     }
 
-    const response = await get(API_CONFIG.endpoints.touristSpots.list, params)
+    const requestBody = {
+      minLon: southwest.lng,
+      minLat: southwest.lat,
+      maxLon: northeast.lng,
+      maxLat: northeast.lat,
+      levels: levels
+    }
+
+    console.log('请求景点范围:', requestBody)
+
+    // 使用POST方法调用PostGIS空间查询API
+    const response = await post(API_CONFIG.endpoints.sights.geojsonByExtentAndLevel, requestBody)
+
+    // 解析GeoJSON数据
+    let spots = []
+    if (response && response.features && Array.isArray(response.features)) {
+      console.log(`✅ 后端返回 ${response.features.length} 个景点（GeoJSON格式）`)
+
+      // 将GeoJSON features转换为景点对象
+      spots = response.features.map((feature, index) => {
+        const props = feature.properties || {}
+        const coords = feature.geometry?.coordinates || [0, 0]
+
+        return {
+          id: props.id || props.gid || index,
+          name: props.name || props.名称 || '未命名景点',
+          level: props.level || props.等级,
+          address: props.address || props.地址,
+          lng_wgs84: coords[0],
+          lat_wgs84: coords[1],
+          rating: props.rating || props.评分,
+          ticket_price: props.ticket_price || props.门票,
+          description: props.description || props.介绍,
+          // 保存原始properties用于调试
+          _rawProperties: props
+        }
+      })
+
+      // 最终保护：最多返回200个景点（GeoJSON数据量较小，可以多返回一些）
+      if (spots.length > 200) {
+        console.warn(`⚠️ 景点过多(${spots.length}个)，限制为200个`)
+        spots = spots.slice(0, 200)
+      }
+    } else {
+      console.warn('后端返回数据格式不正确:', response)
+    }
+
     return {
       success: true,
-      data: response
+      data: spots
     }
   } catch (error) {
     console.error('获取范围内景点失败，使用模拟数据筛选:', error)

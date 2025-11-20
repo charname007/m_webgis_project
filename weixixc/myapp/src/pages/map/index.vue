@@ -75,6 +75,19 @@
         </view>
 
         <view class="popup-body">
+          <!-- 图片 -->
+          <view v-if="spotDetailLoading" class="image-loading">
+            <text>加载详细信息中...</text>
+          </view>
+          <image
+            v-else-if="selectedSpotDetail && selectedSpotDetail.图片链接"
+            :src="selectedSpotDetail.图片链接"
+            class="spot-image"
+            mode="aspectFill"
+            @error="handleImageError"
+          />
+
+          <!-- 基本信息（来自GeoJSON，立即显示） -->
           <view class="detail-item" v-if="selectedSpot.level">
             <text class="label">等级:</text>
             <text class="value badge" :style="{ backgroundColor: getLevelColor(selectedSpot.level) }">
@@ -87,16 +100,49 @@
             <text class="value">{{ selectedSpot.address }}</text>
           </view>
 
-          <view class="detail-item" v-if="selectedSpot.rating">
-            <text class="label">评分:</text>
-            <text class="value">{{ selectedSpot.rating }} 分</text>
-          </view>
+          <!-- 详细信息（从API获取，延迟显示） -->
+          <template v-if="selectedSpotDetail">
+            <view class="detail-item" v-if="selectedSpotDetail.评分">
+              <text class="label">评分:</text>
+              <text class="value">⭐ {{ selectedSpotDetail.评分 }} 分</text>
+            </view>
 
-          <view class="detail-item" v-if="selectedSpot.ticket_price !== undefined">
-            <text class="label">票价:</text>
-            <text class="value">
-              {{ selectedSpot.ticket_price === 0 ? '免费' : `¥${selectedSpot.ticket_price}` }}
-            </text>
+            <view class="detail-item" v-if="selectedSpotDetail.门票 !== undefined && selectedSpotDetail.门票 !== null">
+              <text class="label">票价:</text>
+              <text class="value">
+                {{ selectedSpotDetail.门票 === 0 || selectedSpotDetail.门票 === '0' ? '免费' : `¥${selectedSpotDetail.门票}` }}
+              </text>
+            </view>
+
+            <view class="detail-item" v-if="selectedSpotDetail.开放时间">
+              <text class="label">开放时间:</text>
+              <text class="value">{{ selectedSpotDetail.开放时间 }}</text>
+            </view>
+
+            <view class="detail-item" v-if="selectedSpotDetail.建议游玩时间">
+              <text class="label">游玩时间:</text>
+              <text class="value">{{ selectedSpotDetail.建议游玩时间 }}</text>
+            </view>
+
+            <view class="detail-item" v-if="selectedSpotDetail.建议季节">
+              <text class="label">建议季节:</text>
+              <text class="value">{{ selectedSpotDetail.建议季节 }}</text>
+            </view>
+
+            <view class="detail-item" v-if="selectedSpotDetail.介绍">
+              <text class="label">介绍:</text>
+              <text class="value description">{{ selectedSpotDetail.介绍 }}</text>
+            </view>
+
+            <view class="detail-item" v-if="selectedSpotDetail.小贴士">
+              <text class="label">小贴士:</text>
+              <text class="value tips">{{ selectedSpotDetail.小贴士 }}</text>
+            </view>
+          </template>
+
+          <!-- 如果没有详细信息，显示提示 -->
+          <view v-else-if="!spotDetailLoading && spotDetailFailed" class="no-detail-info">
+            <text>暂无更多详细信息</text>
           </view>
         </view>
 
@@ -138,9 +184,11 @@ export default {
       lastLoadTime: 0, // 上次加载时间戳
       loadThrottle: 1000, // 加载节流时间（毫秒）
       currentBounds: null, // 当前地图边界
-      loadRangeFactor: 0.6 // 加载范围缩小系数（0.6表示缩小到可视区域的60%）
+      loadRangeFactor: 0.6, // 加载范围缩小系数（0.6表示缩小到可视区域的60%）
                            // 可调整范围：0.3-1.0
                            // 0.3=加载更少景点, 1.0=加载可视区域所有景点
+      isMapReady: false, // 地图是否已准备好
+      isInitialLoad: true // 是否是初始加载
     }
   },
 
@@ -149,8 +197,9 @@ export default {
     this.getUserLocation()
     // 延迟加载，等待地图初始化完成
     setTimeout(() => {
+      this.isMapReady = true
       this.loadSpotsInView()
-    }, 500)
+    }, 1000) // 增加到1秒，确保地图完全初始化
   },
 
   methods: {
@@ -231,8 +280,8 @@ export default {
             const widthLng = originalBounds.northeast.lng - originalBounds.southwest.lng
             const heightLat = originalBounds.northeast.lat - originalBounds.southwest.lat
 
-            // 缩小到原范围的60%（可调整shrinkFactor）
-            const shrinkFactor = 0.6
+            // 缩小到原范围的指定比例（由loadRangeFactor控制）
+            const shrinkFactor = this.loadRangeFactor
             const newWidthLng = widthLng * shrinkFactor
             const newHeightLat = heightLat * shrinkFactor
 
@@ -406,11 +455,19 @@ export default {
 
     // 地图控制
     handleZoomIn() {
-      if (this.zoom < 20) this.zoom++
+      if (this.zoom < 20) {
+        this.zoom++
+        // 缩放由用户主动触发，标记为初始加载完成
+        this.isInitialLoad = false
+      }
     },
 
     handleZoomOut() {
-      if (this.zoom > 3) this.zoom--
+      if (this.zoom > 3) {
+        this.zoom--
+        // 缩放由用户主动触发，标记为初始加载完成
+        this.isInitialLoad = false
+      }
     },
 
     handleLocate() {
@@ -433,10 +490,29 @@ export default {
     },
 
     onRegionChange(e) {
-      // e.type: 'begin' 开始移动, 'end' 移动结束
+      // 地图初始化期间忽略所有regionchange事件
+      if (!this.isMapReady) {
+        console.log('地图初始化中，忽略regionchange事件')
+        return
+      }
+
+      // 只处理移动/缩放结束事件
+      if (e.type !== 'end') {
+        return
+      }
+
+      // 初次加载后的第一次regionchange也忽略（通常是地图自动调整）
+      if (this.isInitialLoad) {
+        console.log('首次regionchange，忽略')
+        this.isInitialLoad = false
+        return
+      }
+
       // e.causedBy: 'gesture' 手势, 'scale' 缩放, 'update' 方法调用
-      if (e.type === 'end' && this.mapContext) {
-        // 更新中心点
+      console.log('地图区域变化，触发加载:', e.causedBy, e.type)
+
+      // 更新中心点
+      if (this.mapContext) {
         this.mapContext.getCenterLocation({
           success: (res) => {
             this.center = { lng: res.longitude, lat: res.latitude }
@@ -444,7 +520,6 @@ export default {
         })
 
         // 地图移动或缩放结束后，加载新区域的景点
-        console.log('地图区域变化，触发加载:', e.causedBy)
         this.loadSpotsInView()
       }
     },
