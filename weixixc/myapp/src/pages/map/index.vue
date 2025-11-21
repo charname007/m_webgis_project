@@ -8,7 +8,7 @@
         placeholder="搜索地点"
         @confirm="handleSearch"
       />
-      <view class="search-btn" @tap="handleSearch">🔍</view>
+      <view class="search-btn" @tap="handleSearch">搜索</view>
     </view>
 
     <!-- 搜索结果 -->
@@ -49,13 +49,34 @@
 
         <cover-view class="control-group">
           <cover-view class="control-button" @tap="handleLocate">
-            <cover-view class="button-text">📍</cover-view>
+            <cover-view class="button-text">定位</cover-view>
+          </cover-view>
+          <cover-view
+            class="control-button tracking-button"
+            :class="{ 'tracking-active': isTrackingLocation }"
+            @tap="toggleLocationTracking"
+          >
+            <cover-view class="button-text">
+              {{ isTrackingLocation ? '停止' : '跟踪' }}
+            </cover-view>
           </cover-view>
         </cover-view>
 
         <cover-view class="control-group">
           <cover-view class="control-button" @tap="loadSpots">
-            <cover-view class="button-text">🔄</cover-view>
+            <cover-view class="button-text">刷新</cover-view>
+          </cover-view>
+        </cover-view>
+
+        <cover-view class="control-group">
+          <cover-view class="control-button admin-button" @tap="goToAdmin">
+            <cover-view class="button-text">管理</cover-view>
+          </cover-view>
+        </cover-view>
+
+        <cover-view v-if="polyline.length > 0" class="control-group">
+          <cover-view class="control-button clear-route-btn" @tap="clearRoute">
+            <cover-view class="button-text">清除路线</cover-view>
           </cover-view>
         </cover-view>
       </cover-view>
@@ -63,6 +84,9 @@
       <!-- 地图信息 -->
       <cover-view class="map-info">
         <cover-view class="info-item">景点: {{ markers.length }}</cover-view>
+        <cover-view v-if="polyline.length > 0" class="info-item route-active">
+          路线已规划
+        </cover-view>
       </cover-view>
     </map>
 
@@ -71,7 +95,7 @@
       <view class="popup-content" @tap.stop>
         <view class="popup-header">
           <text class="spot-name">{{ selectedSpot.name }}</text>
-          <text class="close-btn" @tap="closePopup">✕</text>
+          <text class="close-btn" @tap="closePopup">X</text>
         </view>
 
         <view class="popup-body">
@@ -80,14 +104,14 @@
             <text>加载详细信息中...</text>
           </view>
           <image
-            v-else-if="selectedSpotDetail && selectedSpotDetail.图片链接"
-            :src="selectedSpotDetail.图片链接"
+            v-else-if="selectedSpotDetail && selectedSpotDetail.imageUrl"
+            :src="selectedSpotDetail.imageUrl"
             class="spot-image"
             mode="aspectFill"
             @error="handleImageError"
           />
 
-          <!-- 基本信息（来自GeoJSON，立即显示） -->
+          <!-- 基本信息(来自GeoJSON，立即显示) -->
           <view class="detail-item" v-if="selectedSpot.level">
             <text class="label">等级:</text>
             <text class="value badge" :style="{ backgroundColor: getLevelColor(selectedSpot.level) }">
@@ -100,43 +124,43 @@
             <text class="value">{{ selectedSpot.address }}</text>
           </view>
 
-          <!-- 详细信息（从API获取，延迟显示） -->
+          <!-- 详细信息(从API获取，延迟显示) -->
           <template v-if="selectedSpotDetail">
-            <view class="detail-item" v-if="selectedSpotDetail.评分">
+            <view class="detail-item" v-if="selectedSpotDetail.rating">
               <text class="label">评分:</text>
-              <text class="value">⭐ {{ selectedSpotDetail.评分 }} 分</text>
+              <text class="value">{{ selectedSpotDetail.rating }} 分</text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.门票 !== undefined && selectedSpotDetail.门票 !== null">
+            <view class="detail-item" v-if="selectedSpotDetail.ticketPrice !== undefined && selectedSpotDetail.ticketPrice !== null">
               <text class="label">票价:</text>
               <text class="value">
-                {{ selectedSpotDetail.门票 === 0 || selectedSpotDetail.门票 === '0' ? '免费' : `¥${selectedSpotDetail.门票}` }}
+                {{ selectedSpotDetail.ticketPrice === 0 || selectedSpotDetail.ticketPrice === '0' ? '免费' : `¥${selectedSpotDetail.ticketPrice}` }}
               </text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.开放时间">
+            <view class="detail-item" v-if="selectedSpotDetail.openTime">
               <text class="label">开放时间:</text>
-              <text class="value">{{ selectedSpotDetail.开放时间 }}</text>
+              <text class="value">{{ selectedSpotDetail.openTime }}</text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.建议游玩时间">
+            <view class="detail-item" v-if="selectedSpotDetail.recommendedDuration">
               <text class="label">游玩时间:</text>
-              <text class="value">{{ selectedSpotDetail.建议游玩时间 }}</text>
+              <text class="value">{{ selectedSpotDetail.recommendedDuration }}</text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.建议季节">
+            <view class="detail-item" v-if="selectedSpotDetail.recommendedSeason">
               <text class="label">建议季节:</text>
-              <text class="value">{{ selectedSpotDetail.建议季节 }}</text>
+              <text class="value">{{ selectedSpotDetail.recommendedSeason }}</text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.介绍">
+            <view class="detail-item" v-if="selectedSpotDetail.description">
               <text class="label">介绍:</text>
-              <text class="value description">{{ selectedSpotDetail.介绍 }}</text>
+              <text class="value description">{{ selectedSpotDetail.description }}</text>
             </view>
 
-            <view class="detail-item" v-if="selectedSpotDetail.小贴士">
+            <view class="detail-item" v-if="selectedSpotDetail.tips">
               <text class="label">小贴士:</text>
-              <text class="value tips">{{ selectedSpotDetail.小贴士 }}</text>
+              <text class="value tips">{{ selectedSpotDetail.tips }}</text>
             </view>
           </template>
 
@@ -158,14 +182,66 @@
     <view v-if="loading" class="loading">
       <text>{{ loadingText }}</text>
     </view>
+
+    <!-- 聚合点列表弹窗 -->
+    <view v-if="showClusterList" class="cluster-popup" @tap="closeClusterList">
+      <view class="cluster-popup-content" @tap.stop>
+        <view class="cluster-popup-header">
+          <text class="cluster-title">
+            该区域包含 {{ currentClusterSpots.length }} 个景点
+          </text>
+          <text class="close-btn" @tap="closeClusterList">X</text>
+        </view>
+
+        <scroll-view class="cluster-spot-list" scroll-y>
+          <view
+            v-for="(spot, index) in currentClusterSpots"
+            :key="index"
+            class="cluster-spot-item"
+            @tap="viewClusterSpotDetail(spot)"
+          >
+            <view
+              v-if="spot.level"
+              class="spot-level-badge"
+              :style="{ backgroundColor: getLevelColor(spot.level) }"
+            >
+              {{ spot.level }}
+            </view>
+            <view class="spot-info">
+              <text class="spot-name">{{ spot.name }}</text>
+              <text v-if="spot.address" class="spot-address">{{ spot.address }}</text>
+            </view>
+            <text class="view-detail-icon">></text>
+          </view>
+        </scroll-view>
+
+        <view class="cluster-popup-footer">
+          <button class="cluster-action-btn zoom-btn" @tap="zoomToCluster">
+            放大查看
+          </button>
+        </view>
+      </view>
+    </view>
+
+    <!-- AI 查询面板 -->
+    <AIQueryPanel
+      :auto-collapse="!!selectedSpot"
+      @query-result="handleAIQueryResult"
+    />
   </view>
 </template>
 
 <script>
-import { getSpotsByBounds, convertSpotsToMarkers } from '@/services/touristSpotService'
+import { getSpotsByBounds, convertSpotsToMarkers, getSpotByName } from '@/services/touristSpotService'
 import { searchPlace, drivingRoute, walkingRoute } from '@/services/tencentMapService'
+import locationService from '@/services/locationService'
+import AIQueryPanel from '@/components/AIQueryPanel.vue'
 
 export default {
+  components: {
+    AIQueryPanel
+  },
+
   data() {
     return {
       center: { lng: 114.353, lat: 30.531 },
@@ -179,6 +255,9 @@ export default {
       searchKeyword: '',
       searchResults: [],
       userLocation: null,
+      // 位置跟踪相关
+      isTrackingLocation: false,
+      userLocationMarker: null,
       // 动态加载相关
       loadedSpotIds: new Set(), // 已加载的景点ID集合，用于去重
       lastLoadTime: 0, // 上次加载时间戳
@@ -188,13 +267,26 @@ export default {
                            // 可调整范围：0.3-1.0
                            // 0.3=加载更少景点, 1.0=加载可视区域所有景点
       isMapReady: false, // 地图是否已准备好
-      isInitialLoad: true // 是否是初始加载
+      isInitialLoad: true, // 是否是初始加载
+      // 景点详情相关
+      selectedSpotDetail: null, // 详细信息（从API获取）
+      spotDetailLoading: false, // 详情加载状态
+      spotDetailFailed: false, // 详情加载失败标志
+      // 点聚合相关
+      clusterData: {}, // 存储 clusterId -> markers 映射
+      isClusterEnabled: false, // 当前是否启用聚合
+      clusterThreshold: 13, // 聚合阈值（scale < 13 时聚合）
+      showClusterList: false, // 聚合点列表弹窗显示状态
+      currentClusterSpots: [], // 当前聚合点包含的景点列表
+      currentClusterCenter: null // 当前聚合点中心坐标（用于"放大查看"）
     }
   },
 
   onLoad() {
     this.mapContext = uni.createMapContext('mainMap', this)
     this.getUserLocation()
+    // 初始化点聚合功能
+    this.initMarkerCluster()
     // 延迟加载，等待地图初始化完成
     setTimeout(() => {
       this.isMapReady = true
@@ -202,7 +294,283 @@ export default {
     }, 1000) // 增加到1秒，确保地图完全初始化
   },
 
+  onUnload() {
+    // 页面卸载时停止位置跟踪
+    if (this.isTrackingLocation) {
+      this.stopLocationTracking()
+    }
+  },
+
   methods: {
+    // ==================== 点聚合相关方法 ====================
+
+    /**
+     * 初始化点聚合功能
+     */
+    initMarkerCluster() {
+      if (!this.mapContext) {
+        console.error('地图上下文未初始化,无法初始化点聚合')
+        return
+      }
+
+      try {
+        // 初始化点聚合配置
+        this.mapContext.initMarkerCluster({
+          enableDefaultStyle: false, // 使用自定义样式
+          zoomOnClick: false, // 禁用自动放大（我们自己控制）
+          gridSize: 60, // 聚合范围60像素
+          complete: (res) => {
+            console.log('✅ 点聚合初始化成功:', res)
+            // 根据当前缩放级别决定是否启用聚合
+            this.isClusterEnabled = this.zoom < this.clusterThreshold
+          }
+        })
+
+        // 监听聚合点创建事件
+        this.mapContext.on('markerClusterCreate', (res) => {
+          console.log('📍 聚合点创建事件:', res)
+          const clusters = res.clusters
+
+          if (!clusters || clusters.length === 0) {
+            return
+          }
+
+          // 为每个聚合点创建自定义标记
+          const clusterMarkers = []
+
+          clusters.forEach(cluster => {
+            const { center, clusterId, markerIds } = cluster
+
+            // 获取聚合点包含的所有 markers
+            const containedMarkers = markerIds.map(markerId => {
+              return this.markers.find(m => m.id === markerId)
+            }).filter(m => m) // 过滤掉undefined
+
+            // 保存聚合点到markers的映射
+            this.clusterData[clusterId] = containedMarkers
+
+            // 分析聚合点中的最高等级
+            const highestLevel = this.getHighestLevel(containedMarkers)
+
+            // 获取聚合点样式
+            const clusterStyle = this.getClusterStyle(highestLevel, markerIds.length)
+
+            // 创建聚合点标记
+            const clusterMarker = {
+              ...center,
+              width: 0,
+              height: 0,
+              clusterId: clusterId, // 标记这是一个聚合点
+              isCluster: true, // 添加标识
+              label: clusterStyle
+            }
+
+            clusterMarkers.push(clusterMarker)
+          })
+
+          // 将聚合点标记添加到地图
+          if (clusterMarkers.length > 0) {
+            this.mapContext.addMarkers({
+              markers: clusterMarkers,
+              clear: false
+            })
+            console.log(`✅ 已添加 ${clusterMarkers.length} 个聚合点`)
+          }
+        })
+
+        console.log('✅ 点聚合事件监听器已设置')
+      } catch (error) {
+        console.error('❌ 初始化点聚合失败:', error)
+      }
+    },
+
+    /**
+     * 分析一组markers中的最高等级
+     * @param {Array} markers - marker数组
+     * @returns {string} 最高等级
+     */
+    getHighestLevel(markers) {
+      if (!markers || markers.length === 0) {
+        return 'default'
+      }
+
+      // 等级优先级
+      const levelPriority = {
+        '5A': 5,
+        '4A': 4,
+        '3A': 3,
+        '2A': 2,
+        '1A': 1,
+        'default': 0
+      }
+
+      let highestLevel = 'default'
+      let highestPriority = 0
+
+      markers.forEach(marker => {
+        const spotData = marker.spotData || {}
+        const level = spotData.level || 'default'
+        const priority = levelPriority[level] || 0
+
+        if (priority > highestPriority) {
+          highestPriority = priority
+          highestLevel = level
+        }
+      })
+
+      return highestLevel
+    },
+
+    /**
+     * 根据等级和数量返回聚合点样式
+     * @param {string} level - 景点等级
+     * @param {number} count - 景点数量
+     * @returns {object} label样式对象
+     */
+    getClusterStyle(level, count) {
+      // 根据等级获取边框颜色
+      const colorMap = {
+        '5A': '#ff6b6b',  // 红色
+        '4A': '#4ecdc4',  // 青色
+        '3A': '#45b7d1',  // 蓝色
+        '2A': '#96ceb4',  // 绿色
+        'default': '#95a5a6'  // 灰色
+      }
+
+      const borderColor = colorMap[level] || colorMap.default
+
+      return {
+        content: count.toString(),
+        fontSize: 16,
+        width: 40,
+        height: 40,
+        borderWidth: 2,
+        borderColor: borderColor,
+        bgColor: '#fff',
+        borderRadius: 20,
+        textAlign: 'center',
+        anchorX: 0,
+        anchorY: -20
+      }
+    },
+
+    /**
+     * 根据当前缩放级别切换聚合状态
+     */
+    toggleClusterState() {
+      const shouldEnableCluster = this.zoom < this.clusterThreshold
+
+      if (this.isClusterEnabled === shouldEnableCluster) {
+        // 状态未改变，不需要操作
+        return
+      }
+
+      console.log(`🔄 切换聚合状态: zoom=${this.zoom}, threshold=${this.clusterThreshold}, enable=${shouldEnableCluster}`)
+
+      this.isClusterEnabled = shouldEnableCluster
+
+      if (!shouldEnableCluster) {
+        // 缩放级别达到阈值，禁用聚合时清空聚合数据
+        this.clusterData = {}
+        console.log('📍 聚合已禁用，将显示所有独立景点')
+      } else {
+        console.log('📍 聚合已启用')
+      }
+    },
+
+    /**
+     * 关闭聚合点列表弹窗
+     */
+    closeClusterList() {
+      this.showClusterList = false
+      this.currentClusterSpots = []
+      this.currentClusterCenter = null
+    },
+
+    /**
+     * 查看聚合点中某个景点的详情
+     * @param {Object} spot - 景点数据
+     */
+    async viewClusterSpotDetail(spot) {
+      // 关闭聚合点列表
+      this.closeClusterList()
+
+      // 显示该景点的详情弹窗
+      this.selectedSpot = spot
+
+      // 异步加载详细信息
+      this.spotDetailLoading = true
+      this.spotDetailFailed = false
+      this.selectedSpotDetail = null
+
+      try {
+        console.log(`加载景点详情: ${spot.name}`)
+        const result = await getSpotByName(spot.name)
+
+        if (result.success && result.data) {
+          this.selectedSpotDetail = result.data
+          console.log('[SUCCESS] 景点详情加载成功:', result.data)
+        } else {
+          console.warn('[WARN] 景点详情加载失败，无数据')
+          this.spotDetailFailed = true
+        }
+      } catch (error) {
+        console.error('[ERROR] 获取景点详情失败:', error)
+        this.spotDetailFailed = true
+      } finally {
+        this.spotDetailLoading = false
+      }
+    },
+
+    /**
+     * 放大查看聚合点区域
+     */
+    zoomToCluster() {
+      if (!this.currentClusterCenter || !this.currentClusterSpots.length) {
+        return
+      }
+
+      // 计算所有景点的边界
+      let minLat = Infinity, maxLat = -Infinity
+      let minLng = Infinity, maxLng = -Infinity
+
+      this.currentClusterSpots.forEach(spot => {
+        const lat = spot.lat_wgs84 || spot.latitude
+        const lng = spot.lng_wgs84 || spot.longitude
+
+        if (lat && lng) {
+          minLat = Math.min(minLat, lat)
+          maxLat = Math.max(maxLat, lat)
+          minLng = Math.min(minLng, lng)
+          maxLng = Math.max(maxLng, lng)
+        }
+      })
+
+      // 计算中心点
+      const centerLat = (minLat + maxLat) / 2
+      const centerLng = (minLng + maxLng) / 2
+
+      // 更新地图中心和缩放级别
+      this.center = {
+        lng: centerLng,
+        lat: centerLat
+      }
+
+      // 自动放大到合适的级别（通常比当前大2-3级）
+      this.zoom = Math.min(this.zoom + 3, 18)
+
+      // 关闭聚合点列表
+      this.closeClusterList()
+
+      uni.showToast({
+        title: '已放大到该区域',
+        icon: 'success',
+        duration: 1500
+      })
+    },
+
+    // ==================== 原有方法 ====================
+
     // 根据当前可视区域加载景点（带节流和去重）
     async loadSpotsInView() {
       // 节流：避免频繁请求
@@ -241,8 +609,18 @@ export default {
             // 记录已加载的景点ID
             newSpots.forEach(spot => this.loadedSpotIds.add(spot.id))
 
-            // 转换为markers并合并到现有markers
+            // 转换为markers
             const newMarkers = convertSpotsToMarkers(newSpots)
+
+            // 使用 MapContext API 添加 markers
+            if (this.mapContext && this.mapContext.addMarkers) {
+              this.mapContext.addMarkers({
+                markers: newMarkers,
+                clear: false
+              })
+            }
+
+            // 更新本地 markers 数组（用于后续聚合点分析）
             this.markers = [...this.markers, ...newMarkers]
 
             console.log(`新增 ${newSpots.length} 个景点，总计 ${this.markers.length} 个`)
@@ -318,8 +696,17 @@ export default {
 
     // 清除所有景点（用于刷新）
     clearAllSpots() {
+      // 使用 MapContext API 清空地图上的所有 markers
+      if (this.mapContext && this.mapContext.addMarkers) {
+        this.mapContext.addMarkers({
+          markers: [],
+          clear: true
+        })
+      }
+      // 清空本地数据
       this.markers = []
       this.loadedSpotIds.clear()
+      this.clusterData = {}
       console.log('已清除所有景点')
     },
 
@@ -351,6 +738,12 @@ export default {
         const location = `${this.center.lat},${this.center.lng}`
         const results = await searchPlace(this.searchKeyword, { location, radius: 5000 })
         this.searchResults = results || []
+
+        // 打印搜索结果的完整数据结构，查看都有哪些字段
+        if (this.searchResults.length > 0) {
+          console.log('[DEBUG] 搜索结果示例:', this.searchResults[0])
+          console.log('[DEBUG] 可用字段:', Object.keys(this.searchResults[0]))
+        }
 
         if (this.searchResults.length === 0) {
           uni.showToast({ title: '未找到结果', icon: 'none' })
@@ -439,18 +832,92 @@ export default {
       })
     },
 
-    // 标记点击
-    onMarkerTap(e) {
-      const marker = this.markers.find(m => m.id === (e.detail.markerId || e.markerId))
+    // 标记点击（两层数据加载 + 聚合点处理）
+    async onMarkerTap(e) {
+      const markerId = e.detail.markerId || e.markerId
+      console.log('📍 点击marker:', markerId)
+
+      // 首先检查是否点击的是聚合点
+      if (this.clusterData && this.clusterData[markerId]) {
+        // 这是一个聚合点
+        console.log('📍 点击了聚合点:', markerId)
+        const containedMarkers = this.clusterData[markerId]
+
+        // 提取所有包含的景点数据
+        this.currentClusterSpots = containedMarkers.map(m => m.spotData).filter(s => s)
+
+        // 计算聚合点的中心坐标（用于"放大查看"）
+        if (containedMarkers.length > 0) {
+          const firstMarker = containedMarkers[0]
+          this.currentClusterCenter = {
+            latitude: firstMarker.latitude,
+            longitude: firstMarker.longitude
+          }
+        }
+
+        // 显示聚合点列表弹窗
+        this.showClusterList = true
+        return
+      }
+
+      // 否则按照原有逻辑处理普通marker
+      const marker = this.markers.find(m => m.id === markerId)
       if (marker && marker.spotData) {
+        // 第一层：立即显示基本信息（来自GeoJSON）
         this.selectedSpot = marker.spotData
+
+        // 第二层：异步加载详细信息（从API获取）
+        this.spotDetailLoading = true
+        this.spotDetailFailed = false
+        this.selectedSpotDetail = null
+
+        try {
+          console.log(`加载景点详情: ${marker.spotData.name}`)
+          const result = await getSpotByName(marker.spotData.name)
+
+          if (result.success && result.data) {
+            this.selectedSpotDetail = result.data
+            console.log('[SUCCESS] 景点详情加载成功:', result.data)
+          } else {
+            console.warn('[WARN] 景点详情加载失败，无数据')
+            this.spotDetailFailed = true
+          }
+        } catch (error) {
+          console.error('[ERROR] 获取景点详情失败:', error)
+          this.spotDetailFailed = true
+        } finally {
+          this.spotDetailLoading = false
+        }
       }
     },
 
     // 关闭弹窗
     closePopup() {
       this.selectedSpot = null
+      this.selectedSpotDetail = null
+      this.spotDetailLoading = false
+      this.spotDetailFailed = false
+      // 不再清除路线，让路线持久显示
+    },
+
+    // 清除路线
+    clearRoute() {
       this.polyline = []
+      uni.showToast({
+        title: '路线已清除',
+        icon: 'success',
+        duration: 1500
+      })
+    },
+
+    // 图片加载错误处理
+    handleImageError() {
+      console.warn('景点图片加载失败')
+      uni.showToast({
+        title: '图片加载失败',
+        icon: 'none',
+        duration: 2000
+      })
     },
 
     // 地图控制
@@ -459,6 +926,8 @@ export default {
         this.zoom++
         // 缩放由用户主动触发，标记为初始加载完成
         this.isInitialLoad = false
+        // 根据缩放级别切换聚合状态
+        this.toggleClusterState()
       }
     },
 
@@ -467,6 +936,8 @@ export default {
         this.zoom--
         // 缩放由用户主动触发，标记为初始加载完成
         this.isInitialLoad = false
+        // 根据缩放级别切换聚合状态
+        this.toggleClusterState()
       }
     },
 
@@ -532,6 +1003,220 @@ export default {
         '2A': '#96ceb4'
       }
       return colors[level] || '#95a5a6'
+    },
+
+    // 跳转到景点管理页面
+    goToAdmin() {
+      uni.navigateTo({
+        url: '/pages/admin/index'
+      })
+    },
+
+    // ==================== 位置跟踪相关方法 ====================
+
+    /**
+     * 开始位置跟踪
+     */
+    async startLocationTracking() {
+      if (this.isTrackingLocation) {
+        uni.showToast({ title: '位置跟踪已开启', icon: 'none' })
+        return
+      }
+
+      try {
+        this.loading = true
+        this.loadingText = '启动位置跟踪...'
+
+        // 启动位置监听
+        await locationService.startWatching(this.onLocationUpdate)
+
+        this.isTrackingLocation = true
+        uni.showToast({
+          title: '位置跟踪已开启',
+          icon: 'success'
+        })
+
+        console.log('位置跟踪已启动')
+      } catch (error) {
+        console.error('启动位置跟踪失败:', error)
+        uni.showToast({
+          title: error.message || '启动位置跟踪失败',
+          icon: 'none'
+        })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    /**
+     * 停止位置跟踪
+     */
+    stopLocationTracking() {
+      if (!this.isTrackingLocation) {
+        return
+      }
+
+      locationService.stopWatching()
+      this.isTrackingLocation = false
+
+      // 移除用户位置标记
+      if (this.userLocationMarker) {
+        this.markers = this.markers.filter(m => m.id !== this.userLocationMarker.id)
+        this.userLocationMarker = null
+      }
+
+      uni.showToast({
+        title: '位置跟踪已关闭',
+        icon: 'success'
+      })
+
+      console.log('位置跟踪已停止')
+    },
+
+    /**
+     * 切换位置跟踪状态
+     */
+    async toggleLocationTracking() {
+      if (this.isTrackingLocation) {
+        this.stopLocationTracking()
+      } else {
+        await this.startLocationTracking()
+      }
+    },
+
+    /**
+     * 位置更新回调
+     * @param {Object} location - 新的位置信息
+     */
+    onLocationUpdate(location) {
+      console.log('位置更新:', location)
+
+      // 更新用户位置
+      this.userLocation = {
+        lng: location.longitude,
+        lat: location.latitude
+      }
+
+      // 更新或创建用户位置标记
+      this.updateUserLocationMarker(location)
+
+      // 可选:自动居中到用户位置(首次或用户选择时)
+      // this.centerToUserLocation()
+    },
+
+    /**
+     * 更新用户位置标记
+     * @param {Object} location - 位置信息
+     */
+    updateUserLocationMarker(location) {
+      const newMarker = {
+        id: 'user-location', // 固定ID
+        latitude: location.latitude,
+        longitude: location.longitude,
+        // 使用自定义图标(需要在 static/icons 目录下放置 user-location.png)
+        // 如果没有图标文件,标记会使用默认样式
+        iconPath: '/static/icons/user-location.png',
+        width: 36,
+        height: 36,
+        // 添加标注
+        label: {
+          content: '📍',
+          fontSize: 24,
+          color: '#4a90e2',
+          bgColor: '#ffffff',
+          borderRadius: 20,
+          padding: 5,
+          anchorX: 0,
+          anchorY: -20
+        },
+        callout: {
+          content: '我的位置',
+          display: 'BYCLICK',
+          padding: 10,
+          borderRadius: 5,
+          bgColor: '#ffffff',
+          color: '#333333'
+        }
+      }
+
+      // 如果已有用户位置标记，更新它
+      if (this.userLocationMarker) {
+        this.markers = this.markers.map(m =>
+          m.id === 'user-location' ? newMarker : m
+        )
+      } else {
+        // 否则添加新标记
+        this.markers.push(newMarker)
+      }
+
+      this.userLocationMarker = newMarker
+    },
+
+    /**
+     * 地图居中到用户位置
+     */
+    centerToUserLocation() {
+      if (this.userLocation) {
+        this.center = { ...this.userLocation }
+        this.zoom = 15
+      }
+    },
+
+    // ==================== AI 查询结果处理 ====================
+
+    /**
+     * 处理 AI 查询结果
+     * @param {Object} result - AI 查询返回的结果
+     */
+    handleAIQueryResult(result) {
+      console.log('📥 收到 AI 查询结果:', result)
+
+      if (!result.data || result.data.length === 0) {
+        console.warn('AI 查询结果为空')
+        uni.showToast({ title: '未找到景点', icon: 'none' })
+        return
+      }
+
+      // 清空现有 markers
+      this.clearAllSpots()
+
+      // 将 AI 查询结果转换为 markers
+      const newMarkers = convertSpotsToMarkers(result.data)
+
+      // 使用 MapContext API 添加到地图
+      if (this.mapContext && this.mapContext.addMarkers) {
+        this.mapContext.addMarkers({
+          markers: newMarkers,
+          clear: false
+        })
+      }
+
+      // 更新本地数据
+      this.markers = newMarkers
+
+      // 记录已加载的景点ID
+      result.data.forEach(spot => {
+        if (spot.id) {
+          this.loadedSpotIds.add(spot.id)
+        }
+      })
+
+      console.log(`✅ 已显示 ${this.markers.length} 个 AI 查询结果`)
+
+      // 如果有结果，自动居中到第一个景点
+      if (result.data.length > 0 && result.data[0].lng_wgs84 && result.data[0].lat_wgs84) {
+        this.center = {
+          lng: result.data[0].lng_wgs84,
+          lat: result.data[0].lat_wgs84
+        }
+        this.zoom = 13
+
+        uni.showToast({
+          title: `已显示 ${result.data.length} 个景点`,
+          icon: 'success',
+          duration: 2000
+        })
+      }
     }
   }
 }
@@ -576,7 +1261,8 @@ export default {
   background: #fff;
   border-radius: 50%;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
-  font-size: 32rpx;
+  font-size: 24rpx;
+  color: #333;
 }
 
 .search-results {
@@ -642,9 +1328,29 @@ export default {
 }
 
 .button-text {
-  font-size: 36rpx;
+  font-size: 24rpx;
   font-weight: bold;
   color: #333;
+}
+
+.clear-route-btn {
+  background: rgba(255, 107, 107, 0.95) !important;
+}
+
+.clear-route-btn .button-text {
+  color: #fff;
+}
+
+.tracking-button {
+  transition: all 0.3s ease;
+}
+
+.tracking-active {
+  background: rgba(74, 144, 226, 0.95) !important;
+}
+
+.tracking-active .button-text {
+  color: #fff;
 }
 
 .map-info {
@@ -660,6 +1366,12 @@ export default {
 .info-item {
   font-size: 24rpx;
   color: #666;
+}
+
+.route-active {
+  color: #4a90e2;
+  font-weight: bold;
+  margin-top: 8rpx;
 }
 
 .spot-popup {
@@ -709,6 +1421,35 @@ export default {
   margin-bottom: 32rpx;
 }
 
+/* 图片相关 */
+.spot-image {
+  width: 100%;
+  height: 300rpx;
+  border-radius: 12rpx;
+  margin-bottom: 24rpx;
+  background: #f5f5f5;
+}
+
+.image-loading {
+  width: 100%;
+  height: 300rpx;
+  border-radius: 12rpx;
+  margin-bottom: 24rpx;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 28rpx;
+}
+
+.no-detail-info {
+  padding: 32rpx;
+  text-align: center;
+  color: #999;
+  font-size: 28rpx;
+}
+
 .detail-item {
   display: flex;
   margin-bottom: 20rpx;
@@ -724,6 +1465,21 @@ export default {
 .value {
   color: #333;
   flex: 1;
+}
+
+/* 描述和小贴士样式 */
+.value.description,
+.value.tips {
+  line-height: 1.6;
+  text-align: justify;
+}
+
+.value.tips {
+  color: #ff6b6b;
+  background: #fff5f5;
+  padding: 12rpx;
+  border-radius: 8rpx;
+  border-left: 4rpx solid #ff6b6b;
 }
 
 .badge {
@@ -768,4 +1524,116 @@ export default {
   font-size: 28rpx;
   z-index: 999;
 }
+
+/* 聚合点列表弹窗样式 */
+.cluster-popup {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  z-index: 100;
+}
+
+.cluster-popup-content {
+  width: 100%;
+  background: #fff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.cluster-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+  padding-bottom: 24rpx;
+  border-bottom: 2rpx solid #f0f0f0;
+}
+
+.cluster-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+  flex: 1;
+}
+
+.cluster-spot-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 40vh;
+}
+
+.cluster-spot-item {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 16rpx;
+  border-bottom: 1rpx solid #f5f5f5;
+  transition: background 0.2s;
+}
+
+.cluster-spot-item:active {
+  background: #f5f5f5;
+}
+
+.spot-level-badge {
+  display: inline-block;
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: bold;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.spot-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.spot-name {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+}
+
+.spot-address {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.view-detail-icon {
+  font-size: 32rpx;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.cluster-popup-footer {
+  padding-top: 24rpx;
+  border-top: 1rpx solid #f0f0f0;
+}
+
+.cluster-action-btn {
+  width: 100%;
+  height: 80rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  font-weight: bold;
+  border: none;
+}
+
+.zoom-btn {
+  background: #4a90e2;
+  color: #fff;
+}
+
 </style>

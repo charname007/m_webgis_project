@@ -98,4 +98,16 @@ public class ASightServiceImpl implements ASightService {
             return false;
         }
     }
+
+    @Override
+    public String getSightGeojsonByName(String name) {
+        try {
+            String result = sightMapper.getSightGeojsonByName(name);
+            System.out.println("景区按名称查询成功 - 名称: " + name);
+            return result;
+        } catch (Exception e) {
+            System.err.println("景区按名称查询失败 - 名称: " + name + ", 错误: " + e.getMessage());
+            throw new RuntimeException("景区按名称查询失败: " + e.getMessage(), e);
+        }
+    }
 }

@@ -19,18 +19,20 @@ const API_CONFIG = {
     touristSpots: {
       list: '/api/tourist-spots',
       search: '/api/tourist-spots/search',
-      add: '/api/tourist-spots',
-      update: (id) => `/api/tourist-spots/${id}`,
-      updateByName: (name) => `/api/tourist-spots/name/${name}`,
-      delete: (id) => `/api/tourist-spots/${id}`,
-      deleteByName: (name) => `/api/tourist-spots/name/${name}`,
+      add: '/api/tourist-spots/with-sight',
+      update: (id) => `/api/tourist-spots/${id}/with-sight`,
+      updateByName: (name) => `/api/tourist-spots/by-name/${name}/with-sight`,
+      delete: (id) => `/api/tourist-spots/${id}/with-sight`,
+      deleteByName: (name) => `/api/tourist-spots/by-name/${name}/with-sight`,
       getByName: (name) => `/api/tourist-spots/name/${name}`
     },
 
     sights: {
       // 根据范围和等级获取景点GeoJSON（PostGIS空间查询）
       geojsonByExtentAndLevel: '/postgis/WGP_db/tables/a_sight/geojson/extent-level',
-      all: '/api/sights/all'
+      all: '/api/sights/all',
+      search:'/postgis/WGP_db/tables/a_sight/geojson/search'
+
     },
 
     aiQuery: {

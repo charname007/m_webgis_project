@@ -50,6 +50,7 @@ const API_CONFIG = {
     sights: {
       geojsonByExtentAndLevel:
         "/postgis/WGP_db/tables/a_sight/geojson/extent-level",
+      
     },
 
     // 旅游景点相关

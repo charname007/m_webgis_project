@@ -357,7 +357,7 @@ export default {
           axios.get(API_CONFIG.buildURL(API_CONFIG.endpoints.touristSpots.search), {
             params: { name: keyword }
           }).catch(err => {
-            console.error('查询tourist_spot表失败:', err)
+            console.error('查询tourist_spot表失败:', err) 
             return { data: [] }
           }),
 

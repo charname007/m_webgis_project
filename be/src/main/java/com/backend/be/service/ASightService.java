@@ -41,4 +41,11 @@ public interface ASightService {
      * @return 删除是否成功
      */
     boolean deleteByName(String name);
+
+    /**
+     * 根据名称搜索景区并返回 GeoJSON（支持模糊匹配）
+     * @param name 景区名称（支持模糊匹配）
+     * @return GeoJSON 格式的景区要素集合
+     */
+    String getSightGeojsonByName(String name);
 }

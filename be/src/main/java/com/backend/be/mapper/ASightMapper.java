@@ -43,4 +43,11 @@ public interface ASightMapper {
      * @return 删除影响的行数
      */
     int deleteByName(String name);
+
+    /**
+     * 根据名称搜索景区并返回 GeoJSON（支持模糊匹配）
+     * @param name 景区名称（支持模糊匹配）
+     * @return GeoJSON 格式的景区要素集合
+     */
+    String getSightGeojsonByName(String name);
 }

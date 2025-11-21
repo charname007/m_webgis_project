@@ -8,6 +8,24 @@
 				"navigationBarTextStyle": "white",
 				"enablePullDownRefresh": false
 			}
+		},
+		{
+			"path": "pages/admin/index",
+			"style": {
+				"navigationBarTitleText": "景点管理",
+				"navigationBarBackgroundColor": "#4ecdc4",
+				"navigationBarTextStyle": "white",
+				"enablePullDownRefresh": false
+			}
+		},
+		{
+			"path": "pages/admin/edit",
+			"style": {
+				"navigationBarTitleText": "编辑景点",
+				"navigationBarBackgroundColor": "#4ecdc4",
+				"navigationBarTextStyle": "white",
+				"enablePullDownRefresh": false
+			}
 		}
 	],
 	"globalStyle": {

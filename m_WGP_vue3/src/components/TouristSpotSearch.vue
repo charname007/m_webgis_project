@@ -362,12 +362,15 @@ export default {
           }),
 
           // 2. 查询 a_sight 表（空间信息）
-          axios.post(API_CONFIG.buildURL(API_CONFIG.endpoints.sights.geojsonByExtentAndLevel), {
-            minLon: -180,
-            minLat: -90,
-            maxLon: 180,
-            maxLat: 90,
-            levels: ['5A', '4A', '3A', '2A', '1A']
+          // axios.post(API_CONFIG.buildURL(API_CONFIG.endpoints.sights.geojsonByExtentAndLevel), {
+          //   minLon: -180,
+          //   minLat: -90,
+          //   maxLon: 180,
+          //   maxLat: 90,
+          //   levels: ['5A', '4A', '3A', '2A', '1A']
+          // })
+          axios.get(API_CONFIG.buildURL(API_CONFIG.endpoints.sights.search), {
+            params: { name: keyword }
           }).catch(err => {
             console.error('查询a_sight表失败:', err)
             return { data: { features: [] } }

@@ -64,10 +64,14 @@
 		"usingComponents": true,
 		"permission": {
 			"scope.userLocation": {
-				"desc": "获取您的位置信息用于显示附近景点"
+				"desc": "获取您的位置信息用于显示附近景点和实时位置跟踪"
 			}
 		},
-		"requiredPrivateInfos": ["getLocation"]
+		"requiredPrivateInfos": [
+			"getLocation",
+			"onLocationChange",
+			"startLocationUpdate"
+		]
 	},
 	"mp-alipay" : {
         "usingComponents" : true
