@@ -188,13 +188,13 @@ export const getSpotsByBounds = async (bounds, zoom = 12) => {
     // 根据缩放级别决定加载哪些等级的景点
     // zoom越大（放大），显示的等级越多
     let levels = []
-    if (zoom >= 15) {
+    if (zoom >= 10) {
       // 放大到15级以上，显示所有等级
       levels = ['5A', '4A', '3A', '2A', '1A']
-    } else if (zoom >= 13) {
+    } else if (zoom >= 8) {
       // 13-14级，显示4A及以上
       levels = ['5A', '4A', '3A']
-    } else if (zoom >= 11) {
+    } else if (zoom >= 4) {
       // 11-12级，显示5A和4A
       levels = ['5A', '4A']
     } else {
@@ -241,10 +241,10 @@ export const getSpotsByBounds = async (bounds, zoom = 12) => {
       })
 
       // 最终保护：最多返回200个景点（GeoJSON数据量较小，可以多返回一些）
-      if (spots.length > 200) {
-        console.warn(`⚠️ 景点过多(${spots.length}个)，限制为200个`)
-        spots = spots.slice(0, 200)
-      }
+      // if (spots.length > 200) {
+      //   console.warn(`⚠️ 景点过多(${spots.length}个)，限制为200个`)
+      //   spots = spots.slice(0, 200)
+      // }
     } else {
       console.warn('后端返回数据格式不正确:', response)
     }

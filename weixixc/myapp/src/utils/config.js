@@ -3,13 +3,15 @@
  */
 
 // API地址配置
-const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? 'https://your-domain.com:8082'
-  : 'http://localhost:8082'
+const API_BASE_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://47.121.139.155:8082"
+    : "http://localhost:8082";
 
-const SIGHT_SERVER_URL = process.env.NODE_ENV === 'production'
-  ? 'https://your-domain.com:8001'
-  : 'http://localhost:8001'
+const SIGHT_SERVER_URL =
+  process.env.NODE_ENV === "production"
+    ? "https:///47.121.139.155:8001"
+    : "http://localhost:8001";
 
 const API_CONFIG = {
   baseURL: API_BASE_URL,

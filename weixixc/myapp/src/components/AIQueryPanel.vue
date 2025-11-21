@@ -141,6 +141,11 @@ export default {
         this.isCollapsed = false
         console.log('✅ AI面板自动恢复显示（景点详情关闭）')
       }
+    },
+
+    // 监听内部折叠状态变化，通知父组件
+    isCollapsed(newVal) {
+      this.$emit('collapse-change', newVal)
     }
   },
 
