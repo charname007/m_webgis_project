@@ -29,7 +29,7 @@ const request = (options) => {
         'Content-Type': 'application/json',
         ...config.header
       },
-      timeout: config.timeout || 30000, // 30秒超时
+      timeout: config.timeout || 600000, // 10分钟超时
       success: (res) => {
         try {
           const data = responseInterceptor(res)

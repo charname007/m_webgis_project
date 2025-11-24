@@ -234,6 +234,7 @@ export default {
       // 位置跟踪相关
       isTrackingLocation: false,
       userLocationMarker: null,
+      isFirstLocationUpdate: true, // 标记是否是首次位置更新
       // 动态加载相关
       loadedSpotIds: new Set(), // 已加载的景点ID集合，用于去重
       lastLoadTime: 0, // 上次加载时间戳
@@ -1227,6 +1228,9 @@ export default {
         this.loading = true
         this.loadingText = '启动位置跟踪...'
 
+        // 重置首次位置更新标记
+        this.isFirstLocationUpdate = true
+
         // 启动位置监听
         await locationService.startWatching(this.onLocationUpdate)
 
@@ -1258,11 +1262,23 @@ export default {
 
       locationService.stopWatching()
       this.isTrackingLocation = false
+      this.isFirstLocationUpdate = true // 重置标记
 
       // 移除用户位置标记
       if (this.userLocationMarker) {
         this.markers = this.markers.filter(m => m.id !== this.userLocationMarker.id)
         this.userLocationMarker = null
+
+        // 使用 MapContext API 更新地图（移除用户位置标记）
+        if (this.mapContext && this.mapContext.addMarkers) {
+          this.mapContext.addMarkers({
+            markers: this.markers,
+            clear: true,
+            success: () => {
+              console.log('✅ 用户位置标记已从地图移除')
+            }
+          })
+        }
       }
 
       uni.showToast({
@@ -1300,8 +1316,12 @@ export default {
       // 更新或创建用户位置标记
       this.updateUserLocationMarker(location)
 
-      // 可选:自动居中到用户位置(首次或用户选择时)
-      // this.centerToUserLocation()
+      // 首次位置更新时，自动居中到用户位置
+      if (this.isFirstLocationUpdate) {
+        this.centerToUserLocation()
+        this.isFirstLocationUpdate = false
+        console.log('✅ 首次位置更新，已自动居中到用户位置')
+      }
     },
 
     /**
@@ -1350,6 +1370,20 @@ export default {
       }
 
       this.userLocationMarker = newMarker
+
+      // 关键修复：使用 MapContext API 在地图上显示用户位置标记
+      if (this.mapContext && this.mapContext.addMarkers) {
+        this.mapContext.addMarkers({
+          markers: this.markers,
+          clear: true, // 清空后重新添加所有标记，确保用户位置标记被显示
+          success: () => {
+            console.log('✅ 用户位置标记已更新到地图')
+          },
+          fail: (err) => {
+            console.error('❌ 更新用户位置标记失败:', err)
+          }
+        })
+      }
     },
 
     /**

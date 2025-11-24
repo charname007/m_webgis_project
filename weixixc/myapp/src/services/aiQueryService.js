@@ -26,14 +26,12 @@ export const executeAIQuery = async (queryText, sessionId) => {
     console.log('[DEBUG executeAIQuery] 查询文本:', queryText)
     console.log('[DEBUG executeAIQuery] 会话ID:', sessionId)
 
-    const url = API_CONFIG.buildURL(API_CONFIG.endpoints.aiQuery.query, true)
-    console.log('[DEBUG executeAIQuery] 请求URL:', url)
-
-    const response = await get(url, {
+    // 直接传递 endpoint，让 get() 函数处理 buildURL
+    const response = await get(API_CONFIG.endpoints.aiQuery.query, {
       q: queryText.trim(),
       include_sql: true,
       conversation_id: sessionId
-    })
+    }, true) // 第三个参数表示使用 sightServer
 
     console.log('[DEBUG executeAIQuery] 响应数据:', response)
 
@@ -73,14 +71,12 @@ export const resumeAIQuery = async (clarifiedQuery, sessionId) => {
     console.log('[DEBUG resumeAIQuery] clarify 后的查询:', clarifiedQuery)
     console.log('[DEBUG resumeAIQuery] 会话ID:', sessionId)
 
-    const url = API_CONFIG.buildURL(API_CONFIG.endpoints.aiQuery.query + '/resume', true)
-    console.log('[DEBUG resumeAIQuery] 请求URL:', url)
-
-    const response = await post(url, {
+    // 直接传递 endpoint，让 post() 函数处理 buildURL
+    const response = await post(API_CONFIG.endpoints.aiQuery.query + '/resume', {
       conversation_id: sessionId,
       clarified_query: clarifiedQuery.trim(),
       include_sql: true
-    })
+    }, true) // 第三个参数表示使用 sightServer
 
     console.log('[DEBUG resumeAIQuery] 响应数据:', response)
 

@@ -188,13 +188,13 @@ export const getSpotsByBounds = async (bounds, zoom = 12) => {
     // 根据缩放级别决定加载哪些等级的景点
     // zoom越大（放大），显示的等级越多
     let levels = []
-    if (zoom >= 10) {
+    if (zoom >= 12) {
       // 放大到15级以上，显示所有等级
       levels = ['5A', '4A', '3A', '2A', '1A']
-    } else if (zoom >= 8) {
+    } else if (zoom >= 10) {
       // 13-14级，显示4A及以上
       levels = ['5A', '4A', '3A']
-    } else if (zoom >= 4) {
+    } else if (zoom >= 6) {
       // 11-12级，显示5A和4A
       levels = ['5A', '4A']
     } else {
