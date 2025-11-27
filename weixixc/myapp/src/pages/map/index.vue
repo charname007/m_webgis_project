@@ -16,7 +16,7 @@
 
     <!-- 地图 -->
     <map id="mainMap" :longitude="center.lng" :latitude="center.lat" :scale="zoom" :markers="markers"
-      :polyline="polyline" :show-location="true" @regionchange="onRegionChange" @markertap="onMarkerTap">
+      :polyline="polyline" :show-location="true" @regionchange="onRegionChange" @markertap="onMarkerTap" @callouttap="onCalloutTap">
 
       <!-- 控件 -->
       <cover-view class="map-controls">
@@ -333,25 +333,54 @@ export default {
 
           console.log(`📍 准备创建 ${clusters.length} 个聚合点`)
 
-          // 清空旧的聚合数据，准备填充新的
-          this.clusterData = {}
+          // 注意：不要清空旧数据，而是累积添加
+          // this.clusterData = {} // 删除这行，改为累积添加
 
           // 为每个聚合点创建自定义标记
           const clusterMarkers = []
 
           clusters.forEach(cluster => {
             const { center, clusterId, markerIds } = cluster
-            console.log(`📍 处理聚合点 ${clusterId}，包含 ${markerIds.length} 个 markers`)
+            console.log(`📍 处理聚合点 ${clusterId}（类型：${typeof clusterId}），包含 ${markerIds.length} 个 markers`)
+            console.log(`📍 markerIds:`, markerIds)
 
             // 获取聚合点包含的所有 markers
             const containedMarkers = markerIds.map(markerId => {
-              return this.markers.find(m => m.id === markerId)
+              // 【关键修复】同时尝试字符串、数字、原始类型匹配
+              const markerIdStr = String(markerId)
+              const markerIdNum = Number(markerId)
+
+              const found = this.markers.find(m =>
+                m.id === markerId ||
+                m.id === markerIdStr ||
+                m.id === markerIdNum
+              )
+
+              if (!found) {
+                console.warn(`⚠️ 未找到 markerId=${markerId}（类型：${typeof markerId}）对应的 marker`)
+                console.warn(`⚠️ this.markers 中的 id 类型示例:`, this.markers.slice(0, 3).map(m => ({ id: m.id, type: typeof m.id })))
+              }
+              return found
             }).filter(m => m) // 过滤掉undefined
 
             console.log(`📍 聚合点 ${clusterId} 找到 ${containedMarkers.length} 个有效 markers`)
+            console.log(`📍 示例 marker:`, containedMarkers[0])
 
-            // 保存聚合点到markers的映射
+            // 检查 spotData
+            const spotsData = containedMarkers.map(m => {
+              if (!m.spotData) {
+                console.warn(`⚠️ marker id=${m.id} 没有 spotData 属性，marker:`, m)
+              }
+              return m.spotData
+            }).filter(s => s)
+
+            console.log(`📍 聚合点 ${clusterId} 提取到 ${spotsData.length} 个 spotData`)
+
+            // 保存聚合点到markers的映射（同时保存数字和字符串版本）
             this.clusterData[clusterId] = containedMarkers
+            this.clusterData[String(clusterId)] = containedMarkers
+            this.clusterData[Number(clusterId)] = containedMarkers
+            console.log(`📍 已保存聚合点数据，键: ${clusterId}, ${String(clusterId)}, ${Number(clusterId)}`)
 
             // 分析聚合点中的最高等级
             const highestLevel = this.getHighestLevel(containedMarkers)
@@ -370,10 +399,13 @@ export default {
             const clusterMarker = {
               ...center,
               id: clusterId, // 使用 clusterId 作为 marker 的 id，使其能被点击事件识别
-              width: 50, // 增大可点击区域
-              height: 50,
+              width: 60, // 增大可点击区域
+              height: 60,
               clusterId: clusterId, // 标记这是一个聚合点
               isCluster: true, // 添加标识
+              // 【关键修复】直接将聚合数据保存到 marker 对象中
+              clusterSpots: spotsData,
+              clusterMarkers: containedMarkers,
               // 使用 callout 而不是 label，提供更大的点击区域
               callout: {
                 content: `${markerIds.length}`,
@@ -388,16 +420,27 @@ export default {
             }
 
             clusterMarkers.push(clusterMarker)
+            console.log(`📍 聚合点 ${clusterId} 创建完成，包含 ${clusterMarker.clusterSpots.length} 个景点`)
+            if (clusterMarker.clusterSpots.length === 0) {
+              console.error(`❌ 聚合点 ${clusterId} 的 clusterSpots 为空！containedMarkers:`, containedMarkers)
+            }
           })
 
           // 将聚合点标记添加到地图
           if (clusterMarkers.length > 0) {
+            // 【关键修复】将聚合点标记也添加到 this.markers 数组
+            // 先移除旧的聚合点标记（isCluster=true的）
+            this.markers = this.markers.filter(m => !m.isCluster)
+            // 添加新的聚合点标记
+            this.markers.push(...clusterMarkers)
+
             this.mapContext.addMarkers({
               markers: clusterMarkers,
               clear: false
             })
-            console.log(`✅ 已添加 ${clusterMarkers.length} 个聚合点到地图`)
-            console.log(`✅ clusterData 现在有 ${Object.keys(this.clusterData).length} 个键:`, Object.keys(this.clusterData))
+            console.log(`✅ 已添加 ${clusterMarkers.length} 个聚合点到地图和 markers 数组`)
+            console.log(`✅ 当前 markers 总数: ${this.markers.length}`)
+            console.log(`✅ clusterData 现在有 ${Object.keys(this.clusterData).length / 3} 个聚合点`) // 除以3是因为每个ID存了3次
           }
         })
 
@@ -937,6 +980,19 @@ export default {
       const markerId = e.detail.markerId || e.markerId
       console.log('📍 点击marker，原始事件:', e)
       console.log('📍 点击marker，markerId:', markerId, '类型:', typeof markerId)
+      this.handleMarkerClick(markerId)
+    },
+
+    // Callout 点击事件（与 marker 点击使用相同逻辑）
+    async onCalloutTap(e) {
+      const markerId = e.detail.markerId || e.markerId
+      console.log('📍 点击callout，markerId:', markerId, '类型:', typeof markerId)
+      this.handleMarkerClick(markerId)
+    },
+
+    // 统一处理 marker/callout 点击的逻辑
+    async handleMarkerClick(markerId) {
+      console.log('📍 处理点击，markerId:', markerId, '类型:', typeof markerId)
       console.log('📍 当前 clusterData 键:', Object.keys(this.clusterData))
       console.log('📍 当前 markers 数量:', this.markers.length)
       console.log('📍 是否启用聚合:', this.isClusterEnabled)
@@ -945,7 +1001,30 @@ export default {
       const markerIdStr = String(markerId)
       const markerIdNum = Number(markerId)
 
-      // 首先检查是否点击的是聚合点（尝试不同的匹配方式）
+      // 【优先方案】首先尝试从 markers 数组中直接找到聚合点标记
+      const marker = this.markers.find(m => m.id === markerId || m.id === markerIdStr || m.id === markerIdNum)
+
+      if (marker && marker.isCluster && marker.clusterSpots) {
+        // 这是一个聚合点，直接从 marker 对象中获取数据
+        console.log('✅ 点击了聚合点（从marker获取），包含景点:', marker.clusterSpots.length)
+
+        this.currentClusterSpots = marker.clusterSpots
+
+        // 计算聚合点的中心坐标
+        if (marker.clusterMarkers && marker.clusterMarkers.length > 0) {
+          const firstMarker = marker.clusterMarkers[0]
+          this.currentClusterCenter = {
+            latitude: firstMarker.latitude,
+            longitude: firstMarker.longitude
+          }
+        }
+
+        // 显示聚合点列表弹窗
+        this.showClusterList = true
+        return
+      }
+
+      // 【备用方案】从 clusterData 中查找（兼容旧逻辑）
       let clusterKey = null
       if (this.clusterData[markerId]) {
         clusterKey = markerId
@@ -956,8 +1035,8 @@ export default {
       }
 
       if (clusterKey) {
-        // 这是一个聚合点
-        console.log('✅ 点击了聚合点，匹配键:', clusterKey)
+        // 这是一个聚合点（从 clusterData 获取）
+        console.log('✅ 点击了聚合点（从clusterData获取），匹配键:', clusterKey)
         const containedMarkers = this.clusterData[clusterKey]
         console.log('📍 聚合点包含景点数量:', containedMarkers.length)
 
@@ -981,7 +1060,6 @@ export default {
 
       console.log('📍 不是聚合点，尝试作为普通 marker 处理')
       // 否则按照原有逻辑处理普通marker
-      const marker = this.markers.find(m => m.id === markerId || m.id === markerIdStr || m.id === markerIdNum)
       if (marker && marker.spotData) {
         console.log('✅ 找到普通景点 marker:', marker.spotData.name)
         // 第一层：立即显示基本信息（来自GeoJSON）
@@ -1012,7 +1090,7 @@ export default {
       } else {
         console.warn('⚠️ 未找到对应的 marker，markerId:', markerId)
         console.warn('⚠️ clusterData 键类型:', Object.keys(this.clusterData).map(k => typeof k))
-        console.warn('⚠️ markers id 列表（前10个）:', this.markers.slice(0, 10).map(m => ({ id: m.id, type: typeof m.id })))
+        console.warn('⚠️ markers id 列表（前10个）:', this.markers.slice(0, 10).map(m => ({ id: m.id, type: typeof m.id, isCluster: m.isCluster })))
       }
     },
 
