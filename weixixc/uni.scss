@@ -1,0 +1,47 @@
+/* uni.scss - 全局SCSS变量 */
+
+/* 颜色变量 */
+$uni-color-primary: #4a90e2;
+$uni-color-success: #28a745;
+$uni-color-warning: #ffc107;
+$uni-color-error: #dc3545;
+
+/* 文字基本颜色 */
+$uni-text-color: #333;
+$uni-text-color-grey: #999;
+$uni-text-color-placeholder: #aaa;
+$uni-text-color-disable: #c0c0c0;
+
+/* 背景颜色 */
+$uni-bg-color: #f8f8f8;
+$uni-bg-color-grey: #f5f5f5;
+$uni-bg-color-hover: #f1f1f1;
+$uni-bg-color-mask: rgba(0, 0, 0, 0.4);
+
+/* 边框颜色 */
+$uni-border-color: #e0e0e0;
+
+/* 尺寸变量 */
+$uni-spacing-xs: 8rpx;
+$uni-spacing-sm: 16rpx;
+$uni-spacing-md: 24rpx;
+$uni-spacing-lg: 32rpx;
+$uni-spacing-xl: 40rpx;
+
+/* 圆角 */
+$uni-radius-sm: 4rpx;
+$uni-radius-base: 8rpx;
+$uni-radius-lg: 16rpx;
+$uni-radius-circle: 50%;
+
+/* 阴影 */
+$uni-shadow-sm: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+$uni-shadow-base: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+$uni-shadow-lg: 0 8rpx 24rpx rgba(0, 0, 0, 0.15);
+
+/* 字体大小 */
+$uni-font-size-xs: 20rpx;
+$uni-font-size-sm: 24rpx;
+$uni-font-size-base: 28rpx;
+$uni-font-size-lg: 32rpx;
+$uni-font-size-xl: 36rpx;
