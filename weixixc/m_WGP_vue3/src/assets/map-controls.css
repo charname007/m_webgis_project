@@ -1,0 +1,688 @@
+/* 地图控件样式文件 */
+
+
+/* MousePosition 控件样式 */
+
+.custom-mouse-position {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.custom-mouse-position:hover {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+}
+
+
+/* 鼠标位置坐标显示样式 */
+
+.custom-mouse-position .ol-mouse-position {
+    margin: 0;
+    padding: 0;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.custom-bar {
+    background: transparent !important;
+}
+
+
+/* ScaleLine 控件样式 */
+
+.custom-scale-line {
+    position: absolute;
+    bottom: 10px;
+    left: 5%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    min-width: 100px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.custom-scale-line:hover {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateX(-50%) translateY(-1px);
+}
+
+
+/* 比例尺线条样式 */
+
+.custom-scale-line .ol-scale-line {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.custom-scale-line .ol-scale-line-inner {
+    border: 2px solid #3498db;
+    border-top: none;
+    color: #2c3e50;
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    margin: 1px;
+    transition: all 0.3s ease;
+}
+
+.custom-scale-line:hover .ol-scale-line-inner {
+    border-color: #2980b9;
+    background: rgba(52, 152, 219, 0.1);
+}
+
+
+/* 比例尺数值样式 */
+
+.custom-scale-line .ol-scale-text {
+    color: #2c3e50;
+    font-weight: 600;
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+
+/* 响应式设计 */
+
+@media (max-width: 768px) {
+    .custom-mouse-position {
+        bottom: 5px;
+        left: 5px;
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+    .custom-scale-line {
+        bottom: 5px;
+        font-size: 10px;
+        padding: 3px 6px;
+        min-width: 80px;
+    }
+}
+
+
+/* 暗色主题支持 */
+
+@media (prefers-color-scheme: dark) {
+    .custom-mouse-position {
+        background: rgba(40, 40, 40, 0.9);
+        border-color: #555;
+        color: #eee;
+    }
+    .custom-mouse-position:hover {
+        background: rgba(50, 50, 50, 0.95);
+    }
+    .custom-mouse-position .ol-mouse-position {
+        color: #eee;
+    }
+    .custom-scale-line {
+        background: rgba(40, 40, 40, 0.9);
+        border-color: #555;
+        color: #eee;
+    }
+    .custom-scale-line:hover {
+        background: rgba(50, 50, 50, 0.95);
+    }
+    .custom-scale-line .ol-scale-line-inner {
+        border-color: #5dade2;
+        color: #eee;
+    }
+    .custom-scale-line:hover .ol-scale-line-inner {
+        border-color: #3498db;
+        background: rgba(93, 173, 226, 0.1);
+    }
+    .custom-scale-line .ol-scale-text {
+        color: #eee;
+    }
+}
+
+
+/* 动画效果 */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.custom-mouse-position,
+.custom-scale-line {
+    animation: fadeIn 0.5s ease-out;
+}
+
+
+/* 小巧按钮样式 */
+
+
+/* .oles-button.small {
+  height: 1.5em !important;
+  width: 1.5em !important;
+  font-size: 0.9em !important;
+  border-radius: 3px !important;
+  border: 1px solid #ddd !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+}
+
+.oles-button.small:hover {
+  background-color: #f5f5f5 !important;
+  transform: scale(1.05) !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+}
+
+.oles-button.small:active {
+  transform: scale(0.95) !important;
+  background-color: #e0e0e0 !important;
+} */
+
+
+/* 超小按钮样式 */
+
+
+/* .oles-button.tiny {
+  height: 1.2em !important;
+  width: 1.2em !important;
+  font-size: 0.8em !important;
+  border-radius: 2px !important;
+  border: 1px solid #ccc !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.15s ease !important;
+}
+
+.oles-button.tiny:hover {
+  background-color: #f8f8f8 !important;
+  transform: scale(1.03) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+}
+
+.oles-button.tiny:active {
+  transform: scale(0.97) !important;
+  background-color: #e8e8e8 !important;
+} */
+
+
+/* 迷你按钮样式 */
+
+
+/* .oles-button.mini {
+  height: 1em !important;
+  width: 1em !important;
+  font-size: 0.7em !important;
+  border-radius: 2px !important;
+  border: 1px solid #bbb !important;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.05) !important;
+  transition: all 0.1s ease !important;
+}
+
+.oles-button.mini:hover {
+  background-color: #fafafa !important;
+  transform: scale(1.02) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.oles-button.mini:active {
+  transform: scale(0.98) !important;
+  background-color: #f0f0f0 !important;
+} */
+
+
+/* 测量工具容器样式 - 横向排列 */
+
+
+/* .oles-control.oles-flex.oles-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 4px !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #ddd !important;
+  border-radius: 6px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.3s ease !important;
+}
+
+.oles-control.oles-flex.oles-row:hover {
+  background: rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+} */
+
+
+/* 测量工具按钮样式 - 小尺寸 */
+
+
+/* .oles-control .oles-button {
+  height: 10px !important;
+  width: 10px !important;
+  /* min-height: 28px !important;
+  min-width: 28px !important; */
+
+
+/* padding: 4px !important;
+  border: 1px solid #ccc !important;
+  border-radius: 4px !important;
+  background: white !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important; */
+
+
+/* }
+
+.oles-control .oles-button:hover {
+  background: #f5f5f5 !important;
+  border-color: #999 !important;
+  transform: scale(1.05) !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+}
+
+.oles-control .oles-button:active {
+  transform: scale(0.95) !important;
+  background: #e8e8e8 !important;
+} */
+
+
+/* 测量工具图标样式 */
+
+
+/* .oles-control .oles-icon {
+  width: 16px !important;
+  height: 16px !important;
+  object-fit: contain !important;
+} */
+
+
+/* 测量工具分隔线样式 */
+
+
+/* .oles-control .oles-divider-vertical {
+  width: 1px !important;
+  height: 20px !important;
+  background: #ddd !important;
+  margin: 0 2px !important;
+} */
+
+
+/* 响应式设计 */
+
+
+/* @media (max-width: 768px) {
+  .oles-control.oles-flex.oles-row {
+    gap: 3px !important;
+    padding: 3px !important;
+  }
+  
+  .oles-control .oles-button {
+    height: 24px !important;
+    width: 24px !important;
+    min-height: 24px !important;
+    min-width: 24px !important;
+  }
+  
+  .oles-control .oles-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+} */
+
+
+/* 暗色主题支持 */
+
+
+/* @media (prefers-color-scheme: dark) {
+  .oles-control.oles-flex.oles-row {
+    background: rgba(40, 40, 40, 0.9) !important;
+    border-color: #555 !important;
+  }
+  
+  .oles-control.oles-flex.oles-row:hover {
+    background: rgba(50, 50, 50, 0.95) !important;
+  }
+  
+  .oles-control .oles-button {
+    background: rgba(60, 60, 60, 0.9) !important;
+    border-color: #666 !important;
+  }
+  
+  .oles-control .oles-button:hover {
+    background: rgba(70, 70, 70, 0.9) !important;
+    border-color: #888 !important;
+  }
+  
+  .oles-control .oles-button:active {
+    background: rgba(80, 80, 80, 0.9) !important;
+  }
+  
+  .oles-control .oles-divider-vertical {
+    background: #666 !important;
+  }
+} */
+
+
+/* 测量控件样式 - 针对custom-measure类 */
+
+
+/* .custom-measure .oles-control.oles-flex.oles-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 1px !important;
+  padding: 1px !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #ddd !important;
+  border-radius: 3px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.3s ease !important;
+}
+
+.custom-measure .oles-control.oles-flex.oles-row:hover {
+  background: rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+} */
+
+
+/* 测量控件按钮样式 - 最小尺寸 */
+
+
+/* .custom-measure .oles-button {
+  height: 20px !important;
+  width: 20px !important;
+  min-height: 20px !important;
+  min-width: 20px !important;
+  padding: 1px !important;
+  border: 1px solid #ccc !important;
+  border-radius: 2px !important;
+  background: white !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.05) !important;
+}
+
+.custom-measure .oles-button:hover {
+  background: #f5f5f5 !important;
+  border-color: #999 !important;
+  transform: scale(1.03) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.custom-measure .oles-button:active {
+  transform: scale(0.97) !important;
+  background: #e8e8e8 !important;
+}
+
+/* 测量控件图标样式 - 最小尺寸 */
+
+.custom-measure .oles-icon {
+    width: 12px !important;
+    height: 12px !important;
+    object-fit: contain !important;
+}
+
+
+/* 测量控件分隔线样式 */
+
+.custom-measure .oles-divider-vertical {
+    width: 1px !important;
+    height: 14px !important;
+    background: #ddd !important;
+    margin: 0 1px !important;
+}
+
+*/
+/* 响应式设计 */
+
+
+/* @media (max-width: 768px) {
+  .custom-measure .oles-control.oles-flex.oles-row {
+    gap: 0.5px !important;
+    padding: 0.5px !important;
+  }
+  
+  .custom-measure .oles-button {
+    height: 18px !important;
+    width: 18px !important;
+    min-height: 18px !important;
+    min-width: 18px !important;
+  }
+  
+  .custom-measure .oles-icon {
+    width: 10px !important;
+    height: 10px !important;
+  }
+} */
+
+
+/* 暗色主题支持 */
+
+
+/* @media (prefers-color-scheme: dark) {
+  .custom-measure .oles-control.oles-flex.oles-row {
+    background: rgba(40, 40, 40, 0.9) !important;
+    border-color: #555 !important;
+  }
+  
+  .custom-measure .oles-control.oles-flex.oles-row:hover {
+    background: rgba(50, 50, 50, 0.95) !important;
+  }
+  
+  .custom-measure .oles-button {
+    background: rgba(60, 60, 60, 0.9) !important;
+    border-color: #666 !important;
+  }
+  
+  .custom-measure .oles-button:hover {
+    background: rgba(70, 70, 70, 0.9) !important;
+    border-color: #888 !important;
+  }
+  
+  .custom-measure .oles-button:active {
+    background: rgba(80, 80, 80, 0.9) !important;
+  }
+  
+  .custom-measure .oles-divider-vertical {
+    background: #666 !important;
+  }
+} */
+
+.oles-control .oles-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #fff;
+    color: #333;
+    font-size: 1.14em;
+    font-weight: 700;
+    height: 1.75em;
+    width: 1.75em;
+    cursor: pointer
+}
+
+.oles-control .oles-button:hover {
+    background-color: #eee
+}
+
+.oles-control .oles-icon {
+    height: 1em;
+    width: 1em
+}
+
+.oles-divider-horizontal {
+    height: 1px;
+    width: 2em;
+    background-color: #eee
+}
+
+.oles-divider-vertical {
+    height: 2em;
+    width: 1px;
+    background-color: #eee
+}
+
+.oles-flex {
+    display: flex
+}
+
+.oles-row {
+    flex-direction: row
+}
+
+.oles-column {
+    flex-direction: column
+}
+
+.oles-row-reverse {
+    flex-direction: row-reverse
+}
+
+.oles-column-reverse {
+    flex-direction: column-reverse
+}
+
+
+/* OlExtLayerSwitcher 图层切换器位置设置 */
+
+.ol-layerswitcher {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    color: #2980b9;
+    background-color: transparent !important
+}
+
+
+/* overview 概览控件样式 - 位置向上调整 */
+
+.ol-overview {
+    position: absolute !important;
+    bottom: 35px !important;
+    /* 从默认的10px调整为80px，向上移动70px */
+    left: 0% !important;
+    z-index: 1000 !important;
+    transition: all 0.3s ease !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+
+/* 概览控件展开状态样式 */
+
+.ol-overview:not(.ol-collapsed) {
+    /* border: 1px none (52, 152, 219, 0.8) !important;
+    border-radius: 8px !important; */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    /* background: rgba(255, 255, 255, 0.95) !important; */
+    background: transparent !important;
+    height: auto!important;
+    width: auto!important;
+    margin: 0px
+}
+
+
+/* 概览控件折叠状态样式 */
+
+.ol-overviewp.ol-collapsed {
+    border: 1px solid rgba(52, 152, 219, 0.5) !important;
+    border-radius: 4px !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+}
+
+
+/* 概览控件按钮样式 */
+
+.ol-overview .ol-overview-button {
+    background: rgba(52, 152, 219, 0.9) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    color: white !important;
+    font-size: 14px !important;
+    padding: 6px 10px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+.ol-overview .ol-overview-button:hover {
+    background: rgba(41, 128, 185, 0.9) !important;
+    transform: scale(1.05) !important;
+}
+
+
+/* 概览地图画布样式 */
+
+.ol-overview .ol-overview-map {
+    border-radius: 6px !important;
+    overflow: hidden !important;
+}
+
+
+/* 概览控件中的地图视图样式 */
+
+.ol-overview .ol-viewport {
+    border-radius: 6px !important;
+}
+
+
+/* 响应式设计 - 移动端适配 */
+
+@media (max-width: 768px) {
+    .ol-overview {
+        bottom: 60px !important;
+        /* 移动端向上调整更多 */
+        /* right: 5px !important; */
+        transform: scale(0.9) !important;
+    }
+}
+
+
+/* 暗色主题支持 */
+
+
+/* @media (prefers-color-scheme: dark) {
+    .ol-overview:not(.ol-collapsed) {
+        border-color: rgba(93, 173, 226, 0.8) !important;
+        background: rgba(40, 40, 40, 0.95) !important;
+    }
+    .ol-overview.ol-collapsed {
+        border-color: rgba(93, 173, 226, 0.5) !important;
+        background: rgba(40, 40, 40, 0.9) !important;
+    }
+    .ol-overview .ol-overview-button {
+        background: rgba(93, 173, 226, 0.9) !important;
+    }
+    .ol-overview .ol-overview-button:hover {
+        background: rgba(52, 152, 219, 0.9) !important;
+    }
+} */

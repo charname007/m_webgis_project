@@ -1,0 +1,2 @@
+from sentence_transformers import SentenceTransformer
+print(SentenceTransformer.__init__)

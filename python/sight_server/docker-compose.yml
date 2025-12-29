@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # ==================== PostgreSQL + PostGIS ====================
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: sight_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-WGP_db}
+      POSTGRES_USER: ${POSTGRES_USER:-sagasama}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cznb6666}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # 可选：初始化脚本
+    networks:
+      - sight_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sagasama}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== Sight Server ====================
+  sight_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sight_server
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sagasama}:${POSTGRES_PASSWORD:-cznb6666}@postgres:5432/${POSTGRES_DB:-WGP_db}
+
+      # LLM 配置
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_BASE: ${DEEPSEEK_API_BASE:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-1.3}
+
+      # 服务器配置
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8001
+      SERVER_RELOAD: ${SERVER_RELOAD:-false}
+      DEBUG: ${DEBUG:-false}
+
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Agent 配置
+      AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-15}
+      AGENT_MAX_EXECUTION_TIME: ${AGENT_MAX_EXECUTION_TIME:-90}
+    ports:
+      - "${SERVER_PORT:-8001}:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sight_network
+    volumes:
+      - ./logs:/app/logs  # 日志持久化
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8001/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ==================== 可选：PgAdmin ====================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sight_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@sight.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - postgres
+    networks:
+      - sight_network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    profiles:
+      - tools  # 使用 --profile tools 启动
+
+# ==================== 网络 ====================
+networks:
+  sight_network:
+    driver: bridge
+
+# ==================== 数据卷 ====================
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local

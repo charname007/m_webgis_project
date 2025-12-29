@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>添加景点400错误修复验证</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .code {
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .field-mapping {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .field-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #4a90e2;
+        }
+        .old-field {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .new-field {
+            color: #28a745;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔧 添加景点400错误修复报告</h1>
+
+        <div class="error">
+            <h3>❌ 原始问题</h3>
+            <p><strong>错误类型：</strong>Request failed with status code 400</p>
+            <p><strong>主要原因：</strong>请求数据格式与后端API期望不匹配</p>
+        </div>
+
+        <div class="success">
+            <h3>✅ 已修复的问题</h3>
+            <ol>
+                <li><strong>字段名称不匹配</strong> - 将中文字段名改为英文字段名</li>
+                <li><strong>坐标字段格式</strong> - 从驼峰式(lngWgs84)改为下划线式(lng_wgs84)</li>
+                <li><strong>数据结构映射</strong> - 更新表单初始化逻辑</li>
+                <li><strong>错误处理</strong> - 增强错误信息显示</li>
+            </ol>
+        </div>
+
+        <div class="info">
+            <h3>🔄 字段名称映射修复</h3>
+            <div class="field-mapping">
+                <div class="field-item">
+                    <span class="old-field">地址</span> → <span class="new-field">address</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">图片链接</span> → <span class="new-field">image_url</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">城市</span> → <span class="new-field">city</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">介绍</span> → <span class="new-field">description</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">开放时间</span> → <span class="new-field">opening_hours</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">评分</span> → <span class="new-field">rating</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">门票</span> → <span class="new-field">ticket_price</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">建议游玩时间</span> → <span class="new-field">suggested_duration</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">建议季节</span> → <span class="new-field">suggested_season</span>
+                </div>
+                <div class="field-item">
+                    <span class="old-field">小贴士</span> → <span class="new-field">tips</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="info">
+            <h3>📝 修复后的请求数据格式</h3>
+            <div class="code">{
+  "name": "测试景区",
+  "address": "测试地址",
+  "image_url": "http://example.com/image.jpg",
+  "city": "测试城市",
+  "description": "景区描述",
+  "opening_hours": "09:00-17:00",
+  "rating": "4.5",
+  "ticket_price": "50元",
+  "suggested_duration": "2-3小时",
+  "suggested_season": "春秋季",
+  "tips": "游玩小贴士",
+  "level": "4A",
+  "lng_wgs84": 120.123456,
+  "lat_wgs84": 30.123456
+}</div>
+        </div>
+
+        <div class="warning">
+            <h3>⚠️ 测试步骤</h3>
+            <ol>
+                <li><strong>启动应用</strong>：运行开发服务器</li>
+                <li><strong>打开景区搜索面板</strong></li>
+                <li><strong>点击"➕ 添加景区"按钮</strong></li>
+                <li><strong>填写表单</strong>：
+                    <ul>
+                        <li>景点名称：必填</li>
+                        <li>地址：必填</li>
+                        <li>经度(lng_wgs84)：必填，数值格式</li>
+                        <li>纬度(lat_wgs84)：必填，数值格式</li>
+                        <li>其他字段：可选</li>
+                    </ul>
+                </li>
+                <li><strong>提交表单</strong></li>
+                <li><strong>检查结果</strong>：
+                    <ul>
+                        <li>成功：应该收到200或201状态码</li>
+                        <li>失败：查看详细错误信息</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="info">
+            <h3>🐛 调试建议</h3>
+            <p>如果仍然遇到400错误，请检查：</p>
+            <ol>
+                <li><strong>浏览器开发者工具</strong>：
+                    <ul>
+                        <li>打开Network标签</li>
+                        <li>找到POST请求到 <code>/api/tourist-spots/with-sight</code></li>
+                        <li>查看Request Payload中的JSON数据格式</li>
+                        <li>查看Response中的具体错误信息</li>
+                    </ul>
+                </li>
+                <li><strong>必填字段验证</strong>：
+                    <ul>
+                        <li>确保所有必填字段都已填写</li>
+                        <li>检查坐标字段是否为有效数字</li>
+                        <li>验证字段名称拼写</li>
+                    </ul>
+                </li>
+                <li><strong>后端日志检查</strong>：
+                    <ul>
+                        <li>查看服务器控制台日志</li>
+                        <li>检查API请求处理逻辑</li>
+                        <li>验证数据绑定和验证规则</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="success">
+            <h3>✅ 修复完成状态</h3>
+            <p><strong>已修复的问题：</strong></p>
+            <ul>
+                <li>✅ 请求数据字段名称映射</li>
+                <li>✅ 坐标字段格式修正</li>
+                <li>✅ 表单初始化逻辑更新</li>
+                <li>✅ 错误处理增强</li>
+                <li>✅ 详细错误信息显示</li>
+            </ul>
+            <p><strong>下一步：</strong>启动应用并测试添加景点功能</p>
+        </div>
+
+        <div class="info">
+            <h3>📊 API端点信息</h3>
+            <ul>
+                <li><strong>端点URL：</strong><code>POST /api/tourist-spots/with-sight</code></li>
+                <li><strong>Content-Type：</strong><code>application/json</code></li>
+                <li><strong>成功状态码：</strong>200 或 201</li>
+                <li><strong>功能描述：</strong>同时向 tourist_spot 和 a_sight 表插入数据</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        console.log('🧪 添加景点400错误修复完成');
+        console.log('📋 请按照测试步骤验证功能是否正常');
+
+        // 示例请求数据
+        const exampleRequestData = {
+            name: "测试景区",
+            address: "测试地址123号",
+            image_url: "http://example.com/test.jpg",
+            city: "测试城市",
+            description: "这是一个测试景区的描述",
+            opening_hours: "09:00-17:00",
+            rating: "4.5",
+            ticket_price: "50元",
+            suggested_duration: "2-3小时",
+            suggested_season: "春秋季",
+            tips: "建议提前预约门票",
+            level: "4A",
+            lng_wgs84: 120.123456,
+            lat_wgs84: 30.123456
+        };
+
+        console.log('📝 示例请求数据:', exampleRequestData);
+    </script>
+</body>
+</html>
